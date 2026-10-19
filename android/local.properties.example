@@ -1,0 +1,6 @@
+# GuardPay Android local configuration (NEVER commit real values).
+# SDK location for machines without ANDROID_HOME/ANDROID_SDK_ROOT.
+# sdk.dir=C\:\\Users\\NAME\\AppData\\Local\\Android\\Sdk
+# Backend reachable from the device/emulator + development pairing token.
+# guardpayApiBaseUrl=http://10.0.2.2:8080
+# guardpayDeviceToken=

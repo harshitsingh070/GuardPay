@@ -1,0 +1,73 @@
+# GuardPay backend — Milestone 2 foundation.
+# PostgreSQL comes exclusively from environment variables (never hard-coded).
+# Local defaults match `docker-compose.yml` (db: guardpay/guardpay).
+#
+# Local secrets live in gitignored `backend/.env`, loaded by
+# DotenvPropertyInitializer (works from the repo root and from backend/).
+# Explicit OS environment variables always take precedence over the file.
+server:
+  port: 8080
+
+spring:
+  application:
+    name: guardpay-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:guardpay}
+    username: ${DB_USERNAME:guardpay}
+    password: ${DB_PASSWORD:guardpay}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  # Flyway owns the schema (db/migration). Hibernate only validates.
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# CORS origins for browser clients (comma-separated). Default: Vite dev server.
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+# PayPal Sandbox. Credentials come from the environment only — never commit them.
+# The backend boots without them; PayPal calls fail clearly at use time.
+guardpay:
+  paypal:
+    base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
+    client-id: ${PAYPAL_CLIENT_ID:}
+    client-secret: ${PAYPAL_CLIENT_SECRET:}
+    webhook-id: ${PAYPAL_WEBHOOK_ID:}
+  # Development device pairing (see DeviceSignalProperties javadoc).
+  device:
+    signal-token: ${GUARDPAY_DEVICE_SIGNAL_TOKEN:}
+  # Python AI evidence service (optional; deterministic signals always work).
+  ai:
+    base-url: ${AI_SERVICE_BASE_URL:http://localhost:8001}
+    enabled: ${AI_SERVICE_ENABLED:true}
+
+logging:
+  level:
+    root: INFO
+    com.guardpay: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+
+# Planned for later milestones (documented here so env plumbing is clear):
+# guardpay:
+#   jwt:
+#     secret: ${JWT_SECRET:change-me}
+#   paypal:
+#     base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
+#     client-id: ${PAYPAL_CLIENT_ID:}
+#     client-secret: ${PAYPAL_CLIENT_SECRET:}
+#   ai-service:
+#     url: ${AI_SERVICE_URL:http://localhost:8000}
+#     api-key: ${AI_SERVICE_API_KEY:}

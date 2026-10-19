@@ -1,0 +1,53 @@
+package com.guardpay.device
+
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
+import java.time.Instant
+
+/**
+ * Reports the binary call state to GuardPay. Sends deviceId + activeCall +
+ * timestamp only — never audio or call metadata.
+ */
+class CallStateReporter(
+    private val apiBaseUrl: String,
+    private val deviceToken: String,
+) {
+
+    private val client = OkHttpClient()
+
+    fun interface ResultListener {
+        fun onResult(connected: Boolean)
+    }
+
+    fun report(deviceId: String, activeCall: Boolean, listener: ResultListener) {
+        val body =
+            """
+            {"deviceId": "$deviceId", "activeCall": $activeCall, "observedAt": "${Instant.now()}"}
+            """.trimIndent()
+                .toRequestBody("application/json".toMediaType())
+        val request =
+            Request.Builder()
+                .url("$apiBaseUrl/api/device-signals/call-state")
+                .header("X-GuardPay-Device-Token", deviceToken)
+                .post(body)
+                .build()
+        client.newCall(request).enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    listener.onResult(false)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.close()
+                    listener.onResult(response.isSuccessful)
+                }
+            },
+        )
+    }
+}

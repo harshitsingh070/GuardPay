@@ -1,0 +1,41 @@
+package com.guardpay.risk;
+
+/**
+ * Centralized score thresholds and level/action mapping.
+ *
+ * <p>Thresholds: 0–39 LOW, 40–69 MEDIUM, 70–84 HIGH, 85–100 CRITICAL.
+ * Actions: LOW → ALLOW, MEDIUM/HIGH → VERIFY, CRITICAL → STOP.
+ * The mapping is pure and deterministic — no LLM can override it.
+ */
+public final class RiskLevels {
+
+  /** Highest possible score; the engine caps totals with {@code min(total, MAX_SCORE)}. */
+  public static final int MAX_SCORE = 100;
+
+  public static final int LOW_MAX = 39;
+  public static final int MEDIUM_MAX = 69;
+  public static final int HIGH_MAX = 84;
+
+  private RiskLevels() {}
+
+  public static RiskLevel levelFor(int score) {
+    if (score <= LOW_MAX) {
+      return RiskLevel.LOW;
+    }
+    if (score <= MEDIUM_MAX) {
+      return RiskLevel.MEDIUM;
+    }
+    if (score <= HIGH_MAX) {
+      return RiskLevel.HIGH;
+    }
+    return RiskLevel.CRITICAL;
+  }
+
+  public static RecommendedAction actionFor(RiskLevel level) {
+    return switch (level) {
+      case LOW -> RecommendedAction.ALLOW;
+      case MEDIUM, HIGH -> RecommendedAction.VERIFY;
+      case CRITICAL -> RecommendedAction.STOP;
+    };
+  }
+}
