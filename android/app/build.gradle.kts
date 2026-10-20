@@ -1,3 +1,5 @@
+import java.util.Properties
+import org.gradle.api.tasks.Sync
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -18,12 +20,21 @@ android {
 
         // Reachable backend base URL. Emulator loopback is 10.0.2.2;
         // physical devices need the dev machine's LAN IP (see README).
-        val apiBaseUrl =
-            project.findProperty("guardpayApiBaseUrl") as String?
-                ?: "http://10.0.2.2:8080"
+        // Values come from -P flags or android/local.properties (gitignored).
+        val localProperties =
+            Properties().apply {
+                rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use {
+                    load(it)
+                }
+            }
+        fun propertyOrDefault(name: String, default: String): String =
+            (project.findProperty(name) as String?) ?: localProperties.getProperty(name) ?: default
+
+        val apiBaseUrl = propertyOrDefault("guardpayApiBaseUrl", "http://10.0.2.2:8080")
         // Development pairing token (build-time only, never hard-coded).
-        // Pass with -PguardpayDeviceToken=... ; empty means backend 401s.
-        val deviceToken = project.findProperty("guardpayDeviceToken") as String? ?: ""
+        // Must match GUARDPAY_DEVICE_SIGNAL_TOKEN in backend/.env; empty means
+        // the backend rejects every report with 401.
+        val deviceToken = propertyOrDefault("guardpayDeviceToken", "")
         buildConfigField("String", "GUARDPAY_API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GUARDPAY_DEVICE_TOKEN", "\"$deviceToken\"")
     }
@@ -54,4 +65,15 @@ kotlin {
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
+}
+
+// Bundle the production React build into the APK. Run `npm run build` in
+// frontend/ first (or use scripts/build-android-apk.ps1, which does both).
+val syncWebAssets by tasks.registering(Sync::class) {
+    from(rootProject.file("../frontend/dist"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncWebAssets)
 }

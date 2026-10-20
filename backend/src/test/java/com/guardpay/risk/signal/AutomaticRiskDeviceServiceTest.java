@@ -2,6 +2,8 @@ package com.guardpay.risk.signal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.guardpay.device.DeviceCallState;
@@ -76,6 +78,9 @@ class AutomaticRiskDeviceServiceTest {
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(
             user, com.guardpay.transaction.TransactionStatus.COMPLETED))
+        .thenReturn(List.of());
+    lenient()
+        .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
         .thenReturn(List.of());
   }
 

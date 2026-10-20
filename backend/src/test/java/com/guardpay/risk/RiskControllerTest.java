@@ -45,7 +45,7 @@ class RiskControllerTest {
         .andExpect(jsonPath("$.riskLevel").value("LOW"))
         .andExpect(jsonPath("$.recommendedAction").value("ALLOW"))
         .andExpect(jsonPath("$.explanation").isNotEmpty())
-        .andExpect(jsonPath("$.findings.length()").value(8));
+        .andExpect(jsonPath("$.findings.length()").value(9));
   }
 
   @Test
@@ -57,7 +57,7 @@ class RiskControllerTest {
                 .content(
                     """
                     {"amount": 2499.00, "historicalAverage": 87.00, "activeCall": true,
-                     "newRecipient": true, "unknownMerchant": true,
+                     "newRecipient": true, "repeatedAttempts": true, "unknownMerchant": true,
                      "unexpectedInvoice": true, "urgentLanguage": true,
                      "suspiciousUrl": true, "socialEngineeringDetected": true}
                     """))
@@ -65,7 +65,7 @@ class RiskControllerTest {
         .andExpect(jsonPath("$.score").value(100))
         .andExpect(jsonPath("$.riskLevel").value("CRITICAL"))
         .andExpect(jsonPath("$.recommendedAction").value("STOP"))
-        .andExpect(jsonPath("$.findings.length()").value(8))
+        .andExpect(jsonPath("$.findings.length()").value(9))
         .andExpect(
             jsonPath("$.findings[*].triggered", Matchers.everyItem(CoreMatchers.is(true))))
         .andExpect(jsonPath("$.findings[0].code").value("ACTIVE_CALL"));

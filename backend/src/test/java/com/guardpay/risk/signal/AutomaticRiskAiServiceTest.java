@@ -3,7 +3,7 @@ package com.guardpay.risk.signal;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -68,6 +68,9 @@ class AutomaticRiskAiServiceTest {
         new AutomaticRiskEvaluationService(
             collector, new DeterministicRiskEngine(), users, deviceStates, recipients, merchants,
             aiClient);
+    lenient()
+        .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
+        .thenReturn(List.of());
   }
 
   private static Transaction completed(String amount) {

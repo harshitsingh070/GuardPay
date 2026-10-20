@@ -1,7 +1,10 @@
 package com.guardpay.paypal.service;
 
+import com.guardpay.payment.GuardedPaymentStatus;
 import com.guardpay.payment.PaymentContext;
 import com.guardpay.payment.PaymentContextRepository;
+import com.guardpay.payment.PaymentVerificationRepository;
+import com.guardpay.payment.VerificationStatus;
 import com.guardpay.paypal.client.PayPalClient;
 import com.guardpay.paypal.dto.CaptureOrderResponseDto;
 import com.guardpay.paypal.dto.CreateOrderRequestDto;
@@ -67,6 +70,7 @@ public class PayPalOrderService {
   private final PaymentContextRepository contexts;
   private final RiskAssessmentRepository assessments;
   private final UserRepository users;
+  private final PaymentVerificationRepository verifications;
 
   public PayPalOrderService(
       PayPalClient payPalClient,
@@ -74,13 +78,15 @@ public class PayPalOrderService {
       TransactionRepository transactions,
       PaymentContextRepository contexts,
       RiskAssessmentRepository assessments,
-      UserRepository users) {
+      UserRepository users,
+      PaymentVerificationRepository verifications) {
     this.payPalClient = payPalClient;
     this.riskEngine = riskEngine;
     this.transactions = transactions;
     this.contexts = contexts;
     this.assessments = assessments;
     this.users = users;
+    this.verifications = verifications;
   }
 
   @Transactional
@@ -94,6 +100,7 @@ public class PayPalOrderService {
                 dto.getHistoricalAverage(),
                 dto.isActiveCall(),
                 dto.isNewRecipient(),
+                dto.isRepeatedAttempts(),
                 dto.isUnknownMerchant(),
                 dto.isUnexpectedInvoice(),
                 dto.isUrgentLanguage(),
@@ -144,12 +151,16 @@ public class PayPalOrderService {
    * money). Shared by the M8 endpoint and the guarded-payment orchestrator.
    */
   public CreatedPaypalOrder createPaypalOrder(BigDecimal amount, String description) {
+    // PayPal requires at most two decimals for USD. Amounts reloaded from the
+    // database (transactions.amount is NUMERIC(19,4)) would otherwise arrive as
+    // e.g. "45.0000" and be rejected with DECIMAL_PRECISION, so normalize here.
+    BigDecimal normalized = amount.setScale(2, RoundingMode.HALF_UP);
     PayPalCreateOrderRequest paypalRequest =
         new PayPalCreateOrderRequest(
             "CAPTURE",
             List.of(
                 new PayPalPurchaseUnit(
-                    new PayPalAmount(SUPPORTED_CURRENCY, amount.toPlainString()), description)));
+                    new PayPalAmount(SUPPORTED_CURRENCY, normalized.toPlainString()), description)));
     PayPalCreateOrderResponse created =
         payPalClient.post("/v2/checkout/orders", paypalRequest, PayPalCreateOrderResponse.class);
     return new CreatedPaypalOrder(created.id(), created.status(), extractApprovalUrl(created));
@@ -174,7 +185,8 @@ public class PayPalOrderService {
           transaction.getStatus().name(),
           transaction.getPaypalCaptureId(),
           transaction.getAmount(),
-          transaction.getCurrency());
+          transaction.getCurrency(),
+          GuardedPaymentStatus.from(transaction.getStatus()));
     }
 
     RiskAssessment decision =
@@ -184,13 +196,24 @@ public class PayPalOrderService {
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No risk decision for this order"));
 
     if (decision.getRecommendedAction() != RecommendedAction.ALLOW) {
-      throw new CaptureBlockedException(
-          decision.getRecommendedAction() == RecommendedAction.STOP
-              ? "GuardPay stopped this payment before capture."
-              : "Additional verification is required before this payment can be captured.",
-          decision.getRecommendedAction(),
-          decision.getRiskLevel(),
-          orderId);
+      // A VERIFY decision clears once its controlled challenge is satisfied —
+      // the runner-up order is only ever created after that, but the stored
+      // risk decision stays VERIFY, so the gate must consult the verification.
+      boolean clearedByVerification =
+          decision.getRecommendedAction() == RecommendedAction.VERIFY
+              && verifications
+                  .findByTransaction(transaction)
+                  .map(verification -> verification.getStatus() == VerificationStatus.VERIFIED)
+                  .orElse(false);
+      if (!clearedByVerification) {
+        throw new CaptureBlockedException(
+            decision.getRecommendedAction() == RecommendedAction.STOP
+                ? "GuardPay stopped this payment before capture."
+                : "Additional verification is required before this payment can be captured.",
+            decision.getRecommendedAction(),
+            decision.getRiskLevel(),
+            orderId);
+      }
     }
 
     PayPalCaptureResponse captured =
@@ -207,7 +230,12 @@ public class PayPalOrderService {
     log.info("PayPal Sandbox order captured (order linked to GuardPay transaction)");
 
     return new CaptureOrderResponseDto(
-        orderId, captured.status(), captureId, transaction.getAmount(), transaction.getCurrency());
+        orderId,
+        captured.status(),
+        captureId,
+        transaction.getAmount(),
+        transaction.getCurrency(),
+        GuardedPaymentStatus.from(transaction.getStatus()));
   }
 
   private Transaction storeGuardPayRecords(

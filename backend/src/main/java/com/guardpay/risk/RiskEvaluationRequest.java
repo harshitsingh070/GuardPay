@@ -14,6 +14,7 @@ public record RiskEvaluationRequest(
     BigDecimal historicalAverage,
     boolean activeCall,
     boolean newRecipient,
+    boolean repeatedAttempts,
     boolean unknownMerchant,
     boolean unexpectedInvoice,
     boolean urgentLanguage,

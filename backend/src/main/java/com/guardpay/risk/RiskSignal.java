@@ -1,7 +1,7 @@
 package com.guardpay.risk;
 
 /**
- * The eight GuardPay risk signals in fixed evaluation order.
+ * The GuardPay risk signals in fixed evaluation order.
  *
  * <p>Single source of truth for signal code, user-facing copy, and weight.
  * Finding order in {@code RiskEvaluationResult} follows this declaration
@@ -20,6 +20,10 @@ public enum RiskSignal {
       "Unusually large amount",
       "Payment amount is significantly higher than the user's normal transaction amount.",
       20),
+  REPEATED_ATTEMPTS(
+      "Repeated payment attempts",
+      "Several payment attempts were made in a short period of time.",
+      15),
   UNKNOWN_MERCHANT(
       "Unknown merchant",
       "Merchant is not recognized from the user's transaction history.",

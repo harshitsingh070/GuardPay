@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowRight, OctagonX, ShieldCheck } from 'lucide-react';
 import type { RecommendedAction } from '@/types/risk';
 import { cn } from '@/utils/cn';
 
@@ -23,48 +24,64 @@ export default function RiskActionButtons({ recommended }: { recommended: Recomm
 
   return (
     <div>
-      <h2 className="text-lg font-semibold">Recommended action: {recommended}</h2>
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <h2 className="text-lg font-bold text-guardpay-ink">
+        Recommended action: {recommended}
+      </h2>
+      <p className="mt-1 text-sm text-guardpay-muted">
+        This is a demo. Choosing an action does not process a payment.
+      </p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <button
           type="button"
           onClick={() => setChoice('stop')}
           aria-pressed={choice === 'stop'}
           className={cn(
-            'rounded-md px-4 py-2.5 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+            'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-guardpay-blue',
             stopPrimary
-              ? 'bg-red-600 text-white hover:bg-red-700'
-              : 'border border-input bg-background hover:bg-accent',
+              ? 'bg-red-600 text-white shadow-sm hover:bg-red-700'
+              : 'border border-guardpay-line bg-white text-guardpay-ink hover:bg-guardpay-canvas',
           )}
         >
-          🛑 Stop payment
+          <OctagonX className="h-4 w-4" aria-hidden="true" />
+          Stop payment
         </button>
         <button
           type="button"
           onClick={() => setChoice('verify')}
           aria-pressed={choice === 'verify'}
           className={cn(
-            'rounded-md px-4 py-2.5 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+            'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-guardpay-blue',
             verifyPrimary && !stopPrimary
-              ? 'bg-amber-500 text-white hover:bg-amber-600'
-              : 'border border-input bg-background hover:bg-accent',
+              ? 'bg-amber-500 text-white shadow-sm hover:bg-amber-600'
+              : 'border border-guardpay-line bg-white text-guardpay-ink hover:bg-guardpay-canvas',
           )}
         >
+          <ShieldCheck className="h-4 w-4" aria-hidden="true" />
           Verify
         </button>
         <button
           type="button"
           onClick={() => setChoice('continue')}
           aria-pressed={choice === 'continue'}
-          className="rounded-md border border-input bg-background px-4 py-2.5 text-sm font-semibold hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-guardpay-line bg-white px-4 py-2.5 text-sm font-semibold text-guardpay-ink transition-colors hover:bg-guardpay-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-guardpay-blue"
         >
           Continue anyway
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
       {choice !== null && (
-        <div className="mt-3 rounded-md border p-3 text-sm" role="status" aria-live="polite">
+        <div
+          className="mt-3 rounded-xl border border-guardpay-line bg-guardpay-canvas p-3.5 text-sm text-guardpay-ink"
+          role="status"
+          aria-live="polite"
+        >
           <p>{NOTICES[choice]}</p>
-          <Link to="/payment" className="mt-2 inline-block font-medium underline">
+          <Link
+            to="/payment"
+            className="mt-2 inline-flex items-center gap-1 font-semibold text-guardpay-blue hover:underline"
+          >
             Evaluate another payment
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
         </div>
       )}

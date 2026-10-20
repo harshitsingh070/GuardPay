@@ -56,6 +56,9 @@ class PaymentSignalCollectorServiceTest {
     ReflectionTestUtils.setField(user, "id", USER_ID);
     // Lenient: structural tests below never collect, behavior tests always do.
     lenient().when(users.findById(USER_ID)).thenReturn(Optional.of(user));
+    lenient()
+        .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
+        .thenReturn(List.of());
   }
 
   private SignalCollectionRequest request(BigDecimal amount) {
@@ -127,6 +130,41 @@ class PaymentSignalCollectorServiceTest {
 
     assertEquals(0, new BigDecimal("10.00").compareTo(result.historicalAverage()));
     assertTrue(result.detected(PaymentSignalType.UNUSUAL_AMOUNT));
+  }
+
+  @Test
+  void repeatedAttemptsDetectedAtThreshold() {
+    when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
+        .thenReturn(List.of(completed("20"), completed("20")));
+
+    AutomaticSignalCollectionResult result = collector.collect(request(new BigDecimal("45")));
+
+    assertTrue(result.detected(PaymentSignalType.REPEATED_ATTEMPTS));
+    assertTrue(
+        signal(result, PaymentSignalType.REPEATED_ATTEMPTS).evidence().contains("3 payment attempts"));
+  }
+
+  @Test
+  void repeatedAttemptsBelowThresholdNotDetected() {
+    when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
+        .thenReturn(List.of(completed("20")));
+
+    AutomaticSignalCollectionResult result = collector.collect(request(new BigDecimal("45")));
+
+    assertFalse(result.detected(PaymentSignalType.REPEATED_ATTEMPTS));
+    assertNull(signal(result, PaymentSignalType.REPEATED_ATTEMPTS).reason());
+  }
+
+  @Test
+  void velocityUnavailableWithoutUser() {
+    SignalCollectionRequest anonymous =
+        new SignalCollectionRequest(new BigDecimal("45"), null, null, null, null, null);
+
+    AutomaticSignalCollectionResult result = collector.collect(anonymous);
+
+    assertFalse(result.detected(PaymentSignalType.REPEATED_ATTEMPTS));
+    assertEquals(
+        "USER_UNAVAILABLE", signal(result, PaymentSignalType.REPEATED_ATTEMPTS).reason());
   }
 
   private Recipient recipientOf(User owner) {

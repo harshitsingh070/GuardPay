@@ -26,8 +26,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -86,8 +84,9 @@ public class AutomaticRiskEvaluationService {
             dto.getMerchantId(),
             dto.getTransactionId());
 
+    DeviceCallSignal deviceSignal = resolveDeviceSignal(dto.getDeviceId());
     AutomaticSignalCollectionResult deterministic =
-        collector.collect(collectionRequest, resolveDeviceSignal(dto.getDeviceId()));
+        collector.collect(collectionRequest, deviceSignal);
 
     // AI evidence (optional): consulted only when the caller supplied content.
     // Any AI problem degrades to UNAVAILABLE — deterministic signals decide alone.
@@ -95,7 +94,7 @@ public class AutomaticRiskEvaluationService {
     String aiStatus;
     if (hasContent(dto)) {
       try {
-        AiAnalysisResponse analysis = aiClient.analyze(buildAiRequest(dto, deterministic));
+        AiAnalysisResponse analysis = aiClient.analyze(buildAiRequest(dto, deterministic, deviceSignal));
         aiSignals = AiFindingAdapter.toPaymentSignals(analysis.findings());
         aiStatus = "AVAILABLE";
       } catch (AiUnavailableException unavailable) {
@@ -114,6 +113,18 @@ public class AutomaticRiskEvaluationService {
     RiskEvaluationRequest engineRequest =
         AutomaticSignalAdapter.toRiskEvaluationRequest(dto.getAmount(), collection);
     RiskEvaluationResult result = engine.evaluate(engineRequest);
+
+    log.info(
+        "Risk evaluated: score={} level={} action={} ai={} device={} triggered={}",
+        result.score(),
+        result.riskLevel(),
+        result.recommendedAction(),
+        aiStatus,
+        describeDevice(deviceSignal),
+        collection.signals().stream()
+            .filter(PaymentSignal::detected)
+            .map(signal -> signal.type().name())
+            .toList());
 
     List<PaymentSignalDto> signals =
         collection.signals().stream()
@@ -177,8 +188,17 @@ public class AutomaticRiskEvaluationService {
         || (dto.getContentUrl() != null && !dto.getContentUrl().isBlank());
   }
 
+  private static String describeDevice(DeviceCallSignal signal) {
+    if (signal.activeCall() == null) {
+      return "unavailable(" + signal.unavailabilityReason() + ")";
+    }
+    return signal.activeCall() ? "active-call" : "no-call";
+  }
+
   private AiAnalysisRequest buildAiRequest(
-      AutomaticEvaluationRequestDto dto, AutomaticSignalCollectionResult deterministic) {
+      AutomaticEvaluationRequestDto dto,
+      AutomaticSignalCollectionResult deterministic,
+      DeviceCallSignal device) {
     String recipientName =
         dto.getRecipientId() == null
             ? null
@@ -187,7 +207,6 @@ public class AutomaticRiskEvaluationService {
         dto.getMerchantId() == null
             ? null
             : merchants.findById(dto.getMerchantId()).map(m -> m.getName()).orElse(null);
-    DeviceCallSignal device = resolveDeviceSignal(dto.getDeviceId());
     return new AiAnalysisRequest(
         new AiAnalysisRequest.AiTransactionContext(
             dto.getAmount(),

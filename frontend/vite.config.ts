@@ -1,6 +1,6 @@
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 // GuardPay frontend — React + Vite. Dev/preview serve on :3000 so the
 // docker-compose port mapping and README URLs stay unchanged.
@@ -19,5 +19,12 @@ export default defineConfig({
   preview: {
     host: true,
     port: 3000,
+  },
+  test: {
+    environment: 'jsdom',
+    globals: false,
+    setupFiles: ['./src/test/setup.ts'],
+    css: false,
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 });

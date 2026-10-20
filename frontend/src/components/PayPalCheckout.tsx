@@ -17,7 +17,7 @@ type Phase =
   | { name: 'captured'; capture: PayPalCaptureResponse };
 
 const buttonClass =
-  'inline-flex w-full items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
+  'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-guardpay-blue disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 
 /**
  * Sandbox checkout for ALLOW decisions only: create order → approve on
@@ -69,25 +69,29 @@ export default function PayPalCheckout({ request }: { request: RiskEvaluationReq
 
   if (phase.name === 'captured') {
     return (
-      <div className="rounded-lg border border-green-200 bg-green-50 p-4 sm:p-6 dark:border-green-900 dark:bg-green-950" role="status" aria-live="polite">
-        <h2 className="text-lg font-semibold">Payment captured</h2>
+      <div
+        className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm sm:p-5"
+        role="status"
+        aria-live="polite"
+      >
+        <h2 className="text-lg font-bold text-guardpay-ink">Payment captured</h2>
         <dl className="mt-2 space-y-1 text-sm">
           <div className="flex gap-2">
-            <dt className="text-muted-foreground">Status:</dt>
-            <dd className="font-medium">{phase.capture.status}</dd>
+            <dt className="text-guardpay-muted">Status:</dt>
+            <dd className="font-semibold text-guardpay-ink">{phase.capture.status}</dd>
           </div>
           <div className="flex gap-2">
-            <dt className="text-muted-foreground">Capture ID:</dt>
-            <dd className="font-mono text-xs">{phase.capture.captureId}</dd>
+            <dt className="text-guardpay-muted">Capture ID:</dt>
+            <dd className="font-mono text-xs text-guardpay-ink">{phase.capture.captureId}</dd>
           </div>
           <div className="flex gap-2">
-            <dt className="text-muted-foreground">Amount:</dt>
-            <dd className="font-medium">
+            <dt className="text-guardpay-muted">Amount:</dt>
+            <dd className="font-semibold text-guardpay-ink">
               {phase.capture.currency} {phase.capture.amount}
             </dd>
           </div>
         </dl>
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-xs text-guardpay-muted">
           Sandbox capture — no real money moved. GuardPay allowed this payment (ALLOW).
         </p>
       </div>
@@ -98,15 +102,18 @@ export default function PayPalCheckout({ request }: { request: RiskEvaluationReq
     const order = phase.order;
     const capturing = phase.name === 'capturing';
     return (
-      <div className="rounded-lg border p-4 sm:p-6" aria-live="polite">
-        <h2 className="text-lg font-semibold">PayPal Sandbox checkout</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+      <div className="rounded-2xl border border-guardpay-line bg-[#f9fafb] p-4 sm:p-5" aria-live="polite">
+        <h2 className="text-lg font-bold text-guardpay-ink">PayPal Sandbox checkout</h2>
+        <p className="mt-1 text-sm text-guardpay-muted">
           Order <span className="font-mono text-xs">{order.orderId}</span> created ({order.currency}{' '}
           {order.amount}). Approve it with your Sandbox Personal test account, then return here
           to capture.
         </p>
         {error !== null && (
-          <p className="mt-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">
+          <p
+            className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+            role="alert"
+          >
             {error}
           </p>
         )}
@@ -115,7 +122,7 @@ export default function PayPalCheckout({ request }: { request: RiskEvaluationReq
             href={order.approvalUrl ?? '#'}
             target="_blank"
             rel="noreferrer"
-            className={`${buttonClass} border border-input bg-background hover:bg-accent`}
+            className={`${buttonClass} border border-guardpay-blue bg-white text-guardpay-blue hover:bg-[#f5f9ff]`}
           >
             <ExternalLink className="h-4 w-4" aria-hidden="true" />
             Approve in PayPal Sandbox
@@ -124,7 +131,7 @@ export default function PayPalCheckout({ request }: { request: RiskEvaluationReq
             type="button"
             disabled={capturing}
             onClick={() => handleCapture(order.orderId ?? '', order)}
-            className={`${buttonClass} bg-primary text-primary-foreground hover:bg-primary/90`}
+            className={`${buttonClass} bg-guardpay-blue text-white hover:bg-[#005ea6]`}
           >
             {capturing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
             {capturing ? 'Capturing...' : 'Capture payment'}
@@ -135,14 +142,18 @@ export default function PayPalCheckout({ request }: { request: RiskEvaluationReq
   }
 
   return (
-    <div className="rounded-lg border p-4 sm:p-6">
-      <h2 className="text-lg font-semibold">Pay with PayPal Sandbox</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+    <div>
+      <h2 className="text-lg font-bold text-guardpay-ink">Pay with PayPal Sandbox</h2>
+      <p className="mt-1 text-sm text-guardpay-muted">
         GuardPay rated this payment ALLOW. Create a real Sandbox order, approve it as the
         buyer, then capture it here. The server re-checks the risk decision before capture.
       </p>
       {error !== null && (
-        <p className="mt-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert" aria-live="polite">
+        <p
+          className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          role="alert"
+          aria-live="polite"
+        >
           {error}
         </p>
       )}
@@ -150,10 +161,10 @@ export default function PayPalCheckout({ request }: { request: RiskEvaluationReq
         type="button"
         disabled={phase.name === 'creating'}
         onClick={handleCreate}
-        className={`${buttonClass} mt-4 bg-primary text-primary-foreground hover:bg-primary/90`}
+        className={`${buttonClass} mt-4 bg-guardpay-blue text-white hover:bg-[#005ea6]`}
       >
         {phase.name === 'creating' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-        {phase.name === 'creating' ? 'Creating order...' : 'Continue to PayPal'}
+        {phase.name === 'creating' ? 'Creating order…' : 'Continue to PayPal'}
       </button>
     </div>
   );

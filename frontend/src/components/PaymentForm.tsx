@@ -27,7 +27,7 @@ const SIGNAL_TOGGLES: SignalToggle[] = [
 ];
 
 const inputClass =
-  'w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring';
+  'min-h-11 w-full rounded-lg border border-guardpay-line bg-white px-3.5 py-2.5 text-sm text-guardpay-ink shadow-sm transition-colors placeholder:text-guardpay-muted focus-visible:border-guardpay-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-guardpay-blue/20';
 
 /**
  * Payment evaluation form. Sends inputs to the backend — no scoring here.
@@ -100,14 +100,17 @@ export default function PaymentForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} aria-busy={submitting} className="space-y-6">
-      <section aria-labelledby="payment-details-heading" className="rounded-lg border p-4 sm:p-6">
-        <h2 id="payment-details-heading" className="text-lg font-semibold">
+    <form onSubmit={handleSubmit} aria-busy={submitting} className="space-y-5">
+      <section
+        aria-labelledby="payment-details-heading"
+        className="rounded-2xl border border-guardpay-line bg-white p-4 shadow-sm sm:p-5"
+      >
+        <h2 id="payment-details-heading" className="text-base font-bold text-guardpay-ink">
           Payment details
         </h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <div>
-            <label htmlFor="amount" className="mb-1 block text-sm font-medium">
+            <label htmlFor="amount" className="mb-1 block text-sm font-medium text-guardpay-ink">
               Amount ($)
             </label>
             <input
@@ -124,7 +127,7 @@ export default function PaymentForm({
             />
           </div>
           <div>
-            <label htmlFor="recipient" className="mb-1 block text-sm font-medium">
+            <label htmlFor="recipient" className="mb-1 block text-sm font-medium text-guardpay-ink">
               Recipient
             </label>
             <input
@@ -137,7 +140,7 @@ export default function PaymentForm({
             />
           </div>
           <div>
-            <label htmlFor="merchant" className="mb-1 block text-sm font-medium">
+            <label htmlFor="merchant" className="mb-1 block text-sm font-medium text-guardpay-ink">
               Merchant
             </label>
             <input
@@ -150,17 +153,20 @@ export default function PaymentForm({
             />
           </div>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-xs text-guardpay-muted">
           Recipient and merchant are collected for context — they are not sent to the
           evaluation API in this milestone.
         </p>
       </section>
 
-      <section aria-labelledby="risk-context-heading" className="rounded-lg border p-4 sm:p-6">
-        <h2 id="risk-context-heading" className="text-lg font-semibold">
+      <section
+        aria-labelledby="risk-context-heading"
+        className="rounded-2xl border border-guardpay-line bg-white p-4 shadow-sm sm:p-5"
+      >
+        <h2 id="risk-context-heading" className="text-base font-bold text-guardpay-ink">
           Risk context
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-guardpay-muted">
           Demo risk signals — the browser is not actually detecting phone calls. These
           switches simulate the context sent with the payment.
         </p>
@@ -171,8 +177,10 @@ export default function PaymentForm({
               <label
                 key={toggle.key}
                 className={cn(
-                  'flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm font-medium',
-                  signals[toggle.key] ? 'border-primary bg-accent' : 'border-input',
+                  'flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-medium text-guardpay-ink transition-colors',
+                  signals[toggle.key]
+                    ? 'border-guardpay-blue bg-[#f5f9ff] shadow-sm'
+                    : 'border-guardpay-line bg-white hover:bg-guardpay-canvas',
                 )}
               >
                 <span>{toggle.label}</span>
@@ -183,14 +191,17 @@ export default function PaymentForm({
                     setSignals((prev) => ({ ...prev, [toggle.key]: event.target.checked }))
                   }
                   aria-label={`${toggle.label}: ${signals[toggle.key] ? 'on' : 'off'}`}
-                  className="h-4 w-4 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                  className="h-4 w-4 accent-[#0070e0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-guardpay-blue"
                 />
               </label>
             ))}
           </div>
         </fieldset>
         <div className="mt-4 max-w-xs">
-          <label htmlFor="historicalAverage" className="mb-1 block text-sm font-medium">
+          <label
+            htmlFor="historicalAverage"
+            className="mb-1 block text-sm font-medium text-guardpay-ink"
+          >
             Historical average payment ($)
           </label>
           <input
@@ -204,14 +215,18 @@ export default function PaymentForm({
             placeholder="87"
             className={inputClass}
           />
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs text-guardpay-muted">
             Demo user-history data for the risk engine. Leave blank if unknown.
           </p>
         </div>
       </section>
 
       {error !== null && (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert" aria-live="polite">
+        <p
+          className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          role="alert"
+          aria-live="polite"
+        >
           {error}
         </p>
       )}
@@ -219,7 +234,7 @@ export default function PaymentForm({
       <button
         type="submit"
         disabled={submitting}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:w-auto"
+        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-guardpay-blue px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#005ea6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-guardpay-blue disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
       >
         {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
         {submitting ? 'Analyzing payment...' : 'Review payment'}

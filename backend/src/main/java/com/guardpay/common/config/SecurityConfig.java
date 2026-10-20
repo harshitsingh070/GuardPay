@@ -28,6 +28,10 @@ import org.springframework.security.web.SecurityFilterChain;
  *       Sandbox orders + gated capture; will be protected with the rest.</li>
  *   <li>{@code POST /api/payments/guarded} — TEMPORARY guarded-payment flow;
  *       accepts business context only, never risk verdicts.</li>
+ *   <li>{@code POST /api/payments/&#123;paymentId&#125;/verification/confirm} — the
+ *       controlled VERIFY answer; the server decides the outcome.</li>
+ *   <li>{@code GET /api/transactions*} — TEMPORARY read-only history; the
+ *       optional user id scopes the query and cannot widen access.</li>
  *   <li>{@code POST /api/paypal/webhooks} — called by PayPal itself, so no
  *       user authentication by design; signature verification is the trust
  *       mechanism.</li>
@@ -56,6 +60,10 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.POST, "/api/paypal/orders", "/api/paypal/orders/*/capture")
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/payments/guarded")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/payments/*/verification/confirm")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/transactions", "/api/transactions/*")
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/paypal/webhooks")
                     .permitAll()

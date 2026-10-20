@@ -1,7 +1,8 @@
 # GuardPay — API Contract (planned boundaries)
 
-> Planned boundaries only. Endpoints are **not implemented** in this init step.
-> This doc freezes the seams so frontend / backend / AI-service can be built independently.
+> Sections A–C are the frozen planned seams (kept so the services stay
+> independent). Section D lists the endpoints that are **live today**; sections
+> A–C may drift from the built reality where noted in section D.
 
 Conventions (planned): JSON; `Authorization: Bearer <JWT>` on user-scoped
 Spring Boot APIs; server-to-server shared secret on Spring Boot → Python;
@@ -146,7 +147,64 @@ service. PayPal Agent Toolkit/MCP may assist later but never replaces this path.
 
 ---
 
-## D. What is explicitly out of contract in this step
+## D. Implemented endpoints (as built)
+
+The boundaries above are the plan; the following are live today. All are
+server-authoritative: risk is always derived, never accepted from the client.
+
+```text
+GET  /api/health                                  — liveness probe
+
+# Guarded flow (primary path)
+POST /api/payments/guarded                         — body: payment/business context only
+       optional header Idempotency-Key             — repeats replay the stored result
+POST /api/payments/{paymentId}/verification/confirm— body: { code } (controlled VERIFY)
+
+# Transaction history (read-only; owner-scoped server-side)
+GET  /api/transactions?userId=&page=&size=         — paged summaries incl. decision
+GET  /api/transactions/{id}?userId=                — detail: references, decision + findings
+
+# Automatic risk (context only; no risk booleans exist)
+POST /api/risk/evaluate-automatic
+
+# Manual risk demo (kept for regression)
+POST /api/risk/evaluate
+
+# PayPal Sandbox
+GET  /api/paypal/health
+POST /api/paypal/orders
+POST /api/paypal/orders/{orderId}/capture
+POST /api/paypal/webhooks                          — PayPal -> Spring Boot (signature-verified)
+
+# Device signal
+POST /api/device-signals/call-state
+```
+
+Key response shapes:
+
+```json
+// POST /api/payments/guarded  (VERIFY example)
+{
+  "paymentId": "...",
+  "risk": { "score": 45, "riskLevel": "MEDIUM", "recommendedAction": "VERIFY",
+            "explanation": "...", "automaticSignals": [], "findings": [], "aiStatus": "AVAILABLE" },
+  "paymentStatus": "VERIFICATION_REQUIRED",
+  "paypalOrder": null,
+  "verification": {
+    "verificationId": "...", "status": "PENDING", "expiresAt": "...",
+    "attemptsRemaining": 3, "simulated": true,
+    "channelHint": "Code delivered through the GuardPay simulated challenge channel.",
+    "challengeCode": "123456"
+  }
+}
+```
+
+`paymentStatus` is one of `BLOCKED | VERIFICATION_REQUIRED |
+PAYPAL_AUTHORIZATION_REQUIRED | PENDING | APPROVED | COMPLETED | CANCELLED |
+FAILED`. A PayPal order exists only for `PAYPAL_AUTHORIZATION_REQUIRED` and
+later states.
+
+## E. What is explicitly out of contract in this step
 
 No auth tokens are issued, no payments are created, no webhooks are verified,
 and no AI analysis runs — all three services are scaffolds. This contract

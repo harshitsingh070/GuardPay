@@ -4,7 +4,12 @@
 
 GuardPay detects when a user may be getting manipulated into making a fraudulent PayPal payment — especially through social-engineering scams such as fake PayPal support calls, urgent payment requests, suspicious invoices, suspicious URLs, and unusual transaction behavior.
 
-> **Init-step status:** project structure + architecture only. No business features are implemented yet (no PayPal integration, no auth, no entities, no risk engine, no AI agents). See `docs/`.
+> **Status:** the guarded payment flow is implemented end to end — automatic
+> signals + AI evidence → deterministic risk engine → `ALLOW`/`VERIFY`/`STOP`,
+> controlled verification, PayPal Sandbox order + server-side capture,
+> signature-verified webhooks, and transaction history. **No authentication
+> yet** (dev endpoints are temporarily public and history is scoped by an
+> optional user id). See `docs/demo.md` to run the demo and `docs/` for design.
 
 ## Architecture overview
 
@@ -148,12 +153,16 @@ curl http://localhost:8080/api/health
 Layering rule: `Controller → Service → Repository → Database`.
 Controllers return DTOs (`common/dto/ApiResponse`) — never JPA entities.
 CORS default-allows the Vite dev server (`http://localhost:3000`,
-override via `CORS_ALLOWED_ORIGINS`). Only `GET /api/health` is public;
-all other APIs deny by default until the auth milestone.
+override via `CORS_ALLOWED_ORIGINS`). Until the auth milestone the dev
+endpoints are temporarily public (guarded payments, verification confirm,
+transaction reads, risk, PayPal orders/webhooks/health, device signals);
+everything else denies by default.
 
-Database (Milestone 3): Flyway owns the schema (`backend/src/main/resources/db/migration/V1–V6`,
+Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1–V13`,
 applied automatically at startup); Hibernate stays on `ddl-auto=validate`.
-Tables: `users, merchants, recipients, transactions, payment_context, risk_assessments`.
+Tables: `users, merchants, recipients, transactions, payment_context, risk_assessments,
+paypal_webhook_events, device_call_states, guarded_payment_idempotency,
+payment_verifications`.
 Note: if a local PostgreSQL already occupies host port 5432, either stop it
 or point the backend at the compose DB via `DB_PORT`.
 
@@ -248,6 +257,35 @@ service fails safely (`UNAVAILABLE` fallback) and the full mocked merge path
 is unit-proven. Human Sandbox approval/capture and tunneled webhooks remain
 user-executed; external webhook delivery was not live-tested (localhost
 unreachable).
+
+### M16 — lifecycle status, controlled VERIFY, transaction history
+
+- **Full lifecycle status.** `TransactionStatus` gained `APPROVED`
+  (`V11__add_approved_transaction_status.sql`); `GuardedPaymentStatus` now
+  covers `BLOCKED | VERIFICATION_REQUIRED | PAYPAL_AUTHORIZATION_REQUIRED |
+  PENDING | APPROVED | COMPLETED | CANCELLED | FAILED`, and every guarded/capture
+  response carries the `paymentStatus`. Webhooks apply monotonic transitions:
+  `COMPLETED`/`CANCELLED` are terminal, `FAILED` can only recover to
+  `COMPLETED`, and `APPROVED` never regresses to `PENDING`.
+- **Repeated-attempt velocity signal.** `REPEATED_ATTEMPTS` (+15) fires when a
+  user has made `>= 3` attempts (any status, same currency) within 10 minutes;
+  the browser cannot supply it (server-derived only).
+- **Controlled VERIFY (order-free).** A `VERIFY` decision creates **no** PayPal
+  order. The backend issues a challenge (`V12__create_payment_verifications.sql`,
+  hashed answer, TTL, capped attempts), the server records the outcome, and the
+  order is created only after a server-verified success
+  (`POST /api/payments/{paymentId}/verification/confirm`). Wrong codes never
+  verify; expiry and max-attempts end the challenge. With no identity provider
+  configured the channel is clearly labelled **simulated** (`simulated: true`)
+  and the code is returned in the response.
+- **Receipt + transaction history.** Findings are persisted on each assessment
+  (`V13__add_risk_assessment_findings.sql`) so decisions stay explainable.
+  `GET /api/transactions` (paged) and `GET /api/transactions/{id}` return the
+  stored decision, findings, PayPal references and verification outcome,
+  owner-scoped server-side. The `/transactions` UI lists history in AG Grid with
+  a detail panel; the checkout receipt closes the loop.
+- **Run it:** `pwsh -File scripts/demo-guarded-flow.ps1` (checks the safety
+  invariants against a running backend) — see `docs/demo.md`.
 
 ## PayPal webhooks (Milestone 9 — state sync, no tunnels yet)
 
@@ -357,14 +395,38 @@ Pipeline: PayPal → GuardPay Integration Layer → Automatic Signal Collection
 (Transaction/Merchant history + Device `ACTIVE_CALL`) → (AI Agents: future)
 → Deterministic Risk Engine → ALLOW/VERIFY/STOP.
 
-Android app (`android/`, Kotlin, `com.guardpay.device`): one screen — Call
-Status ACTIVE/IDLE, Backend CONNECTED/DISCONNECTED, Device ID (random UUID in
-`SharedPreferences`, never IMEI), privacy line "No audio is recorded or
-analyzed." Run: open in Android Studio or
-`gradle -p android :app:assembleDebug -PguardpayDeviceToken=...`
-(`guardpayApiBaseUrl` default `http://10.0.2.2:8080` for the emulator;
-physical devices need the dev machine's LAN IP — `localhost` on a phone is
-the phone itself). No RECORD_AUDIO/CONTACTS/SMS/location permissions.
+Android app (`android/`, Kotlin, `com.guardpay.device`): a thin WebView shell
+around the exact same React checkout, so the phone UI matches the web UI. The
+shell reads call state with `TelephonyManager`/`TelephonyCallback` (a random
+UUID in `SharedPreferences`, never IMEI), posts it to
+`/api/device-signals/call-state` with the same device id the page uses, and
+shows **Automatic** call detection and, when the user taps **Pay** during an
+active call, a blocking fraud warning: "You are on a phone call" with
+**Cancel payment** / **Continue anyway** choices. Cancel keeps the form so
+the user can hang up and retry; Continue runs the normal risk check. It opens
+directly on `/payment`; the rest of the app is reachable from the header.
+External links (PayPal approval) open in the device browser.
+Only `READ_PHONE_STATE` + `INTERNET` are requested — no
+RECORD_AUDIO/CONTACTS/SMS/location.
+
+Build the installable debug APK:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android-apk.ps1
+# -> GuardPay-debug.apk (also android/app/build/outputs/apk/debug/app-debug.apk)
+```
+
+The script builds `frontend/dist` and Gradle bundles it into
+`android/app/src/main/assets`. Backend URL and pairing token come from
+`android/local.properties` (`guardpayApiBaseUrl`, `guardpayDeviceToken`) or
+`-P` flags. A physical phone must reach the backend over the LAN (not
+`localhost`), and the backend must allow the WebView origin
+`https://appassets.androidplatform.net` (`CORS_ALLOWED_ORIGINS`; included in
+the default). For an emulator use `guardpayApiBaseUrl=http://10.0.2.2:8080`.
+
+Call detection is foreground-only: Android pauses telephony observation when
+the app is backgrounded. The demo APK is debug-signed, not a Play Store
+release, and PayPal Sandbox approval still happens in the browser.
 
 "This is a development/hackathon device pairing mechanism. Production
 implementation should use authenticated device registration, short-lived
@@ -379,20 +441,26 @@ own authorized mobile/payment environment.
 
 ## Judge Demo (2–3 minutes)
 
+Full instructions: `docs/demo.md`. Automated safety-invariant suite:
+`pwsh -File scripts/demo-guarded-flow.ps1`.
+
 1. Open GuardPay at `/payment`.
 2. Select **Safe Payment** (preset fills $45, known names, normal message).
-3. Show automatic risk analysis → **LOW / ALLOW**, score 0.
+3. Show automatic risk analysis → **LOW / ALLOW** and the contributing signals.
 4. Show the real PayPal Sandbox order + approval link.
-5. Reset Demo.
-6. Select **Suspicious Payment** (preset fills $2,499, new names, scam text + URL).
-7. Show transaction signals (new recipient, large amount, unknown merchant).
-8. Show real AI evidence (impersonation, urgency, pressure, secrecy, URL).
-9. Show deterministic calculation → **CRITICAL / STOP**.
-10. Show **PayPal Order ID: None** — no order was created.
-11. Reset Demo.
-12. Explain: "GuardPay doesn't ask the user to identify the scam. It
-automatically analyzes the payment context, uses AI for evidence, and lets
-a deterministic risk engine decide whether the payment can reach PayPal."
+5. Select **Suspicious Payment** (preset fills $2,499, new names, scam text + URL).
+6. Show real AI evidence (impersonation, urgency, pressure, secrecy, URL) and the
+   deterministic calculation → **VERIFY** or **STOP**.
+7. If **VERIFY**: the controlled challenge appears — **no PayPal order exists**.
+   Enter the shown code to continue, or a wrong code to watch attempts decrement.
+   The order is created only after the server verifies.
+8. If **STOP**: show **PayPal Order ID: None** — no order was created.
+9. Open `/transactions`: every run is stored with its decision; select a row to
+   show amount, PayPal references, verification outcome, and **why** (findings).
+10. Explain: "GuardPay doesn't ask the user to identify the scam. It
+    automatically analyzes the payment context, uses AI for evidence, and lets
+    a deterministic risk engine decide whether the payment can reach PayPal —
+    and it never creates a PayPal order unless the decision allows it."
 
 ## Architecture
 
@@ -426,31 +494,31 @@ of the official PayPal app, and not endorsed by PayPal.
 
 ## Current step — what is / isn't done
 
-Done (this step):
+Done:
 
 - [x] Monorepo scaffold (`frontend/`, `backend/`, `ai-service/`, `docs/`)
-- [x] Valid placeholder configs (`pom.xml`, `package.json`, `requirements.txt`, `docker-compose.yml`)
-- [x] Architecture / API-contract / risk-engine design docs
+- [x] Deterministic risk engine + `ALLOW`/`VERIFY`/`STOP` (sole authority)
+- [x] Automatic signals (history, device) + AI evidence (never decisions)
+- [x] Guarded flow with idempotency, server-side capture, webhooks
+- [x] Full lifecycle status + controlled VERIFY (order-free until verified)
+- [x] Receipt + transaction history with persisted, explainable findings
+- [x] End-to-end Sandbox demo suite (`scripts/demo-guarded-flow.ps1`) + docs
 
-Explicitly NOT done (awaiting next instruction):
+Explicitly NOT done (honest):
 
-- [ ] PayPal integration, auth, DB entities, risk engine, AI agents, CrewAI logic, fake APIs
+- [ ] Authentication (dev endpoints are temporarily public)
+- [ ] Real identity provider for verification (currently a simulated channel)
+- [ ] External webhook delivery (needs a public tunnel/deploy)
+- [ ] Persisted dashboard aggregates / real-time (WS/SSE) updates
 
-## Quick verify (this step)
+## Quick verify
 
 ```powershell
-# repo structure
-Get-ChildItem -Recurse -Depth 3 | Select-Object FullName
+# unit/integration tests
+mvn -f backend clean test          # backend
+npm --prefix frontend run test     # frontend
+python -m pytest ai-service -q     # ai-service
 
-# compose file is valid YAML (requires Docker Compose v2)
-docker compose config
-
-# backend config parses (requires Maven)
-mvn -f backend/pom.xml validate
-
-# frontend config parses (requires Node)
-npm --prefix frontend pkg get name version
-
-# ai-service deps list parses (requires Python)
-python -m pip install --dry-run -r ai-service/requirements.txt
+# end-to-end safety invariants (backend must be running)
+pwsh -File scripts/demo-guarded-flow.ps1
 ```

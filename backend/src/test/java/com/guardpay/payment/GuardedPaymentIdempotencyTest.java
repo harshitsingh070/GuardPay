@@ -37,7 +37,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
@@ -60,6 +59,8 @@ class GuardedPaymentIdempotencyTest {
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
   @Mock private GuardedPaymentIdempotencyRepository idempotency;
+  @Mock private GuardedPaymentLock lock;
+  @Mock private PaymentVerificationService verificationService;
 
   private PaymentSafetyOrchestrator orchestrator;
   private User user;
@@ -68,10 +69,13 @@ class GuardedPaymentIdempotencyTest {
 
   @BeforeEach
   void setUp() {
+    GuardedPaymentCompletionService completion =
+        new GuardedPaymentCompletionService(
+            orderService, transactions, contexts, assessments, idempotency, lock,
+            verificationService);
     orchestrator =
         new PaymentSafetyOrchestrator(
-            automaticRisk, orderService, transactions, contexts, assessments, users, recipients,
-            merchants, idempotency);
+            automaticRisk, completion, users, recipients, merchants, idempotency);
     user = new User();
     ReflectionTestUtils.setField(user, "id", USER_ID);
   }
@@ -115,6 +119,8 @@ class GuardedPaymentIdempotencyTest {
 
     assertEquals(first, second);
     verify(orderService, times(1)).createPaypalOrder(any(), any());
+    verify(automaticRisk, times(1)).evaluate(any());
+    verify(lock, times(1)).acquire("key-1");
   }
 
   @Test
@@ -135,8 +141,9 @@ class GuardedPaymentIdempotencyTest {
   }
 
   @Test
-  void lostRaceReturnsWinnerResult() throws Exception {
-    stubHappyAllow();
+  void winnerCommittedAfterInitialCheckIsReplayedUnderLock() throws Exception {
+    when(users.findById(USER_ID)).thenReturn(Optional.of(user));
+    when(automaticRisk.evaluate(any())).thenReturn(allowRisk());
     GuardedPaymentRequestDto dto = request();
     GuardedPaymentResponseDto winnerBody =
         new GuardedPaymentResponseDto(
@@ -144,19 +151,22 @@ class GuardedPaymentIdempotencyTest {
             new GuardedRiskDto(10, RiskLevel.LOW, RecommendedAction.ALLOW, "Ok.", List.of(),
                 List.of(), "NOT_REQUESTED"),
             GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED,
-            new GuardedPaypalOrderDto("O-WIN", "https://sandbox.paypal.com/approve"));
+            new GuardedPaypalOrderDto("O-WIN", "https://sandbox.paypal.com/approve"),
+            null);
     GuardedPaymentIdempotency winner = new GuardedPaymentIdempotency();
     winner.setIdempotencyKey("key-1");
-    winner.setRequestHash(PaymentSafetyOrchestrator.requestHash(dto));
+    winner.setRequestHash(GuardedPaymentReplay.requestHash(dto));
     winner.setResponseBody(JSON.writeValueAsString(winnerBody));
     when(idempotency.findByIdempotencyKey("key-1"))
         .thenReturn(Optional.empty())
         .thenReturn(Optional.of(winner));
-    when(idempotency.save(any())).thenThrow(new DataIntegrityViolationException("duplicate key"));
 
     GuardedPaymentResponseDto response = orchestrator.initiate(dto, "key-1");
 
     assertEquals(winnerBody, response);
+    verify(lock).acquire("key-1");
+    verify(orderService, never()).createPaypalOrder(any(), any());
+    verify(idempotency, never()).save(any());
   }
 
   @Test
@@ -168,5 +178,6 @@ class GuardedPaymentIdempotencyTest {
 
     verify(idempotency, never()).findByIdempotencyKey(any());
     verify(idempotency, never()).save(any());
+    verify(lock, never()).acquire(any());
   }
 }

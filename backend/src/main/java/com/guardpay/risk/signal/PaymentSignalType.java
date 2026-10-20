@@ -7,6 +7,7 @@ package com.guardpay.risk.signal;
  */
 public enum PaymentSignalType {
   UNUSUAL_AMOUNT,
+  REPEATED_ATTEMPTS,
   NEW_RECIPIENT,
   UNKNOWN_MERCHANT,
   UNEXPECTED_INVOICE,

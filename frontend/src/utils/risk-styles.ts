@@ -48,5 +48,5 @@ export function getRiskTheme(level: RiskLevel): RiskTheme {
 }
 
 export function riskPanelClass(level: RiskLevel, extra?: string): string {
-  return cn('rounded-lg border p-6', THEMES[level].panel, extra);
+  return cn('rounded-2xl border p-5 shadow-sm sm:p-6', THEMES[level].panel, extra);
 }

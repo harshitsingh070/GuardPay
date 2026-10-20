@@ -2,6 +2,7 @@ package com.guardpay.ai;
 
 import com.guardpay.ai.dto.AiAnalysisRequest;
 import com.guardpay.ai.dto.AiAnalysisResponse;
+import com.guardpay.common.web.OutboundCallLogger;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -40,6 +41,8 @@ public class AiAnalysisClient {
     if (!properties.isEnabled()) {
       throw new AiUnavailableException("AI analysis is disabled");
     }
+    String url = properties.getBaseUrl() + "/api/v1/analyze";
+    long startedAt = OutboundCallLogger.request("AI", "POST", url, request);
     try {
       AiAnalysisResponse response =
           restClient
@@ -63,12 +66,16 @@ public class AiAnalysisClient {
       if (response == null || response.findings() == null) {
         throw new AiUnavailableException("AI service returned an empty response");
       }
+      OutboundCallLogger.success("AI", "POST", url, startedAt, response);
       return response;
     } catch (AiUnavailableException e) {
+      OutboundCallLogger.failure("AI", "POST", url, startedAt, -1, e);
       throw e;
     } catch (ResourceAccessException e) {
+      OutboundCallLogger.failure("AI", "POST", url, startedAt, -1, e);
       throw new AiUnavailableException("AI service is unreachable");
     } catch (RestClientException e) {
+      OutboundCallLogger.failure("AI", "POST", url, startedAt, -1, e);
       throw new AiUnavailableException("AI service returned an unreadable response");
     }
   }

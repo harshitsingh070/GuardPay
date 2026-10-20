@@ -85,7 +85,8 @@ public class PayPalWebhookService {
       event.setStatus(outcome);
       event.setProcessedAt(OffsetDateTime.now(ZoneOffset.UTC));
       events.save(event);
-    } catch (RuntimeException failure) {      event.setStatus(WebhookProcessingStatus.FAILED);
+    } catch (RuntimeException failure) {
+      event.setStatus(WebhookProcessingStatus.FAILED);
       events.save(event);
       throw failure;
     }
@@ -100,7 +101,7 @@ public class PayPalWebhookService {
     }
     return switch (eventType) {
       case "CHECKOUT.ORDER.CREATED" -> syncOrder(resource, TransactionStatus.PENDING);
-      case "CHECKOUT.ORDER.APPROVED" -> syncOrder(resource, TransactionStatus.PENDING);
+      case "CHECKOUT.ORDER.APPROVED" -> syncOrder(resource, TransactionStatus.APPROVED);
       case "PAYMENT.CAPTURE.PENDING" -> syncCapture(resource, TransactionStatus.PENDING);
       case "PAYMENT.CAPTURE.COMPLETED" -> syncCapture(resource, TransactionStatus.COMPLETED);
       case "PAYMENT.CAPTURE.DENIED" -> syncCapture(resource, TransactionStatus.FAILED);
@@ -131,8 +132,16 @@ public class PayPalWebhookService {
       log.warn("PayPal webhook for unknown order ignored (no transaction created)");
       return WebhookProcessingStatus.IGNORED;
     }
-    transaction.get().setStatus(status);
-    transactions.save(transaction.get());
+    Transaction current = transaction.get();
+    if (!canApply(current.getStatus(), status)) {
+      log.info(
+          "PayPal webhook would regress order state ({} -> {}); keeping current state",
+          current.getStatus(),
+          status);
+      return WebhookProcessingStatus.PROCESSED;
+    }
+    current.setStatus(status);
+    transactions.save(current);
     return WebhookProcessingStatus.PROCESSED;
   }
 
@@ -155,12 +164,35 @@ public class PayPalWebhookService {
       return WebhookProcessingStatus.IGNORED;
     }
     Transaction current = transaction.get();
+    if (!canApply(current.getStatus(), status)) {
+      log.info(
+          "PayPal webhook would regress capture state ({} -> {}); keeping current state",
+          current.getStatus(),
+          status);
+      return WebhookProcessingStatus.PROCESSED;
+    }
     if (current.getPaypalCaptureId() == null) {
       current.setPaypalCaptureId(captureId);
     }
     current.setStatus(status);
     transactions.save(current);
     return WebhookProcessingStatus.PROCESSED;
+  }
+
+  /**
+   * PayPal events can arrive out of order. Terminal outcomes are final and a
+   * payment never moves backwards: APPROVED cannot return to PENDING, and a
+   * FAILED payment only recovers to COMPLETED (for example, a retried capture
+   * on the same order).
+   */
+  private static boolean canApply(TransactionStatus current, TransactionStatus target) {
+    if (current == TransactionStatus.COMPLETED || current == TransactionStatus.CANCELLED) {
+      return false;
+    }
+    if (current == TransactionStatus.FAILED) {
+      return target == TransactionStatus.COMPLETED;
+    }
+    return !(current == TransactionStatus.APPROVED && target == TransactionStatus.PENDING);
   }
 
   /** Best-effort related order id from {@code supplementary_data.related_ids.order_id}. */

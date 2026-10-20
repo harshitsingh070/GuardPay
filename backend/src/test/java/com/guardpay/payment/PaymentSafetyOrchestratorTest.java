@@ -2,7 +2,9 @@ package com.guardpay.payment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
@@ -14,8 +16,10 @@ import static org.mockito.Mockito.when;
 import com.guardpay.merchant.MerchantRepository;
 import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
+import com.guardpay.payment.dto.GuardedVerificationDto;
 import com.guardpay.paypal.dto.CreatedPaypalOrder;
 import com.guardpay.paypal.service.PayPalOrderService;
+import com.guardpay.recipient.Recipient;
 import com.guardpay.recipient.RecipientRepository;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskAssessmentRepository;
@@ -29,6 +33,8 @@ import com.guardpay.user.User;
 import com.guardpay.user.UserRepository;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -39,7 +45,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Orchestrator branching with mocked pipeline and repositories — no network,
@@ -60,16 +68,21 @@ class PaymentSafetyOrchestratorTest {
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
   @Mock private GuardedPaymentIdempotencyRepository idempotency;
+  @Mock private GuardedPaymentLock lock;
+  @Mock private PaymentVerificationService verificationService;
 
   private PaymentSafetyOrchestrator orchestrator;
   private User user;
 
   @BeforeEach
   void setUp() {
+    GuardedPaymentCompletionService completion =
+        new GuardedPaymentCompletionService(
+            orderService, transactions, contexts, assessments, idempotency, lock,
+            verificationService);
     orchestrator =
         new PaymentSafetyOrchestrator(
-            automaticRisk, orderService, transactions, contexts, assessments, users, recipients,
-            merchants, idempotency);
+            automaticRisk, completion, users, recipients, merchants, idempotency);
     user = new User();
     ReflectionTestUtils.setField(user, "id", USER_ID);
     // Lenient: the structural test below never initiates, behavior tests always do.
@@ -150,6 +163,32 @@ class PaymentSafetyOrchestratorTest {
   }
 
   @Test
+  void verifyIssuesControlledChallengeInsteadOfOrder() {
+    stubEchoSaves();
+    when(automaticRisk.evaluate(any()))
+        .thenReturn(risk(60, RiskLevel.MEDIUM, RecommendedAction.VERIFY));
+    GuardedVerificationDto challenge =
+        new GuardedVerificationDto(
+            UUID.randomUUID(),
+            VerificationStatus.PENDING,
+            OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(10),
+            3,
+            true,
+            "simulated",
+            "123456");
+    when(verificationService.startChallenge(any())).thenReturn(challenge);
+
+    GuardedPaymentResponseDto response = orchestrator.initiate(request());
+
+    assertEquals(GuardedPaymentStatus.VERIFICATION_REQUIRED, response.paymentStatus());
+    assertNull(response.paypalOrder());
+    assertNotNull(response.verification());
+    assertEquals(VerificationStatus.PENDING, response.verification().status());
+    verify(verificationService).startChallenge(any());
+    verify(orderService, never()).createPaypalOrder(any(), any());
+  }
+
+  @Test
   void unknownRecipientNameIsLearnedAsNew() {
     stubEchoSaves();
     when(automaticRisk.evaluate(any()))
@@ -167,6 +206,66 @@ class PaymentSafetyOrchestratorTest {
     ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
     verify(transactions, times(2)).save(saved.capture());
     assertEquals("Brand New Stranger", saved.getAllValues().get(1).getRecipient().getName());
+  }
+
+  @Test
+  void knownRecipientNameIsReusedWithoutSaving() {
+    stubEchoSaves();
+    when(automaticRisk.evaluate(any()))
+        .thenReturn(risk(20, RiskLevel.LOW, RecommendedAction.ALLOW));
+    when(orderService.createPaypalOrder(any(), any()))
+        .thenReturn(new CreatedPaypalOrder("O-3", "CREATED", "https://sandbox.paypal.com/approve"));
+    Recipient known = new Recipient();
+    known.setUser(user);
+    known.setName("Known Person");
+    when(recipients.findByUserIdAndNameIgnoreCase(USER_ID, "known person"))
+        .thenReturn(Optional.of(known));
+
+    GuardedPaymentRequestDto dto = request();
+    dto.setRecipientName("known person");
+    GuardedPaymentResponseDto response = orchestrator.initiate(dto);
+
+    assertEquals(GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED, response.paymentStatus());
+    verify(recipients, never()).save(any());
+    ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+    verify(transactions, times(2)).save(saved.capture());
+    assertEquals("Known Person", saved.getAllValues().get(1).getRecipient().getName());
+  }
+
+  @Test
+  void foreignRecipientIdIsRejectedInsteadOfSilentlyIgnored() {
+    User otherOwner = new User();
+    ReflectionTestUtils.setField(otherOwner, "id", UUID.randomUUID());
+    Recipient foreign = new Recipient();
+    foreign.setUser(otherOwner);
+    UUID foreignId = UUID.randomUUID();
+    when(recipients.findById(foreignId)).thenReturn(Optional.of(foreign));
+
+    GuardedPaymentRequestDto dto = request();
+    dto.setRecipientId(foreignId);
+
+    ResponseStatusException failure =
+        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto));
+
+    assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
+    verify(automaticRisk, never()).evaluate(any());
+    verify(orderService, never()).createPaypalOrder(any(), any());
+  }
+
+  @Test
+  void unknownMerchantIdIsRejectedInsteadOfSilentlyIgnored() {
+    UUID unknownId = UUID.randomUUID();
+    when(merchants.findById(unknownId)).thenReturn(Optional.empty());
+
+    GuardedPaymentRequestDto dto = request();
+    dto.setMerchantId(unknownId);
+
+    ResponseStatusException failure =
+        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto));
+
+    assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
+    verify(automaticRisk, never()).evaluate(any());
+    verify(orderService, never()).createPaypalOrder(any(), any());
   }
 
   @Test

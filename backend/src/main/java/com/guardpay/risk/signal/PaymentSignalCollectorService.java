@@ -12,6 +12,8 @@ import com.guardpay.user.UserRepository;
 import com.guardpay.risk.DeterministicRiskEngine;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -62,6 +64,7 @@ public class PaymentSignalCollectorService {
 
     List<PaymentSignal> signals = new ArrayList<>();
     signals.add(unusualAmount(request.amount(), average));
+    signals.add(repeatedAttempts(request, user));
     signals.add(newRecipient(request, user));
     signals.add(unknownMerchant(request, user));
     signals.add(unavailable(PaymentSignalType.UNEXPECTED_INVOICE, SignalSource.PAYMENT_CONTEXT,
@@ -129,6 +132,33 @@ public class PaymentSignalCollectorService {
                 + average.toPlainString() + "."
             : current.toPlainString() + " is within the normal range (average "
                 + average.toPlainString() + ").");
+  }
+
+  /**
+   * Velocity: counts every prior attempt (any status) in the window and adds
+   * the current attempt. Missing user context therefore reports unavailable,
+   * never a false "safe" or a false "fraudulent".
+   */
+  private PaymentSignal repeatedAttempts(SignalCollectionRequest request, User user) {
+    int windowMinutes = DeterministicRiskEngine.REPEATED_ATTEMPT_WINDOW_MINUTES;
+    if (user == null) {
+      return new PaymentSignal(PaymentSignalType.REPEATED_ATTEMPTS, false,
+          SignalSource.TRANSACTION_HISTORY, "USER_UNAVAILABLE",
+          "No user context is available for a velocity check.");
+    }
+    OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(windowMinutes);
+    long prior =
+        transactions.findByUserAndTransactionTimestampAfter(user, cutoff).stream()
+            .filter(transaction -> matchesCurrency(transaction, request.currency()))
+            .filter(transaction -> !isExcluded(transaction, request.excludeTransactionId()))
+            .count();
+    boolean hit = prior + 1 >= DeterministicRiskEngine.REPEATED_ATTEMPT_THRESHOLD;
+    String evidence =
+        hit
+            ? (prior + 1) + " payment attempts were made in the last " + windowMinutes + " minutes."
+            : "No unusual rate of payment attempts in the last " + windowMinutes + " minutes.";
+    return new PaymentSignal(PaymentSignalType.REPEATED_ATTEMPTS, hit,
+        SignalSource.TRANSACTION_HISTORY, null, evidence);
   }
 
   private PaymentSignal newRecipient(SignalCollectionRequest request, User user) {

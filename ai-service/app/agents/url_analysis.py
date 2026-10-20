@@ -19,10 +19,30 @@ LURE_WORDS = frozenset(
 # Brand names that only their owner should serve from a registrable domain.
 BRAND_MARKS = frozenset({"paypal", "apple", "google", "microsoft", "amazon", "bank"})
 
+# Common multi-label public suffixes. This is a deliberately small offline
+# approximation of the Public Suffix List: enough to keep ccTLD registrable
+# domains (paypal.co.uk) from being misread as a subdomain of "co.uk".
+_MULTI_LABEL_SUFFIXES = frozenset(
+    {
+        "co.uk", "org.uk", "ac.uk", "gov.uk",
+        "com.au", "net.au", "org.au",
+        "co.nz", "net.nz",
+        "co.jp", "ne.jp", "or.jp",
+        "co.in", "net.in", "org.in",
+        "com.br", "com.mx", "com.ar",
+        "com.tr", "com.sg", "com.hk", "com.cn", "com.tw",
+        "co.kr", "co.za", "co.id", "co.il",
+        "com.my", "com.ph", "com.vn", "com.pk", "com.ng",
+        "com.eg", "com.sa", "com.ua",
+    }
+)
+
 
 def _registrable(host: str) -> str:
-    labels = host.lower().split(".")
-    return ".".join(labels[-2:]) if len(labels) >= 2 else host.lower()
+    labels = host.lower().rstrip(".").split(".")
+    if len(labels) >= 3 and ".".join(labels[-2:]) in _MULTI_LABEL_SUFFIXES:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:]) if len(labels) >= 2 else labels[0]
 
 
 def analyze_url(url: str | None) -> list[AiFinding]:
@@ -75,7 +95,7 @@ def analyze_url(url: str | None) -> list[AiFinding]:
             "Punycode domains can visually impersonate trusted brands.",
             f"Host uses punycode encoding: {host}.",
         )
-    labels = host.split(".")
+    labels = host.rstrip(".").split(".")
     if len(labels) > 5:
         add(
             "SUSPICIOUS_URL_STRUCTURE",
@@ -86,7 +106,7 @@ def analyze_url(url: str | None) -> list[AiFinding]:
     registrable = _registrable(host)
     root_labels = registrable.split(".")
     owner = root_labels[0] if root_labels else ""
-    sub_labels = labels[:-2] if len(labels) > 2 else []
+    sub_labels = labels[: -len(root_labels)] if len(labels) > len(root_labels) else []
     if any(mark in label for label in sub_labels for mark in BRAND_MARKS) and not any(
         mark in owner for mark in BRAND_MARKS
     ):

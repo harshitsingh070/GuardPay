@@ -1,3 +1,4 @@
+import type { GuardedPaymentStatus } from '@/types/payment';
 import type { RecommendedAction, RiskEvaluationRequest, RiskLevel } from '@/types/risk';
 
 // Backend owns order creation — the frontend never sends credentials, tokens,
@@ -26,6 +27,7 @@ export interface PayPalCaptureResponse {
   captureId: string;
   amount: number;
   currency: string;
+  paymentStatus: GuardedPaymentStatus;
 }
 
 /** HTTP 403 body when the server-side risk decision blocks capture. */

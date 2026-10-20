@@ -50,6 +50,38 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
+  ::selection {
+    @apply bg-[#cfe4ff] text-[#001435];
+  }
+}
+
+@layer components {
+  .gp-card {
+    @apply rounded-2xl border border-guardpay-line bg-white shadow-sm;
+  }
+
+  .gp-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-guardpay-blue;
+  }
+}
+
+.guardpay-grid {
+  --ag-font-family: inherit;
+  --ag-font-size: 13px;
+  --ag-cell-horizontal-padding: 10px;
+  --ag-header-background-color: #f5f7fa;
+  --ag-header-foreground-color: #6c7378;
+  --ag-border-color: #e1e6eb;
+  --ag-row-border-color: #eef1f4;
+  --ag-foreground-color: #001435;
+  --ag-row-hover-color: #f5f9ff;
+  --ag-selected-row-background-color: #eaf2ff;
+  --ag-odd-row-background-color: #ffffff;
+  --ag-header-column-separator-color: transparent;
+}
+
+.guardpay-grid .ag-root-wrapper {
+  border: 0;
 }

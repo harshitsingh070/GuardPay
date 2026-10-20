@@ -1,6 +1,7 @@
 package com.guardpay.risk;
 
 import com.guardpay.transaction.Transaction;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,4 +10,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RiskAssessmentRepository extends JpaRepository<RiskAssessment, UUID> {
 
   List<RiskAssessment> findByTransactionOrderByCreatedAtDesc(Transaction transaction);
+
+  /** Batch lookup for a history page (avoids a query per row). */
+  List<RiskAssessment> findByTransactionIdInOrderByCreatedAtDesc(Collection<UUID> transactionIds);
 }

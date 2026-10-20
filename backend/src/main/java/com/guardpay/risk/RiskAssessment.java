@@ -45,6 +45,21 @@ public class RiskAssessment extends BaseEntity {
   @Column(name = "explanation", columnDefinition = "TEXT")
   private String explanation;
 
+  /**
+   * JSON array of the engine findings behind the decision (audit/display only).
+   * Stored as text so this module never depends on a JSON column type.
+   */
+  @Column(name = "findings", columnDefinition = "TEXT")
+  private String findings;
+
+  public String getFindings() {
+    return findings;
+  }
+
+  public void setFindings(String findings) {
+    this.findings = findings;
+  }
+
   public Transaction getTransaction() {
     return transaction;
   }

@@ -13,7 +13,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.guardpay.payment.GuardedPaymentStatus;
 import com.guardpay.payment.PaymentContextRepository;
+import com.guardpay.payment.PaymentVerification;
+import com.guardpay.payment.PaymentVerificationRepository;
+import com.guardpay.payment.VerificationStatus;
 import com.guardpay.paypal.client.PayPalClient;
 import com.guardpay.paypal.dto.CreateOrderRequestDto;
 import com.guardpay.paypal.dto.CreateOrderResponseDto;
@@ -60,6 +64,7 @@ class PayPalOrderServiceTest {
   @Mock private PaymentContextRepository contexts;
   @Mock private RiskAssessmentRepository assessments;
   @Mock private UserRepository users;
+  @Mock private PaymentVerificationRepository verifications;
 
   private PayPalOrderService service;
 
@@ -67,7 +72,13 @@ class PayPalOrderServiceTest {
   void setUp() {
     service =
         new PayPalOrderService(
-            payPalClient, new DeterministicRiskEngine(), transactions, contexts, assessments, users);
+            payPalClient,
+            new DeterministicRiskEngine(),
+            transactions,
+            contexts,
+            assessments,
+            users,
+            verifications);
   }
 
   /** Repositories echo saved entities (no database). Call only where saves happen. */
@@ -209,6 +220,21 @@ class PayPalOrderServiceTest {
   }
 
   @Test
+  void reloadedAmountIsNormalizedToTwoDecimals() {
+    ArgumentCaptor<PayPalCreateOrderRequest> sent =
+        ArgumentCaptor.forClass(PayPalCreateOrderRequest.class);
+    when(payPalClient.post(
+            eq("/v2/checkout/orders"), sent.capture(), eq(PayPalCreateOrderResponse.class)))
+        .thenReturn(paypalOrder("ORDER-1"));
+
+    // transactions.amount is NUMERIC(19,4); a reloaded value arrives as 45.0000.
+    service.createPaypalOrder(new BigDecimal("45.0000"), "GuardPay protected payment");
+
+    assertEquals(
+        "45.00", sent.getValue().purchaseUnits().get(0).amount().value());
+  }
+
+  @Test
   void allowCaptureCallsPayPalAndCompletes() {
     Transaction transaction = storedTransaction("ORDER-1");
     when(transactions.findByPaypalOrderIdForUpdate("ORDER-1")).thenReturn(Optional.of(transaction));
@@ -224,6 +250,7 @@ class PayPalOrderServiceTest {
     assertEquals("ORDER-1", response.orderId());
     assertEquals("COMPLETED", response.status());
     assertEquals("CAP-1", response.captureId());
+    assertEquals(GuardedPaymentStatus.COMPLETED, response.paymentStatus());
     assertEquals(TransactionStatus.COMPLETED, transaction.getStatus());
     assertEquals("CAP-1", transaction.getPaypalCaptureId());
   }
@@ -252,6 +279,26 @@ class PayPalOrderServiceTest {
 
     assertThrows(CaptureBlockedException.class, () -> service.captureOrder("ORDER-8"));
     verify(payPalClient, never()).post(anyString(), any(), any(Class.class));
+  }
+
+  @Test
+  void verifiedVerifyDecisionAllowsCapture() {
+    Transaction transaction = storedTransaction("ORDER-7");
+    when(transactions.findByPaypalOrderIdForUpdate("ORDER-7")).thenReturn(Optional.of(transaction));
+    when(assessments.findByTransactionOrderByCreatedAtDesc(transaction))
+        .thenReturn(List.of(assessment(RecommendedAction.VERIFY, RiskLevel.MEDIUM, 60)));
+    PaymentVerification verification = new PaymentVerification();
+    verification.setStatus(VerificationStatus.VERIFIED);
+    when(verifications.findByTransaction(transaction)).thenReturn(Optional.of(verification));
+    when(transactions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+    when(payPalClient.post(
+            eq("/v2/checkout/orders/ORDER-7/capture"), any(), eq(PayPalCaptureResponse.class)))
+        .thenReturn(captureResponse());
+
+    CaptureOrderResponseDto response = service.captureOrder("ORDER-7");
+
+    assertEquals(GuardedPaymentStatus.COMPLETED, response.paymentStatus());
+    assertEquals(TransactionStatus.COMPLETED, transaction.getStatus());
   }
 
   @Test

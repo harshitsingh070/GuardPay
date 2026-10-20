@@ -24,7 +24,7 @@ class DeterministicRiskEngineTest {
   private static RiskEvaluationRequest base() {
     return new RiskEvaluationRequest(
         new BigDecimal("45"), new BigDecimal("87"),
-        false, false, false, false, false, false, false);
+        false, false, false, false, false, false, false, false);
   }
 
   private static Map<String, Boolean> triggeredBy(RiskEvaluationResult result) {
@@ -39,7 +39,7 @@ class DeterministicRiskEngineTest {
     assertEquals(0, result.score());
     assertEquals(RiskLevel.LOW, result.riskLevel());
     assertEquals(RecommendedAction.ALLOW, result.recommendedAction());
-    assertEquals(8, result.findings().size());
+    assertEquals(9, result.findings().size());
     assertTrue(triggeredBy(result).values().stream().noneMatch(b -> b));
     assertTrue(result.explanation() != null && !result.explanation().isBlank());
   }
@@ -49,7 +49,7 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("45"), new BigDecimal("87"),
-            false, true, false, false, false, false, false);
+            false, true, false, false, false, false, false, false);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
@@ -60,11 +60,24 @@ class DeterministicRiskEngineTest {
   }
 
   @Test
+  void repeatedAttemptsAddFifteen() {
+    RiskEvaluationRequest request =
+        new RiskEvaluationRequest(
+            new BigDecimal("45"), new BigDecimal("87"),
+            false, false, true, false, false, false, false, false);
+
+    RiskEvaluationResult result = engine.evaluate(request);
+
+    assertEquals(15, result.score());
+    assertTrue(triggeredBy(result).get("REPEATED_ATTEMPTS"));
+  }
+
+  @Test
   void activeCallAddsFifteen() {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("45"), new BigDecimal("87"),
-            true, false, false, false, false, false, false);
+            true, false, false, false, false, false, false, false);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
@@ -78,7 +91,7 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("500"), new BigDecimal("87"),
-            false, false, false, false, false, false, false);
+            false, false, false, false, false, false, false, false);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
@@ -88,7 +101,7 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest justBelow =
         new RiskEvaluationRequest(
             new BigDecimal("434"), new BigDecimal("87"),
-            false, false, false, false, false, false, false);
+            false, false, false, false, false, false, false, false);
     assertFalse(triggeredBy(engine.evaluate(justBelow)).get("LARGE_AMOUNT"));
   }
 
@@ -97,7 +110,7 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("45"), new BigDecimal("87"),
-            true, true, false, true, true, false, false);
+            true, true, false, false, true, true, false, false);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
@@ -111,11 +124,11 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("2499"), new BigDecimal("87"),
-            true, true, true, true, true, true, true);
+            true, true, true, true, true, true, true, true);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    // Raw total is 120; the final score must be capped at 100.
+    // Raw total is 135; the final score must be capped at 100.
     assertEquals(100, result.score());
     assertEquals(RiskLevel.CRITICAL, result.riskLevel());
     assertEquals(RecommendedAction.STOP, result.recommendedAction());
@@ -127,7 +140,7 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest everything =
         new RiskEvaluationRequest(
             new BigDecimal("999999"), new BigDecimal("1"),
-            true, true, true, true, true, true, true);
+            true, true, true, true, true, true, true, true);
 
     assertTrue(engine.evaluate(everything).score() <= 100);
   }
@@ -153,7 +166,7 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("500"), new BigDecimal("87"),
-            true, true, false, true, false, false, false);
+            true, true, false, false, true, false, false, false);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
@@ -169,7 +182,7 @@ class DeterministicRiskEngineTest {
       RiskEvaluationRequest request =
           new RiskEvaluationRequest(
               new BigDecimal("9999"), average,
-              true, false, false, false, false, false, false);
+              true, false, false, false, false, false, false, false);
 
       RiskEvaluationResult result = engine.evaluate(request);
 
@@ -183,7 +196,7 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("800"), new BigDecimal("87"),
-            false, true, false, true, false, true, false);
+            false, true, false, false, true, false, true, false);
 
     assertEquals(engine.evaluate(request), engine.evaluate(request));
   }
@@ -198,6 +211,7 @@ class DeterministicRiskEngineTest {
             "ACTIVE_CALL",
             "NEW_RECIPIENT",
             "LARGE_AMOUNT",
+            "REPEATED_ATTEMPTS",
             "UNKNOWN_MERCHANT",
             "UNEXPECTED_INVOICE",
             "URGENT_LANGUAGE",

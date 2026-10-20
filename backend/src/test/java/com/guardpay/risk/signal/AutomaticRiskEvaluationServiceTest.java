@@ -2,6 +2,8 @@ package com.guardpay.risk.signal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.guardpay.device.DeviceCallStateRepository;
@@ -69,6 +71,9 @@ class AutomaticRiskEvaluationServiceTest {
             recipients,
             merchants,
             aiClient);
+    lenient()
+        .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
+        .thenReturn(List.of());
   }
 
   private static Transaction completed(String amount) {
@@ -112,8 +117,8 @@ class AutomaticRiskEvaluationServiceTest {
     assertEquals(40, response.score());
     assertEquals(RiskLevel.MEDIUM, response.riskLevel());
     assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
-    assertEquals(8, response.automaticSignals().size());
-    assertEquals(8, response.findings().size());
+    assertEquals(9, response.automaticSignals().size());
+    assertEquals(9, response.findings().size());
   }
 
   @Test

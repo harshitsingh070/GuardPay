@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -53,6 +54,9 @@ class PaymentSignalCollectorDeviceTest {
     lenient().when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     lenient()
         .when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
+        .thenReturn(List.of());
+    lenient()
+        .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
         .thenReturn(List.of());
   }
 

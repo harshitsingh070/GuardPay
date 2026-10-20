@@ -27,6 +27,7 @@ public class RiskEvaluationService {
             dto.getHistoricalAverage(),
             dto.isActiveCall(),
             dto.isNewRecipient(),
+            dto.isRepeatedAttempts(),
             dto.isUnknownMerchant(),
             dto.isUnexpectedInvoice(),
             dto.isUrgentLanguage(),

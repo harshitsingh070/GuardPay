@@ -3,10 +3,13 @@ package com.guardpay.transaction;
 import com.guardpay.merchant.Merchant;
 import com.guardpay.recipient.Recipient;
 import com.guardpay.user.User;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -28,6 +31,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
   Optional<Transaction> findByPaypalOrderIdForUpdate(@Param("orderId") String orderId);
 
   List<Transaction> findByUserAndStatus(User user, TransactionStatus status);
+
+  /** Paged transaction history for one user (owner-scoped access). */
+  Page<Transaction> findByUserId(UUID userId, Pageable pageable);
+
+  /** Attempts (any status) created after a cutoff, used for velocity analysis. */
+  List<Transaction> findByUserAndTransactionTimestampAfter(
+      User user, OffsetDateTime transactionTimestamp);
 
   List<Transaction> findByUserAndRecipientAndStatus(
       User user, Recipient recipient, TransactionStatus status);

@@ -7,6 +7,8 @@ import com.guardpay.paypal.exception.PayPalException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -26,6 +28,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+  private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<ApiError> handleValidation(
       MethodArgumentNotValidException ex, HttpServletRequest request) {
@@ -33,12 +37,18 @@ public class GlobalExceptionHandler {
         ex.getBindingResult().getFieldErrors().stream()
             .map(fieldError -> fieldError.getField() + ": " + messageOf(fieldError))
             .collect(Collectors.joining("; "));
+    log.warn("Validation failed for {} {}: {}", request.getMethod(), request.getRequestURI(), details);
     return error(HttpStatus.BAD_REQUEST, "Validation failed: " + details, request);
   }
 
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ApiError> handleUnreadable(
       HttpMessageNotReadableException ex, HttpServletRequest request) {
+    log.warn(
+        "Unreadable body for {} {}: {}",
+        request.getMethod(),
+        request.getRequestURI(),
+        ex.getMostSpecificCause().getMessage());
     return error(HttpStatus.BAD_REQUEST, "Malformed JSON request", request);
   }
 
@@ -53,7 +63,15 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(PayPalException.class)
   public ResponseEntity<ApiError> handlePayPal(PayPalException ex, HttpServletRequest request) {
-    // 502 with a generic message — safe PayPal details never leave the server.
+    // Safe details never leave the server; log server-side with the PayPal status.
+    log.error("PayPal call failed (status={}): {}", ex.getStatusCode(), ex.getMessage());
+    int status = ex.getStatusCode();
+    // A 4xx (other than auth) means PayPal rejected the request itself — e.g. an
+    // order that is not approved yet — so surface the actionable reason. Real
+    // PayPal outages (5xx, network) stay a generic 502.
+    if (status >= 400 && status < 500 && status != 401 && status != 403) {
+      return error(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
     return error(HttpStatus.BAD_GATEWAY, "PayPal service unavailable", request);
   }
 
@@ -70,7 +88,9 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
-    // Deliberately generic: never leak stack traces or internals to clients.
+    // Deliberately generic in the response: never leak stack traces or internals
+    // to clients. The full cause is logged server-side for diagnosis.
+    log.error("Unhandled exception processing {} {}", request.getMethod(), request.getRequestURI(), ex);
     return error(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error", request);
   }
 

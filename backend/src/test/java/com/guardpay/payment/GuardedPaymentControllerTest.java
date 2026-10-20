@@ -15,9 +15,13 @@ import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto.GuardedPaypalOrderDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto.GuardedRiskDto;
+import com.guardpay.payment.dto.GuardedVerificationDto;
+import com.guardpay.payment.dto.VerificationConfirmResponseDto;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -37,6 +41,7 @@ class GuardedPaymentControllerTest {
   @Autowired private MockMvc mockMvc;
 
   @MockBean private PaymentSafetyOrchestrator orchestrator;
+  @MockBean private PaymentVerificationService verificationService;
 
   private static String body(String amount) {
     return "{\"amount\": "
@@ -51,7 +56,8 @@ class GuardedPaymentControllerTest {
         new GuardedRiskDto(10, RiskLevel.LOW, RecommendedAction.ALLOW, "Ok.", List.of(), List.of(),
             "NOT_REQUESTED"),
         GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED,
-        new GuardedPaypalOrderDto("O-1", "https://www.sandbox.paypal.com/checkoutnow?token=O-1"));
+        new GuardedPaypalOrderDto("O-1", "https://www.sandbox.paypal.com/checkoutnow?token=O-1"),
+        null);
   }
 
   @Test
@@ -70,6 +76,75 @@ class GuardedPaymentControllerTest {
         .andExpect(jsonPath("$.paymentStatus").value("PAYPAL_AUTHORIZATION_REQUIRED"))
         .andExpect(jsonPath("$.paypalOrder.orderId").value("O-1"))
         .andExpect(jsonPath("$.paypalOrder.approvalUrl").isNotEmpty());
+  }
+
+  @Test
+  void verifyDecisionReturnsControlledChallengeAndNoOrder() throws Exception {
+    GuardedVerificationDto challenge =
+        new GuardedVerificationDto(
+            UUID.randomUUID(),
+            VerificationStatus.PENDING,
+            OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(10),
+            3,
+            true,
+            "Code delivered through the GuardPay simulated challenge channel.",
+            "123456");
+    when(orchestrator.initiate(any(), any()))
+        .thenReturn(
+            new GuardedPaymentResponseDto(
+                UUID.randomUUID(),
+                new GuardedRiskDto(60, RiskLevel.MEDIUM, RecommendedAction.VERIFY, "Verify.", List.of(),
+                    List.of(), "NOT_REQUESTED"),
+                GuardedPaymentStatus.VERIFICATION_REQUIRED,
+                null,
+                challenge));
+
+    mockMvc
+        .perform(
+            post("/api/payments/guarded")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body("45.00")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.paymentStatus").value("VERIFICATION_REQUIRED"))
+        .andExpect(jsonPath("$.paypalOrder").doesNotExist())
+        .andExpect(jsonPath("$.verification.simulated").value(true))
+        .andExpect(jsonPath("$.verification.status").value("PENDING"))
+        .andExpect(jsonPath("$.verification.challengeCode").value("123456"));
+  }
+
+  @Test
+  void confirmVerificationReturnsOrderOnSuccess() throws Exception {
+    UUID paymentId = UUID.randomUUID();
+    when(verificationService.confirm(eq(paymentId), eq("123456")))
+        .thenReturn(
+            new VerificationConfirmResponseDto(
+                paymentId,
+                VerificationStatus.VERIFIED,
+                GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED,
+                new GuardedPaypalOrderDto("O-VER", "https://sandbox.paypal.com/approve"),
+                OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5),
+                3,
+                "Verification complete."));
+
+    mockMvc
+        .perform(
+            post("/api/payments/" + paymentId + "/verification/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\": \"123456\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.verificationStatus").value("VERIFIED"))
+        .andExpect(jsonPath("$.paymentStatus").value("PAYPAL_AUTHORIZATION_REQUIRED"))
+        .andExpect(jsonPath("$.paypalOrder.orderId").value("O-VER"));
+  }
+
+  @Test
+  void confirmVerificationRequiresCode() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/payments/" + UUID.randomUUID() + "/verification/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\": \"\"}"))
+        .andExpect(status().isBadRequest());
   }
 
   @Test

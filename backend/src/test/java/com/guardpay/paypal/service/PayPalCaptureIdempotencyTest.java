@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.guardpay.payment.PaymentContextRepository;
+import com.guardpay.payment.PaymentVerificationRepository;
 import com.guardpay.paypal.auth.PayPalOAuthService;
 import com.guardpay.paypal.client.PayPalClient;
 import com.guardpay.paypal.config.PayPalProperties;
@@ -44,6 +45,7 @@ class PayPalCaptureIdempotencyTest {
   @Mock private PaymentContextRepository contexts;
   @Mock private RiskAssessmentRepository assessments;
   @Mock private UserRepository users;
+  @Mock private PaymentVerificationRepository verifications;
 
   private PayPalOrderService service;
 
@@ -56,7 +58,8 @@ class PayPalCaptureIdempotencyTest {
             transactions,
             contexts,
             assessments,
-            users);
+            users,
+            verifications);
   }
 
   private static PayPalCaptureResponse captureResponse() {

@@ -25,6 +25,7 @@ public final class AutomaticSignalAdapter {
         collection.historicalAverage(),
         collection.detected(PaymentSignalType.ACTIVE_CALL),
         collection.detected(PaymentSignalType.NEW_RECIPIENT),
+        collection.detected(PaymentSignalType.REPEATED_ATTEMPTS),
         collection.detected(PaymentSignalType.UNKNOWN_MERCHANT),
         collection.detected(PaymentSignalType.UNEXPECTED_INVOICE)
             || collection.detected(PaymentSignalType.UNEXPECTED_INVOICE_CONTEXT),

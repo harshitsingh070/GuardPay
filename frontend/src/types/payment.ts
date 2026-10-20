@@ -17,11 +17,43 @@ export interface GuardedPaymentRequest {
 export type GuardedPaymentStatus =
   | 'BLOCKED'
   | 'VERIFICATION_REQUIRED'
-  | 'PAYPAL_AUTHORIZATION_REQUIRED';
+  | 'PAYPAL_AUTHORIZATION_REQUIRED'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'FAILED';
 
 export interface GuardedPaypalOrder {
   orderId: string;
   approvalUrl: string;
+}
+
+export type VerificationStatus = 'PENDING' | 'VERIFIED' | 'FAILED' | 'EXPIRED';
+
+/**
+ * Controlled verification challenge. The backend issues it for a VERIFY
+ * decision and alone records the outcome; the browser only supplies an answer.
+ * `challengeCode` is present only for the clearly-labelled simulated channel.
+ */
+export interface GuardedVerification {
+  verificationId: string;
+  status: VerificationStatus;
+  expiresAt: string;
+  attemptsRemaining: number;
+  simulated: boolean;
+  channelHint: string;
+  challengeCode?: string;
+}
+
+export interface VerificationConfirmResponse {
+  paymentId: string;
+  verificationStatus: VerificationStatus;
+  paymentStatus: GuardedPaymentStatus;
+  paypalOrder: GuardedPaypalOrder | null;
+  expiresAt: string;
+  attemptsRemaining: number;
+  message: string;
 }
 
 export interface GuardedPaymentResponse {
@@ -45,4 +77,5 @@ export interface GuardedPaymentResponse {
   };
   paymentStatus: GuardedPaymentStatus;
   paypalOrder: GuardedPaypalOrder | null;
+  verification: GuardedVerification | null;
 }

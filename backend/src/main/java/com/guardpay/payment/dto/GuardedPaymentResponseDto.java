@@ -18,7 +18,8 @@ public record GuardedPaymentResponseDto(
     UUID paymentId,
     GuardedRiskDto risk,
     GuardedPaymentStatus paymentStatus,
-    @JsonInclude(JsonInclude.Include.NON_NULL) GuardedPaypalOrderDto paypalOrder) {
+    @JsonInclude(JsonInclude.Include.NON_NULL) GuardedPaypalOrderDto paypalOrder,
+    @JsonInclude(JsonInclude.Include.NON_NULL) GuardedVerificationDto verification) {
 
   public record GuardedRiskDto(
       int score,

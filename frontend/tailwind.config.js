@@ -7,6 +7,16 @@ export default {
   theme: {
     extend: {
       colors: {
+        guardpay: {
+          ink: '#001435',
+          navy: '#003087',
+          blue: '#0070e0',
+          sky: '#009cde',
+          gold: '#ffc439',
+          muted: '#6c7378',
+          line: '#e1e6eb',
+          canvas: '#f5f7fa',
+        },
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',

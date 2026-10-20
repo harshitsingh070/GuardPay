@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.guardpay.common.config.CorsConfig;
 import com.guardpay.common.config.SecurityConfig;
+import com.guardpay.payment.GuardedPaymentStatus;
 import com.guardpay.paypal.dto.CaptureOrderResponseDto;
 import com.guardpay.paypal.dto.CreateOrderResponseDto;
 import com.guardpay.paypal.exception.CaptureBlockedException;
@@ -108,14 +109,17 @@ class PayPalOrderControllerTest {
   void captureReturnsCaptureShape() throws Exception {
     when(service.captureOrder("ORDER-1"))
         .thenReturn(
-            new CaptureOrderResponseDto("ORDER-1", "COMPLETED", "CAP-1", new BigDecimal("45.00"), "USD"));
+            new CaptureOrderResponseDto(
+                "ORDER-1", "COMPLETED", "CAP-1", new BigDecimal("45.00"), "USD",
+                GuardedPaymentStatus.COMPLETED));
 
     mockMvc
         .perform(post("/api/paypal/orders/ORDER-1/capture"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.orderId").value("ORDER-1"))
         .andExpect(jsonPath("$.status").value("COMPLETED"))
-        .andExpect(jsonPath("$.captureId").value("CAP-1"));
+        .andExpect(jsonPath("$.captureId").value("CAP-1"))
+        .andExpect(jsonPath("$.paymentStatus").value("COMPLETED"));
   }
 
   @Test

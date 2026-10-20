@@ -87,7 +87,23 @@ class PayPalWebhookServiceTest {
 
     assertTrue(ack.received());
     assertNull(ack.duplicate());
-    assertEquals(TransactionStatus.PENDING, transaction.getStatus());
+    assertEquals(TransactionStatus.APPROVED, transaction.getStatus());
+    assertEquals(WebhookProcessingStatus.PROCESSED, lastSavedEvent().getStatus());
+  }
+
+  @Test
+  void approvedOrderDoesNotRegressToCreated() {
+    stubSaveEcho();
+    when(events.findByPaypalEventId("EVT-14")).thenReturn(Optional.empty());
+    Transaction transaction = orderTransaction();
+    transaction.setStatus(TransactionStatus.APPROVED);
+    when(transactions.findByPaypalOrderId("ORDER-14")).thenReturn(Optional.of(transaction));
+
+    service.handleEvent(
+        headers, eventJson("EVT-14", "CHECKOUT.ORDER.CREATED", "{\"id\": \"ORDER-14\"}"));
+
+    assertEquals(TransactionStatus.APPROVED, transaction.getStatus());
+    verify(transactions, never()).save(any());
     assertEquals(WebhookProcessingStatus.PROCESSED, lastSavedEvent().getStatus());
   }
 
@@ -189,6 +205,73 @@ class PayPalWebhookServiceTest {
         eventJson("EVT-5", "PAYMENT.CAPTURE.DENIED", "{\"id\": \"CAP-5\", \"status\": \"DENIED\"}"));
 
     assertEquals(TransactionStatus.FAILED, transaction.getStatus());
+  }
+
+  @Test
+  void latePendingCaptureDoesNotRegressCompletedPayment() {
+    stubSaveEcho();
+    when(events.findByPaypalEventId("EVT-10")).thenReturn(Optional.empty());
+    Transaction transaction = orderTransaction();
+    transaction.setStatus(TransactionStatus.COMPLETED);
+    transaction.setPaypalCaptureId("CAP-10");
+    when(transactions.findByPaypalCaptureId("CAP-10")).thenReturn(Optional.of(transaction));
+
+    service.handleEvent(
+        headers,
+        eventJson("EVT-10", "PAYMENT.CAPTURE.PENDING", "{\"id\": \"CAP-10\"}"));
+
+    assertEquals(TransactionStatus.COMPLETED, transaction.getStatus());
+    verify(transactions, never()).save(any());
+    assertEquals(WebhookProcessingStatus.PROCESSED, lastSavedEvent().getStatus());
+  }
+
+  @Test
+  void lateDeniedCaptureDoesNotRegressCompletedPayment() {
+    stubSaveEcho();
+    when(events.findByPaypalEventId("EVT-11")).thenReturn(Optional.empty());
+    Transaction transaction = orderTransaction();
+    transaction.setStatus(TransactionStatus.COMPLETED);
+    when(transactions.findByPaypalCaptureId("CAP-11")).thenReturn(Optional.of(transaction));
+
+    service.handleEvent(
+        headers,
+        eventJson("EVT-11", "PAYMENT.CAPTURE.DENIED", "{\"id\": \"CAP-11\"}"));
+
+    assertEquals(TransactionStatus.COMPLETED, transaction.getStatus());
+    assertNull(transaction.getPaypalCaptureId());
+    verify(transactions, never()).save(any());
+  }
+
+  @Test
+  void lateOrderApprovalDoesNotRegressCompletedPayment() {
+    stubSaveEcho();
+    when(events.findByPaypalEventId("EVT-12")).thenReturn(Optional.empty());
+    Transaction transaction = orderTransaction();
+    transaction.setStatus(TransactionStatus.COMPLETED);
+    when(transactions.findByPaypalOrderId("ORDER-12")).thenReturn(Optional.of(transaction));
+
+    service.handleEvent(
+        headers,
+        eventJson("EVT-12", "CHECKOUT.ORDER.APPROVED", "{\"id\": \"ORDER-12\"}"));
+
+    assertEquals(TransactionStatus.COMPLETED, transaction.getStatus());
+    verify(transactions, never()).save(any());
+  }
+
+  @Test
+  void pendingCaptureDoesNotRegressFailedPayment() {
+    stubSaveEcho();
+    when(events.findByPaypalEventId("EVT-13")).thenReturn(Optional.empty());
+    Transaction transaction = orderTransaction();
+    transaction.setStatus(TransactionStatus.FAILED);
+    when(transactions.findByPaypalCaptureId("CAP-13")).thenReturn(Optional.of(transaction));
+
+    service.handleEvent(
+        headers,
+        eventJson("EVT-13", "PAYMENT.CAPTURE.PENDING", "{\"id\": \"CAP-13\"}"));
+
+    assertEquals(TransactionStatus.FAILED, transaction.getStatus());
+    verify(transactions, never()).save(any());
   }
 
   @Test

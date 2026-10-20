@@ -1,5 +1,6 @@
 package com.guardpay.paypal.auth;
 
+import com.guardpay.common.web.OutboundCallLogger;
 import com.guardpay.paypal.config.PayPalProperties;
 import com.guardpay.paypal.dto.PayPalAccessTokenResponse;
 import com.guardpay.paypal.exception.PayPalAuthenticationException;
@@ -79,6 +80,10 @@ public class PayPalOAuthService {
   private String refreshToken() {
     requireConfigured();
     log.info("Requesting PayPal OAuth token ({})", properties.environmentLabel());
+    String url = properties.getBaseUrl() + "/v1/oauth2/token";
+    long startedAt =
+        OutboundCallLogger.request(
+            "PAYPAL-OAUTH", "POST", url, "grant_type=client_credentials");
     try {
       PayPalAccessTokenResponse response =
           restClient
@@ -114,11 +119,23 @@ public class PayPalOAuthService {
       long usableSeconds = Math.max(response.expiresIn() - EXPIRY_BUFFER.getSeconds(), 0);
       tokenExpiresAt = Instant.now(clock).plusSeconds(usableSeconds);
       // Deliberately no token value in logs.
+      OutboundCallLogger.success(
+          "PAYPAL-OAUTH",
+          "POST",
+          url,
+          startedAt,
+          "<token response: token_type="
+              + response.tokenType()
+              + ", expires_in="
+              + response.expiresIn()
+              + ", access_token=***>");
       log.info("PayPal OAuth token refreshed");
       return cachedToken;
     } catch (PayPalException e) {
+      OutboundCallLogger.failure("PAYPAL-OAUTH", "POST", url, startedAt, e.getStatusCode(), e);
       throw e;
     } catch (ResourceAccessException e) {
+      OutboundCallLogger.failure("PAYPAL-OAUTH", "POST", url, startedAt, -1, e);
       throw new PayPalException("PayPal is unreachable (network timeout)");
     }
   }

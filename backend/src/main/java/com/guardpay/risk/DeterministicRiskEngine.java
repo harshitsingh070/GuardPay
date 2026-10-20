@@ -27,6 +27,16 @@ public class DeterministicRiskEngine {
    */
   public static final int LARGE_AMOUNT_MULTIPLIER = 5;
 
+  /**
+   * Velocity rule: making at least this many payment attempts (counting the
+   * current attempt) inside {@link #REPEATED_ATTEMPT_WINDOW_MINUTES} fires the
+   * repeated-attempts signal. Public so the signal collector counts using the
+   * exact same rule instead of duplicating the numbers.
+   */
+  public static final int REPEATED_ATTEMPT_THRESHOLD = 3;
+
+  public static final int REPEATED_ATTEMPT_WINDOW_MINUTES = 10;
+
   public RiskEvaluationResult evaluate(RiskEvaluationRequest request) {
     Objects.requireNonNull(request, "request must not be null");
 
@@ -36,6 +46,7 @@ public class DeterministicRiskEngine {
     // "no previous history" case, so history must not add points a second time.
     findings.add(finding(RiskSignal.NEW_RECIPIENT, request.newRecipient()));
     findings.add(finding(RiskSignal.LARGE_AMOUNT, isLargeAmount(request)));
+    findings.add(finding(RiskSignal.REPEATED_ATTEMPTS, request.repeatedAttempts()));
     findings.add(finding(RiskSignal.UNKNOWN_MERCHANT, request.unknownMerchant()));
     findings.add(finding(RiskSignal.UNEXPECTED_INVOICE, request.unexpectedInvoice()));
     findings.add(finding(RiskSignal.URGENT_LANGUAGE, request.urgentLanguage()));

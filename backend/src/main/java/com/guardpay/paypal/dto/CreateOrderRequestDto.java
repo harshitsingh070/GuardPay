@@ -34,6 +34,7 @@ public class CreateOrderRequestDto {
 
   private boolean activeCall;
   private boolean newRecipient;
+  private boolean repeatedAttempts;
   private boolean unknownMerchant;
   private boolean unexpectedInvoice;
   private boolean urgentLanguage;
@@ -86,6 +87,14 @@ public class CreateOrderRequestDto {
 
   public void setNewRecipient(boolean newRecipient) {
     this.newRecipient = newRecipient;
+  }
+
+  public boolean isRepeatedAttempts() {
+    return repeatedAttempts;
+  }
+
+  public void setRepeatedAttempts(boolean repeatedAttempts) {
+    this.repeatedAttempts = repeatedAttempts;
   }
 
   public boolean isUnknownMerchant() {
