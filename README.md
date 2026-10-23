@@ -6,10 +6,11 @@ GuardPay detects when a user may be getting manipulated into making a fraudulent
 
 > **Status:** the guarded payment flow is implemented end to end — automatic
 > signals + AI evidence → deterministic risk engine → `ALLOW`/`VERIFY`/`STOP`,
-> controlled verification, PayPal Sandbox order + server-side capture,
-> signature-verified webhooks, and transaction history. **No authentication
-> yet** (dev endpoints are temporarily public and history is scoped by an
-> optional user id). See `docs/demo.md` to run the demo and `docs/` for design.
+> controlled verification, recipient-bound PayPal Sandbox orders + server-side
+> capture, signature-verified webhooks, and transaction history. The demo runs
+> as a single fixed server-side workspace (`guardpay-demo`); no account or
+> session authentication is required. See `docs/demo.md` to run the demo and
+> `docs/` for design.
 
 ## Architecture overview
 
@@ -58,8 +59,8 @@ AI agents → structured evidence/findings → Spring Boot deterministic risk en
 ```
 
 - `docs/architecture.md` — system architecture + service responsibilities.
-- `docs/api-contract.md` — planned API boundaries (React + Vite ↔ Spring Boot, Spring Boot ↔ Python, PayPal → Spring Boot).
-- `docs/risk-engine.md` — planned design of the deterministic risk engine (not implemented).
+- `docs/api-contract.md` - planned seams plus the live endpoints in section D.
+- `docs/risk-engine.md` - deterministic risk-engine design and current behavior.
 
 ## Technology stack (do not change)
 
@@ -69,7 +70,7 @@ AI agents → structured evidence/findings → Spring Boot deterministic risk en
 
 **Backend:**
 
-- Java 17, Spring Boot 3.x, Spring Security, Spring Data JPA / Hibernate, Maven, PostgreSQL
+- Java 17, Spring Boot 3.x, Spring Data JPA / Hibernate, Maven, PostgreSQL
 
 **AI Service:**
 
@@ -115,7 +116,7 @@ Planned local URLs (not all running yet):
 | ---------- | --------------------- |
 | Frontend   | http://localhost:3000 |
 | Backend    | http://localhost:8080 |
-| AI service | http://localhost:8000 |
+| AI service | http://localhost:8001 |
 | PostgreSQL | localhost:5432        |
 
 ## Planned services
@@ -123,7 +124,7 @@ Planned local URLs (not all running yet):
 | Directory    | Description                                                                 |
 | ------------ | --------------------------------------------------------------------------- |
 | `frontend/`  | Payment interface, risk-warning interface, dashboard, transaction history (AG Grid), real-time risk updates. |
-| `backend/`   | Auth, users, transactions, recipients, merchants, payment processing, PayPal integration + webhooks, PostgreSQL, deterministic risk engine + final ALLOW/VERIFY/STOP decision, REST APIs, real-time communication. |
+| `backend/`   | Users, transactions, recipients, merchants, payment processing, PayPal integration + webhooks, PostgreSQL, deterministic risk engine + final ALLOW/VERIFY/STOP decision, REST APIs, real-time communication. |
 | `ai-service/`| FastAPI + CrewAI agents (transaction risk, social engineering, content safety), LLM interaction, structured AI findings only. No payment decisions. |
 
 ## Backend quickstart (Milestone 2 — foundation)
@@ -153,16 +154,17 @@ curl http://localhost:8080/api/health
 Layering rule: `Controller → Service → Repository → Database`.
 Controllers return DTOs (`common/dto/ApiResponse`) — never JPA entities.
 CORS default-allows the Vite dev server (`http://localhost:3000`,
-override via `CORS_ALLOWED_ORIGINS`). Until the auth milestone the dev
-endpoints are temporarily public (guarded payments, verification confirm,
-transaction reads, risk, PayPal orders/webhooks/health, device signals);
-everything else denies by default.
+override via `CORS_ALLOWED_ORIGINS`). There is no account/session
+authentication in the demo. PayPal webhooks are trusted through signature
+verification, device-signal intake through the device token, and the
+verification outbox is loopback-only.
 
-Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1–V13`,
+Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1�?"V16`,
 applied automatically at startup); Hibernate stays on `ddl-auto=validate`.
 Tables: `users, merchants, recipients, transactions, payment_context, risk_assessments,
 paypal_webhook_events, device_call_states, guarded_payment_idempotency,
-payment_verifications`.
+payment_verifications`. V16 removes the auth tables and consolidates existing
+data onto the fixed demo user.
 Note: if a local PostgreSQL already occupies host port 5432, either stop it
 or point the backend at the compose DB via `DB_PORT`.
 
@@ -188,36 +190,36 @@ WARNING: credentials must NEVER be committed. They live only in environment
 variables (see `backend/.env.example` for the documented keys). The backend
 never logs tokens/secrets and never returns them from any API.
 
-## PayPal Orders flow (Milestone 8 — Sandbox, risk-gated)
+## Guarded PayPal flow (the only order-creation path)
 
-Flow: `POST /api/paypal/orders` (amount USD + risk context) → backend re-runs
-the Risk Engine server-side, stores Transaction + PaymentContext +
-RiskAssessment, and creates the PayPal order **only for ALLOW**
-(status `CREATED` + Sandbox approval URL). STOP/VERIFY create no PayPal order.
+Flow: `POST /api/payments/guarded` accepts business/payment context only and
+runs in the fixed demo workspace. The backend derives risk, stores the
+transaction and decision once, and creates the PayPal order **only for ALLOW**
+(status `PAYPAL_AUTHORIZATION_REQUIRED` + Sandbox approval URL). STOP creates
+nothing; VERIFY creates nothing until the controlled challenge is confirmed.
+The legacy public `POST /api/paypal/orders` route no longer exists.
 
-Sandbox testing (buyer = PayPal Sandbox Personal test account):
+Sandbox testing (buyer = PayPal Sandbox Personal test account). The recipient
+email must belong to a Sandbox account you can use as the payee.
 
 ```powershell
-# 1. Create a small order (ALLOW context)
-curl -X POST http://localhost:8080/api/paypal/orders `
-  -H "Content-Type: application/json" `
-  -d '{"amount": 5.00, "currency": "USD", "historicalAverage": 87}'
-# → {"orderId": "...", "status": "CREATED", "approvalUrl": "https://www.sandbox.paypal.com/checkoutnow?...", ...}
+# 1. Start an ALLOW payment (recipientEmail must be a Sandbox payee)
+$payment = Invoke-RestMethod -Method POST http://localhost:8080/api/payments/guarded `
+  -ContentType "application/json" `
+  -Body '{"amount":45.00,"currency":"USD","recipientName":"Known Co","recipientEmail":"sb-merchant@business.example.com"}'
+# -> risk + paypalOrder.approvalUrl for ALLOW
 
-# 2. Open approvalUrl in a browser, log in with the Sandbox Personal account,
-#    approve, return to GuardPay.
-
-# 3. Capture (allowed only by the stored server-side ALLOW decision)
-curl -X POST http://localhost:8080/api/paypal/orders/{orderId}/capture
-# → {"orderId": "...", "status": "COMPLETED", "captureId": "...", ...}
+# 2. Open approvalUrl, approve with the Sandbox Personal account, then capture.
+Invoke-RestMethod -Method POST "http://localhost:8080/api/paypal/orders/$($payment.paypalOrder.orderId)/capture"
 ```
 
-Risk gate: STOP → no order, capture impossible; VERIFY → no order, HTTP 403
-gate body on capture attempts (`{"allowed": false, ...}`); unknown order →
-404. The frontend can never force ALLOW — capture checks the stored decision.
-Transaction status mapping: PENDING (order created / verify-required),
-CANCELLED (stopped), COMPLETED/FAILED (capture outcome). No real money moves
-outside explicit Sandbox approval + allowed capture.
+Risk gate: STOP creates no order and capture is impossible; VERIFY creates no
+order until the server-verified challenge succeeds; unknown orders return 404.
+The frontend can never force ALLOW. Capture checks the stored decision.
+Transaction status mapping: PENDING
+(order created / verify-required), CANCELLED (stopped), COMPLETED/FAILED
+(capture outcome). No real money moves outside explicit Sandbox approval +
+allowed capture.
 
 ### M14 — validation, hardening, idempotency (no new AI model work)
 
@@ -227,8 +229,9 @@ order — no second order), a reused key with different content is rejected
 (409), and the UNIQUE constraint arbitrates races. Capture replays return the
 stored result without re-calling PayPal (row-locked check-then-capture), so
 double-clicks cannot double-charge. The primary `/payment` UI is toggle-free
-(amount, recipient, merchant, message, URL); the manual demo survives at
-`/payment/manual`. Webhook, engine, and threshold behavior are unchanged.
+(amount, recipient, recipient PayPal email, merchant, message, URL) and runs in
+the fixed demo workspace. Global idempotency-key and capture uniqueness are
+enforced in the database. Webhook, engine, and threshold behavior are unchanged.
 
 Real-LLM status: no `OPENAI_API_KEY` is available in this environment, so the
 live hero runs deterministically (STOP via the guarded endpoint additionally
@@ -247,8 +250,8 @@ an eligible payment can proceed.**
 
 Validated live: AI health (`ai_configured: true`), guarded ALLOW (+ real
 Sandbox order, idempotent replay byte-identical with exactly one transaction
-row), VERIFY 40/MEDIUM with no order, forged-field rejection, manual hero
-100/CRITICAL/STOP, both healths, leak-free logs, clean database afterward.
+row), VERIFY 40/MEDIUM with no order, forged-field rejection, the former manual
+engine hero 100/CRITICAL/STOP, both healths, leak-free logs, clean database afterward.
 `/payment` shows a collapsible Developer details block (payment ID, AI
 status, signal codes, order ID, payment status) — no secrets, no raw JSON
 dumps. Real-LLM hero: **pending — the configured key's account has no
@@ -276,15 +279,18 @@ unreachable).
   order is created only after a server-verified success
   (`POST /api/payments/{paymentId}/verification/confirm`). Wrong codes never
   verify; expiry and max-attempts end the challenge. With no identity provider
-  configured the channel is clearly labelled **simulated** (`simulated: true`)
-  and the code is returned in the response.
+  configured the channel is clearly labelled **simulated** (`simulated: true`).
+  The code is delivered out of band and is never returned by the payment API or
+  written to logs; in development it sits in an in-memory outbox readable only
+  from loopback via `GET /api/dev/verifications/{paymentId}/code` (disable
+  `GUARDPAY_DEV_VERIFICATION_OUTBOX` in production).
 - **Receipt + transaction history.** Findings are persisted on each assessment
   (`V13__add_risk_assessment_findings.sql`) so decisions stay explainable.
   `GET /api/transactions` (paged) and `GET /api/transactions/{id}` return the
-  stored decision, findings, PayPal references and verification outcome,
-  owner-scoped server-side. The `/transactions` UI lists history in AG Grid with
+  stored decision, findings, PayPal references and verification outcome for the
+  fixed demo workspace. The `/transactions` UI lists history in AG Grid with
   a detail panel; the checkout receipt closes the loop.
-- **Run it:** `pwsh -File scripts/demo-guarded-flow.ps1` (checks the safety
+- **Run it:** `pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail <sandbox-payee>` (checks the safety
   invariants against a running backend) — see `docs/demo.md`.
 
 ## PayPal webhooks (Milestone 9 — state sync, no tunnels yet)
@@ -316,9 +322,10 @@ live webhook.
 
 ## Automatic signal collection (Milestone 10 — derived, never client-supplied)
 
-`POST /api/risk/evaluate-automatic` accepts payment context only
-(`amount`, `userId`, optional `recipientId`/`merchantId`/`transactionId`) —
-there are no risk booleans on this path, so forged flags are ignored.
+`POST /api/risk/evaluate-automatic` accepts payment context only (`amount`,
+optional `recipientId`/`merchantId`/`transactionId`). The workspace is resolved
+server-side as the fixed demo user, and there are no risk booleans on this path,
+so forged flags are ignored.
 
 CURRENT (backend-derived): `UNUSUAL_AMOUNT` (same ≥5× definition as the
 engine, shared constant), `NEW_RECIPIENT` / `UNKNOWN_MERCHANT` (prior
@@ -330,9 +337,9 @@ and `SUSPICIOUS_URL` report `INSUFFICIENT_CONTEXT` /
 FUTURE (report `NOT_AVAILABLE_YET`): `URGENT_LANGUAGE` +
 `SOCIAL_ENGINEERING_DETECTED` (AI analysis). `ACTIVE_CALL` left this group in
 Milestone 11 — it is now device-derived when a fresh paired-device state
-exists, otherwise unavailable. The old manual toggles (`POST /api/risk/evaluate`,
-Milestone 6 UI) stay unchanged for demos/regression but are NOT authoritative
-— only derived signals feed the automatic decision.
+exists, otherwise unavailable. The old manual toggles (`POST /api/risk/evaluate`)
+were removed from the checkout; the legacy `/api/risk/evaluate` endpoint
+remains regression-only and never feeds guarded decisions.
 
 ### M12 AI risk intelligence (evidence, never decisions)
 
@@ -347,7 +354,9 @@ reputation DB) and returns closed-vocabulary findings with confidence
 fixed deterministic pipeline needs no multi-agent framework. The model is
 configured via `OPENAI_API_KEY`/`OPENAI_MODEL` (never committed, never
 logged); without a key the service boots and `/api/v1/analyze` fails
-clearly (503) instead of faking results.
+clearly (503) instead of faking results. Set the same optional
+`AI_SERVICE_INTERNAL_TOKEN` on Spring Boot and FastAPI to require the
+`X-GuardPay-Internal-Token` header on the internal hop.
 
 Spring Boot calls it only when the automatic request carries content, maps
 validated findings (unknown codes skipped, confidence < 0.5 skipped) onto its
@@ -356,8 +365,8 @@ validated findings (unknown codes skipped, confidence < 0.5 skipped) onto its
 and reports `aiStatus: NOT_REQUESTED | AVAILABLE | UNAVAILABLE`. Any AI
 failure degrades to deterministic-only evaluation; AI can never set
 ALLOW/VERIFY/STOP. Privacy: minimum context only (amount, names, flags,
-text, URL, call boolean) — no audio, phones, contacts, or emails, and message
-bodies are never logged.
+text, URL, call boolean) — no audio, phones, contacts, or emails. Logs mask
+message/user content, URLs, names, and email destinations.
 
 ### M13 — Guarded PayPal payment flow (primary path)
 
@@ -376,8 +385,8 @@ accepted). Replays return the stored capture without re-calling PayPal
 (row-locked check-then-capture); webhooks stay authoritative for final state
 (COMPLETED/FAILED). Transaction rows reuse `PENDING`/`CANCELLED`/
 `COMPLETED`/`FAILED`. The primary UI (`/payment`) is toggle-free (amount,
-recipient, merchant, message, URL → Pay securely); the M6 manual demo lives
-on at `/payment/manual` for regression.
+recipient, recipient PayPal email, merchant, message, URL -> Pay securely) and
+runs without an account; the public manual-risk UI was removed.
 
 ### Android call-state integration (Milestone 11 — device signal only)
 
@@ -442,9 +451,9 @@ own authorized mobile/payment environment.
 ## Judge Demo (2–3 minutes)
 
 Full instructions: `docs/demo.md`. Automated safety-invariant suite:
-`pwsh -File scripts/demo-guarded-flow.ps1`.
+`pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail <sandbox-payee>`.
 
-1. Open GuardPay at `/payment`.
+1. Open `/payment` directly; the demo uses a fixed server-side workspace.
 2. Select **Safe Payment** (preset fills $45, known names, normal message).
 3. Show automatic risk analysis → **LOW / ALLOW** and the contributing signals.
 4. Show the real PayPal Sandbox order + approval link.
@@ -489,7 +498,8 @@ of the official PayPal app, and not endorsed by PayPal.
 - External webhook delivery needs a public tunnel (not configured; never faked).
 - Device call-state is foreground-only with Android lifecycle limits.
 - Free-tier AI models vary run to run; strict schema + confidence gates absorb it.
-- Demo user ownership until authentication exists; temp-public dev endpoints.
+- Single fixed demo user/workspace; not multi-user. Dev verification outbox is
+  temporary and loopback-only.
 - Host port 5432 may clash with a local PostgreSQL — use `DB_PORT` or stop it.
 
 ## Current step — what is / isn't done
@@ -506,7 +516,7 @@ Done:
 
 Explicitly NOT done (honest):
 
-- [ ] Authentication (dev endpoints are temporarily public)
+- [ ] Multi-user authentication (demo intentionally uses one fixed workspace)
 - [ ] Real identity provider for verification (currently a simulated channel)
 - [ ] External webhook delivery (needs a public tunnel/deploy)
 - [ ] Persisted dashboard aggregates / real-time (WS/SSE) updates
@@ -520,5 +530,5 @@ npm --prefix frontend run test     # frontend
 python -m pytest ai-service -q     # ai-service
 
 # end-to-end safety invariants (backend must be running)
-pwsh -File scripts/demo-guarded-flow.ps1
+pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail sb-merchant@business.example.com
 ```

@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
-import com.guardpay.common.config.SecurityConfig;
 import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto.GuardedPaypalOrderDto;
@@ -35,7 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /** Guarded endpoint with a mocked orchestrator: validation and shapes only. */
 @WebMvcTest(GuardedPaymentController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import(CorsConfig.class)
 class GuardedPaymentControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -47,7 +46,8 @@ class GuardedPaymentControllerTest {
     return "{\"amount\": "
         + amount
         + ", \"currency\": \"USD\", \"description\": \"Invoice payment\","
-        + " \"contentText\": \"Monthly software subscription invoice for $45.\"}";
+        + " \"contentText\": \"Monthly software subscription invoice for $45.\","
+        + " \"recipientEmail\": \"merchant@example.com\"}";
   }
 
   private static GuardedPaymentResponseDto allowed() {
@@ -87,8 +87,7 @@ class GuardedPaymentControllerTest {
             OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(10),
             3,
             true,
-            "Code delivered through the GuardPay simulated challenge channel.",
-            "123456");
+            "Read the code from the server-side dev outbox.");
     when(orchestrator.initiate(any(), any()))
         .thenReturn(
             new GuardedPaymentResponseDto(
@@ -109,7 +108,7 @@ class GuardedPaymentControllerTest {
         .andExpect(jsonPath("$.paypalOrder").doesNotExist())
         .andExpect(jsonPath("$.verification.simulated").value(true))
         .andExpect(jsonPath("$.verification.status").value("PENDING"))
-        .andExpect(jsonPath("$.verification.challengeCode").value("123456"));
+        .andExpect(jsonPath("$.verification.challengeCode").doesNotExist());
   }
 
   @Test
@@ -172,7 +171,7 @@ class GuardedPaymentControllerTest {
     when(orchestrator.initiate(any(), any())).thenReturn(allowed());
 
     // Unknown/forged properties (risk verdicts, booleans, AI findings) must
-    // not break the endpoint — Jackson ignores them and the service decides.
+    // not break the endpoint â€” Jackson ignores them and the service decides.
     mockMvc
         .perform(
             post("/api/payments/guarded")

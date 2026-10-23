@@ -33,6 +33,7 @@ public final class AutomaticSignalAdapter {
         collection.detected(PaymentSignalType.SUSPICIOUS_URL)
             || collection.detected(PaymentSignalType.SUSPICIOUS_URL_STRUCTURE),
         collection.detected(PaymentSignalType.SOCIAL_ENGINEERING_DETECTED)
-            || AiFindingAdapter.SOCIAL_GROUP.stream().anyMatch(collection::detected));
+            || AiFindingAdapter.SOCIAL_GROUP.stream().anyMatch(collection::detected),
+        collection.detected(PaymentSignalType.MISSING_CONTEXT));
   }
 }

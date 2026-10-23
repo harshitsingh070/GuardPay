@@ -16,6 +16,7 @@ import {
 const DRAFT: CheckoutDraft = {
   amount: '45',
   recipient: 'Known Co',
+  recipientEmail: 'known@example.com',
   merchant: 'Known Shop',
   description: 'Invoice 1042',
   url: '',

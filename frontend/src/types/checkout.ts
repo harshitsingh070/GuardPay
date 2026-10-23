@@ -24,6 +24,7 @@ export type CheckoutPhase =
 export interface CheckoutDraft {
   amount: string;
   recipient: string;
+  recipientEmail: string;
   merchant: string;
   description: string;
   url: string;
@@ -45,6 +46,7 @@ export interface CheckoutService {
 export const EMPTY_DRAFT: CheckoutDraft = {
   amount: '',
   recipient: '',
+  recipientEmail: '',
   merchant: '',
   description: '',
   url: '',
@@ -66,6 +68,8 @@ export function toGuardedPaymentRequest(
     currency: 'USD',
     description: 'GuardPay protected payment',
     recipientName: draft.recipient.trim() === '' ? undefined : draft.recipient.trim(),
+    recipientEmail:
+      draft.recipientEmail.trim() === '' ? undefined : draft.recipientEmail.trim(),
     merchantName: draft.merchant.trim() === '' ? undefined : draft.merchant.trim(),
     deviceId: deviceId === undefined || deviceId.trim() === '' ? undefined : deviceId.trim(),
     contentText: draft.description.trim() === '' ? undefined : draft.description.trim(),
@@ -81,6 +85,12 @@ export function validateDraft(draft: CheckoutDraft): string | null {
   }
   if (amount > 100000) {
     return 'This amount exceeds the checkout limit.';
+  }
+  if (draft.recipientEmail.trim() === '') {
+    return "Enter the recipient's PayPal email.";
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.recipientEmail.trim())) {
+    return 'Enter a valid recipient PayPal email.';
   }
   return null;
 }

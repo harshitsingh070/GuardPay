@@ -12,4 +12,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RecipientRepository extends JpaRepository<Recipient, UUID> {
 
   Optional<Recipient> findByUserIdAndNameIgnoreCase(UUID userId, String name);
+
+  Optional<Recipient> findByUserIdAndEmailIgnoreCase(UUID userId, String email);
 }

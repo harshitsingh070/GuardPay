@@ -1,38 +1,27 @@
 package com.guardpay.paypal.service;
 
 import com.guardpay.payment.GuardedPaymentStatus;
-import com.guardpay.payment.PaymentContext;
-import com.guardpay.payment.PaymentContextRepository;
 import com.guardpay.payment.PaymentVerificationRepository;
 import com.guardpay.payment.VerificationStatus;
 import com.guardpay.paypal.client.PayPalClient;
 import com.guardpay.paypal.dto.CaptureOrderResponseDto;
-import com.guardpay.paypal.dto.CreateOrderRequestDto;
-import com.guardpay.paypal.dto.CreateOrderResponseDto;
 import com.guardpay.paypal.dto.CreatedPaypalOrder;
 import com.guardpay.paypal.dto.PayPalAmount;
 import com.guardpay.paypal.dto.PayPalCaptureResponse;
 import com.guardpay.paypal.dto.PayPalCreateOrderRequest;
 import com.guardpay.paypal.dto.PayPalCreateOrderResponse;
+import com.guardpay.paypal.dto.PayPalPayee;
 import com.guardpay.paypal.dto.PayPalPurchaseUnit;
 import com.guardpay.paypal.exception.CaptureBlockedException;
 import com.guardpay.paypal.exception.PayPalException;
-import com.guardpay.risk.DeterministicRiskEngine;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskAssessment;
 import com.guardpay.risk.RiskAssessmentRepository;
-import com.guardpay.risk.RiskEvaluationRequest;
-import com.guardpay.risk.RiskEvaluationResult;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
-import com.guardpay.transaction.TransactionType;
-import com.guardpay.user.User;
-import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -45,125 +34,75 @@ import org.springframework.web.server.ResponseStatusException;
 /**
  * PayPal Orders flow with a server-side GuardPay risk gate.
  *
- * <p>Order: validate → run engine → persist GuardPay records → create the
- * PayPal order ONLY for ALLOW (creation moves no money). Capture: reload the
- * stored decision by PayPal order ID and call PayPal capture ONLY for ALLOW.
- * The frontend can never force a decision — it supplies context, never
- * verdicts.
+ * <p>Order creation is only reachable through the guarded-payment
+ * orchestrator: there is no public, client-supplied risk bypass. Capture:
+ * reload the stored decision by PayPal order ID and call PayPal capture ONLY
+ * for ALLOW. The frontend can never force a decision — it supplies context,
+ * never verdicts.
  */
 @Service
 public class PayPalOrderService {
 
   private static final Logger log = LoggerFactory.getLogger(PayPalOrderService.class);
 
-  /**
-   * Placeholder owner for order-linked rows until the authentication
-   * milestone provides real users. Not a user-accounts feature.
-   */
-  public static final String DEMO_USER_EXTERNAL_ID = "sandbox-demo-user";
-
   static final String SUPPORTED_CURRENCY = "USD";
 
   private final PayPalClient payPalClient;
-  private final DeterministicRiskEngine riskEngine;
   private final TransactionRepository transactions;
-  private final PaymentContextRepository contexts;
   private final RiskAssessmentRepository assessments;
-  private final UserRepository users;
   private final PaymentVerificationRepository verifications;
 
   public PayPalOrderService(
       PayPalClient payPalClient,
-      DeterministicRiskEngine riskEngine,
       TransactionRepository transactions,
-      PaymentContextRepository contexts,
       RiskAssessmentRepository assessments,
-      UserRepository users,
       PaymentVerificationRepository verifications) {
     this.payPalClient = payPalClient;
-    this.riskEngine = riskEngine;
     this.transactions = transactions;
-    this.contexts = contexts;
     this.assessments = assessments;
-    this.users = users;
     this.verifications = verifications;
-  }
-
-  @Transactional
-  public CreateOrderResponseDto createOrder(CreateOrderRequestDto dto) {
-    BigDecimal amount = dto.getAmount().setScale(2, RoundingMode.HALF_UP);
-
-    RiskEvaluationResult result =
-        riskEngine.evaluate(
-            new RiskEvaluationRequest(
-                amount,
-                dto.getHistoricalAverage(),
-                dto.isActiveCall(),
-                dto.isNewRecipient(),
-                dto.isRepeatedAttempts(),
-                dto.isUnknownMerchant(),
-                dto.isUnexpectedInvoice(),
-                dto.isUrgentLanguage(),
-                dto.isSuspiciousUrl(),
-                dto.isSocialEngineeringDetected()));
-
-    boolean allowed = result.recommendedAction() == RecommendedAction.ALLOW;
-    Transaction transaction = storeGuardPayRecords(dto, amount, result, allowed);
-
-    if (!allowed) {
-      log.info("PayPal order blocked before creation (action={})", result.recommendedAction());
-      String message =
-          result.recommendedAction() == RecommendedAction.STOP
-              ? "GuardPay stopped this payment before creating a PayPal order."
-              : "Additional verification is required before this payment can proceed.";
-      return new CreateOrderResponseDto(
-          null,
-          "NOT_CREATED",
-          null,
-          amount,
-          SUPPORTED_CURRENCY,
-          result.riskLevel(),
-          result.recommendedAction(),
-          false,
-          message);
-    }
-
-    CreatedPaypalOrder created = createPaypalOrder(amount, dto.getDescription());
-    transaction.setPaypalOrderId(created.orderId());
-    transaction.setStatus(TransactionStatus.PENDING);
-    transactions.save(transaction);
-    log.info("PayPal Sandbox order created (risk={})", result.riskLevel());
-
-    return new CreateOrderResponseDto(
-        created.orderId(),
-        created.status(),
-        created.approvalUrl(),
-        amount,
-        SUPPORTED_CURRENCY,
-        result.riskLevel(),
-        result.recommendedAction(),
-        true,
-        "PayPal order created. Approve it in the Sandbox, then capture.");
   }
 
   /**
    * Creates a PayPal order for an already risk-cleared payment (moves no
-   * money). Shared by the M8 endpoint and the guarded-payment orchestrator.
+   * money). Only the guarded-payment orchestrator calls this.
    */
-  public CreatedPaypalOrder createPaypalOrder(BigDecimal amount, String description) {
+  public CreatedPaypalOrder createPaypalOrder(
+      BigDecimal amount, String description, String recipientEmail, String paypalAccountId) {
+    if ((recipientEmail == null || recipientEmail.isBlank())
+        && (paypalAccountId == null || paypalAccountId.isBlank())) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "A verified PayPal destination is required");
+    }
     // PayPal requires at most two decimals for USD. Amounts reloaded from the
     // database (transactions.amount is NUMERIC(19,4)) would otherwise arrive as
     // e.g. "45.0000" and be rejected with DECIMAL_PRECISION, so normalize here.
     BigDecimal normalized = amount.setScale(2, RoundingMode.HALF_UP);
+    PayPalPayee payee =
+        new PayPalPayee(blankToNull(recipientEmail), blankToNull(paypalAccountId));
     PayPalCreateOrderRequest paypalRequest =
         new PayPalCreateOrderRequest(
             "CAPTURE",
             List.of(
                 new PayPalPurchaseUnit(
-                    new PayPalAmount(SUPPORTED_CURRENCY, normalized.toPlainString()), description)));
+                    new PayPalAmount(SUPPORTED_CURRENCY, normalized.toPlainString()),
+                    description,
+                    payee)));
     PayPalCreateOrderResponse created =
         payPalClient.post("/v2/checkout/orders", paypalRequest, PayPalCreateOrderResponse.class);
+    verifyDestination(created, payee);
     return new CreatedPaypalOrder(created.id(), created.status(), extractApprovalUrl(created));
+  }
+
+  /**
+   * Reads the approve link for an existing order. Used only to recover replay
+   * data for a row created before the approval URL was persisted; it never
+   * creates a second order.
+   */
+  public String fetchApprovalUrl(String orderId) {
+    PayPalCreateOrderResponse order =
+        payPalClient.get("/v2/checkout/orders/" + orderId, PayPalCreateOrderResponse.class);
+    return extractApprovalUrl(order);
   }
 
   @Transactional
@@ -238,56 +177,33 @@ public class PayPalOrderService {
         GuardedPaymentStatus.from(transaction.getStatus()));
   }
 
-  private Transaction storeGuardPayRecords(
-      CreateOrderRequestDto dto, BigDecimal amount, RiskEvaluationResult result, boolean allowed) {
-    User user = demoUser();
-
-    Transaction transaction = new Transaction();
-    transaction.setUser(user);
-    transaction.setAmount(amount);
-    transaction.setCurrency(SUPPORTED_CURRENCY);
-    transaction.setTransactionType(TransactionType.PAYMENT);
-    transaction.setDescription(dto.getDescription());
-    transaction.setTransactionTimestamp(OffsetDateTime.now(ZoneOffset.UTC));
-    transaction.setStatus(
-        !allowed && result.recommendedAction() == RecommendedAction.STOP
-            ? TransactionStatus.CANCELLED
-            : TransactionStatus.PENDING);
-    transactions.save(transaction);
-
-    PaymentContext context = new PaymentContext();
-    context.setTransaction(transaction);
-    context.setActiveCall(dto.isActiveCall());
-    context.setNewRecipient(dto.isNewRecipient());
-    context.setUnknownMerchant(dto.isUnknownMerchant());
-    context.setUnexpectedInvoice(dto.isUnexpectedInvoice());
-    context.setUrgentLanguage(dto.isUrgentLanguage());
-    context.setSuspiciousUrl(dto.isSuspiciousUrl());
-    contexts.save(context);
-
-    RiskAssessment assessment = new RiskAssessment();
-    assessment.setTransaction(transaction);
-    assessment.setScore(result.score());
-    assessment.setRiskLevel(result.riskLevel());
-    assessment.setRecommendedAction(result.recommendedAction());
-    assessment.setExplanation(result.explanation());
-    assessments.save(assessment);
-
-    return transaction;
+  private static void verifyDestination(PayPalCreateOrderResponse created, PayPalPayee expected) {
+    if (created == null || created.purchaseUnits() == null) {
+      return;
+    }
+    PayPalPayee returned =
+        created.purchaseUnits().stream()
+            .filter(unit -> unit != null && unit.payee() != null)
+            .map(PayPalCreateOrderResponse.PurchaseUnit::payee)
+            .findFirst()
+            .orElse(null);
+    if (returned == null) {
+      return;
+    }
+    if (expected.emailAddress() != null
+        && returned.emailAddress() != null
+        && !expected.emailAddress().equalsIgnoreCase(returned.emailAddress())) {
+      throw new PayPalException("PayPal returned a different payee than requested");
+    }
+    if (expected.merchantId() != null
+        && returned.merchantId() != null
+        && !expected.merchantId().equals(returned.merchantId())) {
+      throw new PayPalException("PayPal returned a different merchant than requested");
+    }
   }
 
-  private User demoUser() {
-    return users
-        .findByExternalUserId(DEMO_USER_EXTERNAL_ID)
-        .orElseGet(
-            () -> {
-              User user = new User();
-              user.setExternalUserId(DEMO_USER_EXTERNAL_ID);
-              user.setEmail("sandbox-demo@guardpay.local");
-              user.setDisplayName("Sandbox Demo User");
-              user.setCurrency(SUPPORTED_CURRENCY);
-              return users.save(user);
-            });
+  private static String blankToNull(String value) {
+    return value == null || value.isBlank() ? null : value.trim();
   }
 
   private String extractApprovalUrl(PayPalCreateOrderResponse created) {

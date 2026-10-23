@@ -18,10 +18,16 @@
 .EXAMPLE
   pwsh -File scripts/demo-guarded-flow.ps1
   pwsh -File scripts/demo-guarded-flow.ps1 -BaseUrl http://localhost:8080
+  pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail sb-merchant@business.example.com
 #>
 param(
-  [string]$BaseUrl = "http://localhost:8080"
+  [string]$BaseUrl = "http://localhost:8080",
+  [string]$RecipientEmail = $env:DEMO_RECIPIENT_EMAIL
 )
+
+if ([string]::IsNullOrWhiteSpace($RecipientEmail)) {
+  $RecipientEmail = "sb-merchant@business.example.com"
+}
 
 $ErrorActionPreference = "Stop"
 $script:passed = 0
@@ -63,10 +69,11 @@ function New-GuardedPayment {
   param(
     [double]$Amount,
     [string]$Recipient,
+    [string]$RecipientEmail,
     [string]$Text = $null,
     [string]$Url = $null
   )
-  $body = @{ amount = $Amount; currency = "USD"; description = "GuardPay demo payment"; recipientName = $Recipient }
+  $body = @{ amount = $Amount; currency = "USD"; description = "GuardPay demo payment"; recipientName = $Recipient; recipientEmail = $RecipientEmail }
   if ($null -ne $Text) { $body.contentText = $Text }
   if ($null -ne $Url) { $body.contentUrl = $Url }
   return Invoke-Api -Method POST -Path "/api/payments/guarded" -Body $body
@@ -86,7 +93,7 @@ try {
 }
 
 Write-Step "2. Low-risk payment (expect ALLOW -> PayPal order)"
-$allow = New-GuardedPayment -Amount 45 -Recipient "Known Co"
+$allow = New-GuardedPayment -Amount 45 -Recipient "Known Co" -RecipientEmail $RecipientEmail
 Write-Host "  action=$($allow.risk.recommendedAction) score=$($allow.risk.score) status=$($allow.paymentStatus)"
 Assert-True ($allow.risk.recommendedAction -eq "ALLOW") "low-risk payment is ALLOW" "action=$($allow.risk.recommendedAction)"
 if ($allow.risk.recommendedAction -eq "ALLOW") {
@@ -95,7 +102,7 @@ if ($allow.risk.recommendedAction -eq "ALLOW") {
 }
 
 Write-Step "3. Higher-risk payment (VERIFY must be order-free)"
-$verify = New-GuardedPayment -Amount 1200 -Recipient "Fresh Stranger" -Text "Urgent: your account will be suspended, pay immediately."
+$verify = New-GuardedPayment -Amount 1200 -Recipient "Fresh Stranger" -RecipientEmail $RecipientEmail -Text "Urgent: your account will be suspended, pay immediately."
 Write-Host "  action=$($verify.risk.recommendedAction) score=$($verify.risk.score) status=$($verify.paymentStatus)"
 if ($verify.risk.recommendedAction -ne "ALLOW") {
   Assert-True ($null -eq $verify.paypalOrder) "non-ALLOW decision created no PayPal order"
@@ -104,18 +111,28 @@ if ($verify.risk.recommendedAction -ne "ALLOW") {
   Write-Host "  (no non-ALLOW signal this run; invariants still enforced by tests)" -ForegroundColor DarkGray
 }
 
-if ($verify.verification -ne $null -and $verify.verification.challengeCode -ne $null) {
+if ($verify.verification -ne $null) {
   Write-Step "4. Confirm the VERIFY challenge (server decides the outcome)"
-  $wrong = Invoke-Api -Method POST -Path "/api/payments/$($verify.paymentId)/verification/confirm" -Body @{ code = "000000" }
-  Assert-True ($wrong.verificationStatus -ne "VERIFIED") "a wrong code never verifies" "status=$($wrong.verificationStatus)"
-  Assert-True ($null -eq $wrong.paypalOrder) "a wrong code created no PayPal order"
+  $challenge = $null
+  try {
+    $challenge = Invoke-Api -Method GET -Path "/api/dev/verifications/$($verify.paymentId)/code"
+  } catch {
+    Write-Host "  could not read the server-side dev outbox: $($_.Exception.Message)" -ForegroundColor DarkGray
+  }
+  if ($challenge -ne $null -and $challenge.code -ne $null) {
+    $wrong = Invoke-Api -Method POST -Path "/api/payments/$($verify.paymentId)/verification/confirm" -Body @{ code = "000000" }
+    Assert-True ($wrong.verificationStatus -ne "VERIFIED") "a wrong code never verifies" "status=$($wrong.verificationStatus)"
+    Assert-True ($null -eq $wrong.paypalOrder) "a wrong code created no PayPal order"
 
-  $right = Invoke-Api -Method POST -Path "/api/payments/$($verify.paymentId)/verification/confirm" -Body @{ code = $verify.verification.challengeCode }
-  Assert-True ($right.verificationStatus -eq "VERIFIED") "the correct code verifies" "status=$($right.verificationStatus)"
-  Assert-True ($null -ne $right.paypalOrder) "verification success created the PayPal order" "orderId=$($right.paypalOrder.orderId)"
+    $right = Invoke-Api -Method POST -Path "/api/payments/$($verify.paymentId)/verification/confirm" -Body @{ code = $challenge.code }
+    Assert-True ($right.verificationStatus -eq "VERIFIED") "the correct code verifies" "status=$($right.verificationStatus)"
+    Assert-True ($null -ne $right.paypalOrder) "verification success created the PayPal order" "orderId=$($right.paypalOrder.orderId)"
+  } else {
+    Write-Host "  skipped: run this script on the backend host (or enable GUARDPAY_DEV_VERIFICATION_OUTBOX) so the loopback-only outbox can deliver the code." -ForegroundColor DarkGray
+  }
 } else {
   Write-Step "4. Confirm the VERIFY challenge"
-  Write-Host "  skipped: no simulated challenge code was returned" -ForegroundColor DarkGray
+  Write-Host "  skipped: this run produced no controlled challenge" -ForegroundColor DarkGray
 }
 
 Write-Step "5. Transaction history reflects the runs"

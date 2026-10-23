@@ -107,6 +107,21 @@ export default function PaymentDetailsForm({
               />
             </div>
             <div>
+              <label htmlFor="checkout-recipient-email" className="mb-1 block text-sm font-medium text-[#001435]">
+                Recipient PayPal email
+              </label>
+              <input
+                id="checkout-recipient-email"
+                type="email"
+                inputMode="email"
+                required
+                value={draft.recipientEmail}
+                onChange={(event) => onChange({ recipientEmail: event.target.value })}
+                placeholder="recipient@example.com"
+                className={inputClass}
+              />
+            </div>
+            <div className="sm:col-span-2">
               <label htmlFor="checkout-merchant" className="mb-1 block text-sm font-medium text-[#001435]">
                 Merchant
               </label>

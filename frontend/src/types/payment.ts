@@ -8,6 +8,8 @@ export interface GuardedPaymentRequest {
   currency: 'USD';
   description?: string;
   recipientName?: string;
+  recipientEmail?: string;
+  recipientPaypalAccountId?: string;
   merchantName?: string;
   deviceId?: string;
   contentText?: string;
@@ -34,7 +36,7 @@ export type VerificationStatus = 'PENDING' | 'VERIFIED' | 'FAILED' | 'EXPIRED';
 /**
  * Controlled verification challenge. The backend issues it for a VERIFY
  * decision and alone records the outcome; the browser only supplies an answer.
- * `challengeCode` is present only for the clearly-labelled simulated channel.
+ * The code is delivered out of band and is never part of this response.
  */
 export interface GuardedVerification {
   verificationId: string;
@@ -43,7 +45,6 @@ export interface GuardedVerification {
   attemptsRemaining: number;
   simulated: boolean;
   channelHint: string;
-  challengeCode?: string;
 }
 
 export interface VerificationConfirmResponse {

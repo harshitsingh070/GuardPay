@@ -4,8 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Python AI service connection settings. The service is evidence-only and
- * optional: when disabled or unreachable, evaluations continue on
- * deterministic signals with an explicit unavailable status.
+ * optional: when disabled, unreachable, slow, or circuit-open, evaluations
+ * continue on deterministic signals with an explicit unavailable status.
  */
 @ConfigurationProperties(prefix = "guardpay.ai")
 public class AiServiceProperties {
@@ -15,6 +15,14 @@ public class AiServiceProperties {
 
   /** Operator kill-switch for AI evidence (deterministic-only mode). */
   private boolean enabled = true;
+
+  /** Optional shared secret; sent as X-GuardPay-Internal-Token. */
+  private String apiKey = "";
+
+  private int connectTimeoutMillis = 2000;
+  private int readTimeoutMillis = 8000;
+  private int failureThreshold = 3;
+  private int openSeconds = 30;
 
   public String getBaseUrl() {
     return baseUrl;
@@ -30,5 +38,45 @@ public class AiServiceProperties {
 
   public void setEnabled(boolean enabled) {
     this.enabled = enabled;
+  }
+
+  public String getApiKey() {
+    return apiKey;
+  }
+
+  public void setApiKey(String apiKey) {
+    this.apiKey = apiKey;
+  }
+
+  public int getConnectTimeoutMillis() {
+    return connectTimeoutMillis;
+  }
+
+  public void setConnectTimeoutMillis(int connectTimeoutMillis) {
+    this.connectTimeoutMillis = connectTimeoutMillis;
+  }
+
+  public int getReadTimeoutMillis() {
+    return readTimeoutMillis;
+  }
+
+  public void setReadTimeoutMillis(int readTimeoutMillis) {
+    this.readTimeoutMillis = readTimeoutMillis;
+  }
+
+  public int getFailureThreshold() {
+    return failureThreshold;
+  }
+
+  public void setFailureThreshold(int failureThreshold) {
+    this.failureThreshold = failureThreshold;
+  }
+
+  public int getOpenSeconds() {
+    return openSeconds;
+  }
+
+  public void setOpenSeconds(int openSeconds) {
+    this.openSeconds = openSeconds;
   }
 }

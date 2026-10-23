@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Lock, ShieldCheck } from 'lucide-react';
-import CallRiskDialog from '@/components/checkout/CallRiskDialog';
-import CallStatePanel from '@/components/checkout/CallStatePanel';
+import CallRiskDialog, { type CallRiskVariant } from '@/components/checkout/CallRiskDialog';
 import DecisionPanel from '@/components/checkout/DecisionPanel';
 import DemoPresets from '@/components/checkout/DemoPresets';
 import DeveloperDetails from '@/components/checkout/DeveloperDetails';
@@ -36,6 +35,7 @@ const PRESETS: Record<'safe' | 'suspicious', CheckoutDraft> = {
   safe: {
     amount: '45',
     recipient: 'Known Co',
+    recipientEmail: 'billing@known-co.example',
     merchant: 'Known Shop',
     description: 'Monthly software subscription invoice for $45.',
     url: '',
@@ -43,6 +43,7 @@ const PRESETS: Record<'safe' | 'suspicious', CheckoutDraft> = {
   suspicious: {
     amount: '2499',
     recipient: 'Fresh Stranger',
+    recipientEmail: 'stranger@example.com',
     merchant: 'Unknown Shop',
     description: HERO_MESSAGE,
     url: HERO_URL,
@@ -58,7 +59,7 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
   const checkout = useCheckout(service);
   const device = useDeviceSignal();
   const [draft, setDraft] = useState<CheckoutDraft>(EMPTY_DRAFT);
-  const [callWarningOpen, setCallWarningOpen] = useState(false);
+  const [callWarning, setCallWarning] = useState<CallRiskVariant | null>(null);
 
   const phase = checkout.phase;
   const result = checkout.result;
@@ -84,9 +85,19 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (validateDraft(draft) === null && device.activeCall === true) {
-      setCallWarningOpen(true);
-      return;
+    if (validateDraft(draft) === null) {
+      // The Android shell detects calls automatically and warns only when one
+      // is active. A browser cannot read telephony state, so the web build
+      // asks the user before paying instead.
+      if (device.automatic) {
+        if (device.activeCall === true) {
+          setCallWarning('detected');
+          return;
+        }
+      } else {
+        setCallWarning('self-check');
+        return;
+      }
     }
     submitPayment();
   }
@@ -97,11 +108,11 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
   }
 
   function handleCallCancel() {
-    setCallWarningOpen(false);
+    setCallWarning(null);
   }
 
   function handleCallContinue() {
-    setCallWarningOpen(false);
+    setCallWarning(null);
     submitPayment();
   }
 
@@ -155,17 +166,6 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
             <div className="min-w-0 space-y-5 sm:space-y-6 lg:col-start-1 lg:row-start-1">
               {showForm && (
                 <>
-                  <CallStatePanel
-                    deviceId={device.deviceId}
-                    token={device.token}
-                    activeCall={device.activeCall}
-                    observedAt={device.observedAt}
-                    reporting={device.reporting}
-                    error={device.error}
-                    onTokenChange={device.setToken}
-                    onReport={(activeCall) => void device.report(activeCall)}
-                    automatic={device.automatic}
-                  />
                   <div className="rounded-2xl border border-[#e1e6eb] bg-white p-4 shadow-sm sm:p-6">
                     <PaymentDetailsForm
                       draft={draft}
@@ -200,9 +200,6 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
                       attemptsRemaining:
                         checkout.verification?.attemptsRemaining ??
                         result.verification.attemptsRemaining,
-                      challengeCode: checkout.verification
-                        ? undefined
-                        : result.verification.challengeCode,
                     }}
                     submitting={phase === 'VERIFYING'}
                     error={checkout.error}
@@ -284,7 +281,8 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
       </div>
 
       <CallRiskDialog
-        open={callWarningOpen}
+        open={callWarning !== null}
+        variant={callWarning ?? 'detected'}
         onCancel={handleCallCancel}
         onContinue={handleCallContinue}
       />

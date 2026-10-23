@@ -1,4 +1,4 @@
-# GuardPay backend — Milestone 2 foundation.
+# GuardPay backend â€” Milestone 2 foundation.
 # PostgreSQL comes exclusively from environment variables (never hard-coded).
 # Local defaults match `docker-compose.yml` (db: guardpay/guardpay).
 #
@@ -37,7 +37,7 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,https://appassets.androidplatform.net}
 
-# PayPal Sandbox. Credentials come from the environment only — never commit them.
+# PayPal Sandbox. Credentials come from the environment only â€” never commit them.
 # The backend boots without them; PayPal calls fail clearly at use time.
 guardpay:
   paypal:
@@ -52,13 +52,25 @@ guardpay:
   ai:
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8001}
     enabled: ${AI_SERVICE_ENABLED:true}
+    # Optional shared secret for the internal AI endpoint. Set the same
+    # AI_SERVICE_INTERNAL_TOKEN for Spring Boot and the Python service; requests
+    # without it are rejected by the Python service.
+    api-key: ${AI_SERVICE_INTERNAL_TOKEN:}
+    connect-timeout-millis: ${AI_SERVICE_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-millis: ${AI_SERVICE_READ_TIMEOUT_MS:8000}
+    failure-threshold: ${AI_SERVICE_FAILURE_THRESHOLD:3}
+    open-seconds: ${AI_SERVICE_OPEN_SECONDS:30}
   # Controlled VERIFY challenges (simulated channel until an identity provider exists).
+  # The dev outbox keeps the code in server memory and exposes it only to a
+  # loopback caller; disable it in production or when a real channel exists.
   verification:
     ttl-minutes: ${GUARDPAY_VERIFICATION_TTL_MINUTES:10}
     max-attempts: ${GUARDPAY_VERIFICATION_MAX_ATTEMPTS:3}
+    dev-outbox-enabled: ${GUARDPAY_DEV_VERIFICATION_OUTBOX:true}
   # Development HTTP tracing: inbound request/response bodies and outbound
-  # PayPal/AI calls. Tokens, secrets, and signatures are masked. Set the body
-  # or header switches to false to reduce console noise.
+  # PayPal/AI calls. Tokens, secrets, signatures, verification codes, and
+  # challenge codes are masked. Set the body or header switches to false to
+  # reduce console noise.
   logging:
     http:
       include-headers: ${GUARDPAY_HTTP_LOG_HEADERS:true}
@@ -86,4 +98,4 @@ logging:
 #     client-secret: ${PAYPAL_CLIENT_SECRET:}
 #   ai-service:
 #     url: ${AI_SERVICE_URL:http://localhost:8000}
-#     api-key: ${AI_SERVICE_API_KEY:}
+#     api-key: ${AI_SERVICE_INTERNAL_TOKEN:}

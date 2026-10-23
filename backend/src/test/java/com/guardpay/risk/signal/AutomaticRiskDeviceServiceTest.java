@@ -17,6 +17,7 @@ import com.guardpay.risk.RiskLevel;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationRequestDto;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
 import com.guardpay.transaction.TransactionRepository;
+import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
 import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
@@ -34,7 +35,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * End-to-end deterministic device path (mocked repositories, real
- * collector + engine): trusted device state in, +15 out — never client data.
+ * collector + engine): trusted device state in, +15 out â€” never client data.
  */
 @ExtendWith(MockitoExtension.class)
 class AutomaticRiskDeviceServiceTest {
@@ -42,6 +43,7 @@ class AutomaticRiskDeviceServiceTest {
   private static final UUID USER_ID = UUID.randomUUID();
   private static final UUID DEVICE_ID = UUID.randomUUID();
 
+  @Mock private DemoUserService demoUser;
   @Mock private UserRepository users;
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
@@ -61,20 +63,19 @@ class AutomaticRiskDeviceServiceTest {
         new PaymentSignalCollectorService(users, recipients, merchants, transactions);
     service =
         new AutomaticRiskEvaluationService(
-            collector, new DeterministicRiskEngine(), users, deviceStates, recipients, merchants,
+            collector, new DeterministicRiskEngine(), demoUser, deviceStates, recipients, merchants,
             aiClient);
+    lenient().when(demoUser.currentUser()).thenReturn(user);
   }
 
   private AutomaticEvaluationRequestDto request(String amount) {
     AutomaticEvaluationRequestDto dto = new AutomaticEvaluationRequestDto();
     dto.setAmount(new BigDecimal(amount));
-    dto.setUserId(USER_ID);
     dto.setDeviceId(DEVICE_ID);
     return dto;
   }
 
   private void stubEmptyHistory() {
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(
             user, com.guardpay.transaction.TransactionStatus.COMPLETED))

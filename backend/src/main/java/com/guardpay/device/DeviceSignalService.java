@@ -15,9 +15,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Device signal intake: token check, then upsert of the latest state.
- * Reports future-dated observations are clamped to now; the token itself is
- * compared in constant time and never logged.
+ * Device signal intake: token check, then a monotonic upsert of the latest
+ * state. Future-dated observations are clamped to now; older observations are
+ * rejected so a replay cannot erase a newer active-call state. The token itself
+ * is compared in constant time and never logged.
  */
 @Service
 public class DeviceSignalService {
@@ -49,6 +50,10 @@ public class DeviceSignalService {
         states.findByDeviceId(dto.getDeviceId()).orElseGet(DeviceCallState::new);
     if (state.getDeviceId() == null) {
       state.setDeviceId(dto.getDeviceId());
+    } else if (state.getObservedAt() != null
+        && observedAt.isBefore(state.getObservedAt())) {
+      // Old reports must not overwrite a newer observation (replay/clock skew).
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Stale device observation");
     }
     state.setActiveCall(dto.isActiveCall());
     state.setObservedAt(observedAt);

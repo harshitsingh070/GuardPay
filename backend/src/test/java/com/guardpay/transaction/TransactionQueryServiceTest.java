@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.guardpay.payment.PaymentVerification;
 import com.guardpay.payment.PaymentVerificationRepository;
 import com.guardpay.payment.VerificationStatus;
-import com.guardpay.paypal.service.PayPalOrderService;
 import com.guardpay.recipient.Recipient;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskAssessment;
@@ -18,8 +18,8 @@ import com.guardpay.risk.RiskAssessmentRepository;
 import com.guardpay.risk.RiskLevel;
 import com.guardpay.transaction.dto.TransactionDetailDto;
 import com.guardpay.transaction.dto.TransactionPageDto;
+import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
-import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -43,16 +43,17 @@ class TransactionQueryServiceTest {
   @Mock private TransactionRepository transactions;
   @Mock private RiskAssessmentRepository assessments;
   @Mock private PaymentVerificationRepository verifications;
-  @Mock private UserRepository users;
+  @Mock private DemoUserService demoUser;
 
   private TransactionQueryService service;
   private User owner;
 
   @BeforeEach
   void setUp() {
-    service = new TransactionQueryService(transactions, assessments, verifications, users);
+    service = new TransactionQueryService(transactions, assessments, verifications, demoUser);
     owner = new User();
     ReflectionTestUtils.setField(owner, "id", UUID.randomUUID());
+    lenient().when(demoUser.currentUser()).thenReturn(owner);
   }
 
   private Transaction transaction(UUID id) {
@@ -84,41 +85,19 @@ class TransactionQueryServiceTest {
   void listIsScopedToTheOwnerAndCarriesTheLatestDecision() {
     UUID id = UUID.randomUUID();
     Transaction transaction = transaction(id);
-    when(users.findById(owner.getId())).thenReturn(Optional.of(owner));
     when(transactions.findByUserId(eq(owner.getId()), any()))
         .thenReturn(new PageImpl<>(List.of(transaction)));
     RiskAssessment risk = assessment(transaction);
     when(assessments.findByTransactionIdInOrderByCreatedAtDesc(List.of(id)))
         .thenReturn(List.of(risk));
 
-    TransactionPageDto page = service.list(owner.getId(), 0, 20);
+    TransactionPageDto page = service.list(0, 20);
 
     assertEquals(1, page.items().size());
     assertEquals(60, page.items().get(0).riskScore());
     assertEquals(RiskLevel.MEDIUM, page.items().get(0).riskLevel());
     assertEquals(RecommendedAction.VERIFY, page.items().get(0).recommendedAction());
     assertEquals("Known Co", page.items().get(0).recipientName());
-  }
-
-  @Test
-  void listWithoutAnOwnerResolvesTheDemoUserAndReturnsEmpty() {
-    when(users.findByExternalUserId(PayPalOrderService.DEMO_USER_EXTERNAL_ID))
-        .thenReturn(Optional.empty());
-
-    TransactionPageDto page = service.list(null, 0, 20);
-
-    assertTrue(page.items().isEmpty());
-    assertEquals(0, page.totalItems());
-  }
-
-  @Test
-  void unknownOwnerIsRejected() {
-    UUID unknown = UUID.randomUUID();
-    when(users.findById(unknown)).thenReturn(Optional.empty());
-
-    ResponseStatusException failure =
-        assertThrows(ResponseStatusException.class, () -> service.list(unknown, 0, 20));
-    assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
   }
 
   @Test
@@ -132,12 +111,11 @@ class TransactionQueryServiceTest {
             + "\"triggered\":true}]");
     PaymentVerification verification = new PaymentVerification();
     verification.setStatus(VerificationStatus.VERIFIED);
-    when(users.findById(owner.getId())).thenReturn(Optional.of(owner));
     when(transactions.findById(id)).thenReturn(Optional.of(transaction));
     when(assessments.findByTransactionOrderByCreatedAtDesc(transaction)).thenReturn(List.of(risk));
     when(verifications.findByTransactionId(id)).thenReturn(Optional.of(verification));
 
-    TransactionDetailDto detail = service.detail(id, owner.getId());
+    TransactionDetailDto detail = service.detail(id);
 
     assertEquals(1, detail.assessment().findings().size());
     assertEquals("NEW_RECIPIENT", detail.assessment().findings().get(0).code());
@@ -146,30 +124,13 @@ class TransactionQueryServiceTest {
   }
 
   @Test
-  void foreignTransactionIsReportedAsNotFound() {
-    UUID id = UUID.randomUUID();
-    User other = new User();
-    ReflectionTestUtils.setField(other, "id", UUID.randomUUID());
-    Transaction transaction = transaction(id);
-    transaction.setUser(other);
-    when(users.findById(owner.getId())).thenReturn(Optional.of(owner));
-    when(transactions.findById(id)).thenReturn(Optional.of(transaction));
-
-    ResponseStatusException failure =
-        assertThrows(
-            ResponseStatusException.class, () -> service.detail(id, owner.getId()));
-    assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
-  }
-
-  @Test
   void unknownTransactionIsNotFound() {
     UUID id = UUID.randomUUID();
-    when(users.findById(owner.getId())).thenReturn(Optional.of(owner));
     when(transactions.findById(id)).thenReturn(Optional.empty());
 
     ResponseStatusException failure =
         assertThrows(
-            ResponseStatusException.class, () -> service.detail(id, owner.getId()));
+            ResponseStatusException.class, () -> service.detail(id));
     assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
   }
 }

@@ -2,6 +2,7 @@ package com.guardpay.payment.dto;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -11,7 +12,7 @@ import java.util.UUID;
 
 /**
  * Request for {@code POST /api/payments/guarded}: payment/business context
- * only. There are deliberately NO risk fields — no score, level, action,
+ * only. There are deliberately NO risk fields â€” no score, level, action,
  * booleans, or AI findings. The backend derives every signal.
  */
 public class GuardedPaymentRequestDto {
@@ -28,14 +29,20 @@ public class GuardedPaymentRequestDto {
   @Size(max = 255, message = "description must be 255 characters or fewer")
   private String description;
 
-  /** Optional known user; the demo placeholder applies when absent (no auth yet). */
-  private UUID userId;
-
   /** Optional known recipient; {@code recipientName} is resolved/learned otherwise. */
   private UUID recipientId;
 
   @Size(max = 255, message = "recipientName must be 255 characters or fewer")
   private String recipientName;
+
+  /** Verified PayPal destination for the recipient; required before order creation. */
+  @Email(message = "recipientEmail must be a valid email")
+  @Size(max = 255, message = "recipientEmail must be 255 characters or fewer")
+  private String recipientEmail;
+
+  /** Alternative PayPal merchant/account id when the recipient has no email. */
+  @Size(max = 128, message = "recipientPaypalAccountId must be 128 characters or fewer")
+  private String recipientPaypalAccountId;
 
   /** Optional known merchant; {@code merchantName} is resolved/learned otherwise. */
   private UUID merchantId;
@@ -76,13 +83,6 @@ public class GuardedPaymentRequestDto {
     this.description = description;
   }
 
-  public UUID getUserId() {
-    return userId;
-  }
-
-  public void setUserId(UUID userId) {
-    this.userId = userId;
-  }
 
   public UUID getRecipientId() {
     return recipientId;
@@ -98,6 +98,22 @@ public class GuardedPaymentRequestDto {
 
   public void setRecipientName(String recipientName) {
     this.recipientName = recipientName;
+  }
+
+  public String getRecipientEmail() {
+    return recipientEmail;
+  }
+
+  public void setRecipientEmail(String recipientEmail) {
+    this.recipientEmail = recipientEmail;
+  }
+
+  public String getRecipientPaypalAccountId() {
+    return recipientPaypalAccountId;
+  }
+
+  public void setRecipientPaypalAccountId(String recipientPaypalAccountId) {
+    this.recipientPaypalAccountId = recipientPaypalAccountId;
   }
 
   public UUID getMerchantId() {

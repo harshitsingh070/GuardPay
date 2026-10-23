@@ -1,18 +1,32 @@
 import { useEffect, useRef } from 'react';
 import { PhoneCall, ShieldAlert } from 'lucide-react';
 
+/**
+ * `detected` is used when the Android shell reports an active call.
+ * `self-check` is used on the web, where browsers cannot read call state, so
+ * the user is asked before paying.
+ */
+export type CallRiskVariant = 'detected' | 'self-check';
+
 interface Props {
   open: boolean;
+  variant?: CallRiskVariant;
   onCancel: () => void;
   onContinue: () => void;
 }
 
 /**
- * Blocking warning shown whenever the payment page sees an active call.
+ * Blocking warning shown whenever the payment page sees an active call, or
+ * before a web payment where the call state is unknown.
  * It intentionally requires an explicit choice instead of a dismissible toast:
  * a fraudster often stays on the line while pressuring the victim to pay.
  */
-export default function CallRiskDialog({ open, onCancel, onContinue }: Props) {
+export default function CallRiskDialog({
+  open,
+  variant = 'detected',
+  onCancel,
+  onContinue,
+}: Props) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -30,6 +44,8 @@ export default function CallRiskDialog({ open, onCancel, onContinue }: Props) {
 
   if (!open) return null;
 
+  const detected = variant === 'detected';
+
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-[#001435]/60 p-4 backdrop-blur-sm sm:items-center">
       <div
@@ -46,17 +62,18 @@ export default function CallRiskDialog({ open, onCancel, onContinue }: Props) {
             </span>
             <div className="min-w-0">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-red-600">
-                Call detected
+                {detected ? 'Call detected' : 'Before you pay'}
               </p>
               <h2 id="call-risk-title" className="mt-0.5 text-xl font-bold text-[#001435]">
-                You are on a phone call
+                {detected ? 'You are on a phone call' : 'Are you on a phone call?'}
               </h2>
             </div>
           </div>
 
           <p id="call-risk-description" className="mt-3 text-sm text-[#6c7378]">
-            The person on the call may be a fraudster. Scammers often stay on the line and
-            pressure you to pay before you have a chance to verify who they are.
+            {detected
+              ? 'The person on the call may be a fraudster. Scammers often stay on the line and pressure you to pay before you have a chance to verify who they are.'
+              : 'A web browser cannot detect phone calls. If someone is on the phone with you right now, be careful — it may be fraud. Think before paying.'}
           </p>
 
           <ul className="mt-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
@@ -77,19 +94,21 @@ export default function CallRiskDialog({ open, onCancel, onContinue }: Props) {
               onClick={onCancel}
               className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
             >
-              Cancel payment
+              {detected ? 'Cancel payment' : 'Yes, cancel payment'}
             </button>
             <button
               type="button"
               onClick={onContinue}
               className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-[#cbd2d6] bg-white px-5 py-3 text-sm font-bold text-[#001435] transition-colors hover:bg-[#f5f7fa] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0070e0]"
             >
-              Continue anyway
+              {detected ? 'Continue anyway' : 'No, continue payment'}
             </button>
           </div>
 
           <p className="mt-3 text-center text-[11px] text-[#6c7378]">
-            GuardPay cannot identify who is on the call. It only adds the call as extra risk.
+            {detected
+              ? 'GuardPay cannot identify who is on the call. It only adds the call as extra risk.'
+              : 'GuardPay cannot detect calls in a browser. Only you can confirm this.'}
           </p>
         </div>
       </div>

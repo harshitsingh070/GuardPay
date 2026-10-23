@@ -39,7 +39,7 @@ class DeterministicRiskEngineTest {
     assertEquals(0, result.score());
     assertEquals(RiskLevel.LOW, result.riskLevel());
     assertEquals(RecommendedAction.ALLOW, result.recommendedAction());
-    assertEquals(9, result.findings().size());
+    assertEquals(10, result.findings().size());
     assertTrue(triggeredBy(result).values().stream().noneMatch(b -> b));
     assertTrue(result.explanation() != null && !result.explanation().isBlank());
   }
@@ -124,11 +124,11 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("2499"), new BigDecimal("87"),
-            true, true, true, true, true, true, true, true);
+            true, true, true, true, true, true, true, true, true);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    // Raw total is 135; the final score must be capped at 100.
+    // Raw total is 155; the final score must be capped at 100.
     assertEquals(100, result.score());
     assertEquals(RiskLevel.CRITICAL, result.riskLevel());
     assertEquals(RecommendedAction.STOP, result.recommendedAction());
@@ -192,6 +192,22 @@ class DeterministicRiskEngineTest {
   }
 
   @Test
+  void missingContextAddsTwenty() {
+    RiskEvaluationRequest request =
+        new RiskEvaluationRequest(
+            new BigDecimal("2499"), new BigDecimal("87"),
+            false, true, false, false, false, false, false, false, true);
+
+    RiskEvaluationResult result = engine.evaluate(request);
+
+    // 20 new recipient + 20 large amount + 20 missing context.
+    assertEquals(60, result.score());
+    assertEquals(RiskLevel.MEDIUM, result.riskLevel());
+    assertEquals(RecommendedAction.VERIFY, result.recommendedAction());
+    assertTrue(triggeredBy(result).get("MISSING_CONTEXT"));
+  }
+
+  @Test
   void identicalInputGivesIdenticalOutput() {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
@@ -216,7 +232,8 @@ class DeterministicRiskEngineTest {
             "UNEXPECTED_INVOICE",
             "URGENT_LANGUAGE",
             "SUSPICIOUS_URL",
-            "SOCIAL_ENGINEERING"),
+            "SOCIAL_ENGINEERING",
+            "MISSING_CONTEXT"),
         codes);
   }
 }

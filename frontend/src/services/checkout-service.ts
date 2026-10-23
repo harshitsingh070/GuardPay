@@ -60,8 +60,8 @@ function mockVerification(paymentId: string) {
     expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     attemptsRemaining: MOCK_MAX_ATTEMPTS,
     simulated: true,
-    channelHint: 'Mock channel (development only) — enter the code shown on screen.',
-    challengeCode: MOCK_VERIFICATION_CODE,
+    channelHint:
+      'Mock channel (development only) — the backend outbox holds the code in real mode.',
   };
 }
 

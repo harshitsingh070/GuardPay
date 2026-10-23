@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
-import com.guardpay.common.config.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -15,11 +14,10 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * Verifies the liveness probe contract.
  *
- * <p>Web-layer slice only: no database, no security credentials needed
- * ({@code /api/health} is public by design).
+ * <p>Web-layer slice only: no database or security context needed.
  */
 @WebMvcTest(HealthController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import(CorsConfig.class)
 class HealthControllerTest {
 
   @Autowired private MockMvc mockMvc;

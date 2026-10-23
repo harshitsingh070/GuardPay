@@ -4,8 +4,7 @@
 > independent). Section D lists the endpoints that are **live today**; sections
 > A–C may drift from the built reality where noted in section D.
 
-Conventions (planned): JSON; `Authorization: Bearer <JWT>` on user-scoped
-Spring Boot APIs; server-to-server shared secret on Spring Boot → Python;
+-> Python when `AI_SERVICE_INTERNAL_TOKEN` is configured;
 idempotency on webhook ingestion; amounts as decimal strings with explicit
 currency (e.g. `"amount": "2499.00", "currency": "USD"`).
 
@@ -15,13 +14,6 @@ currency (e.g. `"amount": "2499.00", "currency": "USD"`).
 
 The React + Vite app calls these endpoints through the typed REST client
 (`src/services/api-client.ts`, base URL from `VITE_API_BASE_URL`).
-
-### Auth
-
-```text
-POST /api/auth/register   — planned: { name, email, password } → { user, token }
-POST /api/auth/login      — planned: { email, password } → { user, token }
-```
 
 ### Payments (GuardPay flow)
 
@@ -90,7 +82,7 @@ React + Vite so the dashboard updates without refresh.
 
 ---
 
-## B. Spring Boot → Python (internal AI API, planned base `http://localhost:8000`)
+## B. Spring Boot -> Python (internal AI API, live base `http://localhost:8001`)
 
 Single conceptual operation: **analyze payment context**.
 
@@ -153,31 +145,27 @@ The boundaries above are the plan; the following are live today. All are
 server-authoritative: risk is always derived, never accepted from the client.
 
 ```text
-GET  /api/health                                  — liveness probe
+GET  /api/health                                  - liveness probe
 
-# Guarded flow (primary path)
-POST /api/payments/guarded                         — body: payment/business context only
-       optional header Idempotency-Key             — repeats replay the stored result
-POST /api/payments/{paymentId}/verification/confirm— body: { code } (controlled VERIFY)
+# Guarded flow (primary path; fixed server-side demo workspace)
+POST /api/payments/guarded                         - body: payment/business context only, including recipientEmail
+       optional header Idempotency-Key             - repeats replay the stored result
+POST /api/payments/{paymentId}/verification/confirm - body: { code } (controlled VERIFY)
 
-# Transaction history (read-only; owner-scoped server-side)
-GET  /api/transactions?userId=&page=&size=         — paged summaries incl. decision
-GET  /api/transactions/{id}?userId=                — detail: references, decision + findings
+# Transaction history (read-only; fixed demo workspace)
+GET  /api/transactions?page=&size=                 - paged summaries incl. decision
+GET  /api/transactions/{id}                        - detail: references, decision + findings
 
 # Automatic risk (context only; no risk booleans exist)
 POST /api/risk/evaluate-automatic
 
-# Manual risk demo (kept for regression)
-POST /api/risk/evaluate
-
 # PayPal Sandbox
 GET  /api/paypal/health
-POST /api/paypal/orders
-POST /api/paypal/orders/{orderId}/capture
-POST /api/paypal/webhooks                          — PayPal -> Spring Boot (signature-verified)
+POST /api/paypal/orders/{orderId}/capture          - stored-decision checked; no public order-creation route
+POST /api/paypal/webhooks                          - PayPal -> Spring Boot (signature-verified)
 
 # Device signal
-POST /api/device-signals/call-state
+POST /api/device-signals/call-state                - device token header, not a user session
 ```
 
 Key response shapes:
@@ -193,19 +181,29 @@ Key response shapes:
   "verification": {
     "verificationId": "...", "status": "PENDING", "expiresAt": "...",
     "attemptsRemaining": 3, "simulated": true,
-    "channelHint": "Code delivered through the GuardPay simulated challenge channel.",
-    "challengeCode": "123456"
+    "channelHint": "Ask the developer to read the code from the server-side dev outbox; it is never returned to the browser."
   }
 }
 ```
+
+The public payment API never returns the verification answer. In the demo the
+simulated channel puts it in an in-memory server outbox; a loopback-only
+developer endpoint exposes it:
+
+```text
+GET /api/dev/verifications/{paymentId}/code   (127.0.0.1 / ::1 only, dev-only)
+```
+
+This is not a public contract and must be disabled (`GUARDPAY_DEV_VERIFICATION_OUTBOX=false`)
+or replaced with a real out-of-band identity channel before production.
 
 `paymentStatus` is one of `BLOCKED | VERIFICATION_REQUIRED |
 PAYPAL_AUTHORIZATION_REQUIRED | PENDING | APPROVED | COMPLETED | CANCELLED |
 FAILED`. A PayPal order exists only for `PAYPAL_AUTHORIZATION_REQUIRED` and
 later states.
 
-## E. What is explicitly out of contract in this step
+## E. Explicitly out of contract
 
-No auth tokens are issued, no payments are created, no webhooks are verified,
-and no AI analysis runs — all three services are scaffolds. This contract
-exists so the next milestones can implement each seam without renegotiating it.
+Multi-user authentication, accounts, and per-user ownership are not part of the
+demo contract. The server resolves every request to the fixed `guardpay-demo`
+workspace; clients cannot choose an owner or supply a `userId`.

@@ -13,11 +13,13 @@ import java.util.stream.Collectors;
 /**
  * Formats HTTP payloads for the development console.
  *
- * <p>Bodies and headers are logged in full so backend calls are traceable, but
+ * <p>Bodies and headers are logged so backend calls are traceable, but
  * credentials never reach the terminal: header names and JSON/form keys that
  * look sensitive (authorization, tokens, secrets, cookies, signatures,
- * certificates) are replaced with {@value #MASK}. JSON is pretty-printed and
- * every payload is bounded by {@code maxChars}.
+ * certificates) are replaced with {@value #MASK}. User-authored content and
+ * destination PII (message/invoice text, URLs, names, emails) are masked too so
+ * the privacy claim holds. JSON is pretty-printed and every payload is bounded
+ * by {@code maxChars}.
  */
 final class HttpLogSanitizer {
 
@@ -42,7 +44,24 @@ final class HttpLogSanitizer {
           "transmission-sig",
           "cert",
           "credential",
-          "cvv");
+          "cvv",
+          "email");
+
+  /** Exact names that would otherwise be too generic to mask by substring. */
+  private static final Set<String> SENSITIVE_EXACT_NAMES =
+      Set.of(
+          "verificationcode",
+          "challengecode",
+          "otp",
+          "verification_code",
+          "text",
+          "url",
+          "message",
+          "description",
+          "contenttext",
+          "contenturl",
+          "recipientname",
+          "merchantname");
 
   private HttpLogSanitizer() {}
 
@@ -51,11 +70,24 @@ final class HttpLogSanitizer {
       return false;
     }
     String normalized = name.toLowerCase(Locale.ROOT);
-    return SENSITIVE_NAME_PARTS.stream().anyMatch(normalized::contains);
+    return SENSITIVE_EXACT_NAMES.contains(normalized)
+        || SENSITIVE_NAME_PARTS.stream().anyMatch(normalized::contains);
   }
 
   static String maskHeaderValue(String name, String value) {
     return isSensitiveName(name) ? MASK : value;
+  }
+
+  /** A generic "code" field is only secret when its value looks like an OTP. */
+  private static boolean isOtpCode(String name, JsonNode value) {
+    if (name == null || !"code".equals(name.toLowerCase(Locale.ROOT)) || !value.isTextual()) {
+      return false;
+    }
+    return value.asText().matches("\\d{4,8}");
+  }
+
+  private static boolean isOtpCodePair(String name, String value) {
+    return "code".equalsIgnoreCase(name) && value != null && value.matches("\\d{4,8}");
   }
 
   static boolean isTextualContentType(String contentType) {
@@ -131,7 +163,7 @@ final class HttpLogSanitizer {
               field ->
                   masked.set(
                       field.getKey(),
-                      isSensitiveName(field.getKey())
+                      isSensitiveName(field.getKey()) || isOtpCode(field.getKey(), field.getValue())
                           ? TextNode.valueOf(MASK)
                           : mask(field.getValue())));
       return masked;
@@ -153,7 +185,10 @@ final class HttpLogSanitizer {
                 return pair;
               }
               String name = pair.substring(0, separator);
-              return isSensitiveName(name) ? name + "=" + MASK : pair;
+              String value = pair.substring(separator + 1);
+              return isSensitiveName(name) || isOtpCodePair(name, value)
+                  ? name + "=" + MASK
+                  : pair;
             })
         .collect(Collectors.joining("&"));
   }

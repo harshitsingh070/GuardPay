@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
-import com.guardpay.common.config.SecurityConfig;
 import com.guardpay.device.dto.DeviceCallStateRequestDto;
 import com.guardpay.device.dto.DeviceCallStateResponseDto;
 import java.time.OffsetDateTime;
@@ -30,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** Device endpoint with a mocked service: header passthrough and shapes only. */
 @WebMvcTest(DeviceSignalController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import(CorsConfig.class)
 class DeviceSignalControllerTest {
 
   @Autowired private MockMvc mockMvc;

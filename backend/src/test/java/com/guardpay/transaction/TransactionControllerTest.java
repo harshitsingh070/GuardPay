@@ -1,6 +1,5 @@
 package com.guardpay.transaction;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,7 +7,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
-import com.guardpay.common.config.SecurityConfig;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
 import com.guardpay.transaction.dto.RiskAssessmentViewDto;
@@ -31,7 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 /** Read-only history endpoint with a mocked service: shapes and status codes. */
 @WebMvcTest(TransactionController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import(CorsConfig.class)
 class TransactionControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -41,7 +39,7 @@ class TransactionControllerTest {
   @Test
   void listReturnsPagedHistory() throws Exception {
     UUID id = UUID.randomUUID();
-    when(service.list(any(), eq(0), eq(20)))
+    when(service.list(eq(0), eq(20)))
         .thenReturn(
             new TransactionPageDto(
                 List.of(
@@ -74,7 +72,7 @@ class TransactionControllerTest {
   @Test
   void detailReturnsFindingsAndReferences() throws Exception {
     UUID id = UUID.randomUUID();
-    when(service.detail(eq(id), any()))
+    when(service.detail(eq(id)))
         .thenReturn(
             new TransactionDetailDto(
                 id,
@@ -103,7 +101,7 @@ class TransactionControllerTest {
   @Test
   void unknownTransactionReturnsNotFound() throws Exception {
     UUID id = UUID.randomUUID();
-    when(service.detail(eq(id), any()))
+    when(service.detail(eq(id)))
         .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown transaction"));
 
     mockMvc.perform(get("/api/transactions/" + id)).andExpect(status().isNotFound());

@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
-import com.guardpay.common.config.SecurityConfig;
 import com.guardpay.paypal.webhook.dto.WebhookAckResponse;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -27,10 +26,10 @@ import static org.mockito.Mockito.when;
 
 /**
  * Webhook endpoint with a mocked service: raw-body passthrough, safe ack
- * shapes, and status mapping — never live PayPal.
+ * shapes, and status mapping â€” never live PayPal.
  */
 @WebMvcTest(PayPalWebhookController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import(CorsConfig.class)
 class PayPalWebhookControllerTest {
 
   @Autowired private MockMvc mockMvc;

@@ -17,8 +17,12 @@ authorization is never bypassed.
 - Python 3.12+ (only needed if you want live AI evidence).
 - A PayPal Developer **Sandbox** app (client id + secret) and a Sandbox
   Personal test account for the human approval step.
+- A Sandbox payee email for the recipient field. The payee must be an account
+  in your PayPal Sandbox so PayPal accepts the order.
 - Optional: `OPENAI_API_KEY` for live AI evidence. Without it the AI service
   reports `UNAVAILABLE` and the deterministic signals decide alone.
+- If the AI service is exposed beyond localhost, set the same
+  `AI_SERVICE_INTERNAL_TOKEN` for both Spring Boot and FastAPI.
 
 ## 2. Start the stack
 
@@ -44,8 +48,9 @@ python -m pip install -r ai-service/requirements.txt
 
 ## 3. Automated safety-invariant suite
 
-The script drives the real backend over HTTP and checks the invariants that
-must always hold, independent of any particular score:
+The script drives the real backend over HTTP as the fixed demo workspace and
+checks the invariants that must always hold, independent of any particular
+score:
 
 - a non-`ALLOW` decision **never** creates a PayPal order;
 - a `VERIFY` decision issues a controlled challenge and creates no order;
@@ -54,9 +59,13 @@ must always hold, independent of any particular score:
 - transaction history reflects the runs.
 
 ```powershell
-pwsh -File scripts/demo-guarded-flow.ps1
-# or: powershell -ExecutionPolicy Bypass -File scripts/demo-guarded-flow.ps1
+pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail sb-merchant@business.example.com
+# or: $env:DEMO_RECIPIENT_EMAIL = "sb-merchant@business.example.com"
+#     powershell -ExecutionPolicy Bypass -File scripts/demo-guarded-flow.ps1
 ```
+
+Pass a real Sandbox payee email; the built-in default is only a placeholder and
+PayPal may reject the order without a valid Sandbox recipient.
 
 Exit code `0` means every checked invariant held. The script deliberately does
 **not** assert specific scores (AI availability varies) and never fakes a
@@ -64,15 +73,20 @@ capture — human Sandbox approval stays manual.
 
 ## 4. Manual walkthrough (UI + Sandbox approval)
 
-1. Open `http://localhost:3000/payment`.
-2. **Safe Payment** preset ($45, known names) → `ALLOW`, PayPal order + approval
-   link appear.
-3. **Suspicious Payment** preset (large amount, scam text + URL) → `VERIFY` or
+1. Open `http://localhost:3000/payment` directly. No account or session is
+   required; the backend resolves the fixed `guardpay-demo` workspace.
+2. **Safe Payment** preset ($45, known names + Sandbox recipient email) ->
+   `ALLOW`, PayPal order + approval link appear. Enter your own Sandbox payee
+   email instead of the placeholder if PayPal rejects it.
+3. **Suspicious Payment** preset (large amount, scam text + URL) -> `VERIFY` or
    `STOP` (AI-dependent). No PayPal order is created either way.
-4. If the result is `VERIFY`, the controlled challenge panel appears. Enter the
-   code shown (simulated channel — clearly labelled) to continue to PayPal, or
-   enter a wrong code to watch attempts decrement and the challenge eventually
-   fail. No order exists until verification succeeds.
+4. If the result is `VERIFY`, the controlled challenge panel appears. The code
+   is delivered out of band (never returned in the payment response). On the
+   backend host, read it from the loopback-only dev outbox:
+   `Invoke-RestMethod "http://localhost:8080/api/dev/verifications/<paymentId>/code"`.
+   Enter that code to continue to PayPal, or enter a wrong code to watch
+   attempts decrement and the challenge eventually fail. No order exists until
+   verification succeeds.
 5. For an `ALLOW` payment: open the approval link, approve with your Sandbox
    Personal account, return, and click **I approved — capture payment**.
 6. Open `http://localhost:3000/transactions` to see the stored history. Select a
@@ -87,17 +101,20 @@ capture — human Sandbox approval stays manual.
 | AI evidence | Real when `OPENAI_API_KEY` is set; otherwise `UNAVAILABLE` fallback |
 | PayPal order + capture | Real Sandbox REST calls |
 | Webhooks | Real handler; external delivery needs a public tunnel |
-| Verification challenge | **Simulated** channel (no identity provider configured) — the code is returned in the response and the panel labels it as a prototype stand-in |
+| Verification challenge | **Simulated** channel (no identity provider configured) — the code is kept in a server-side outbox and readable only from loopback; it is never returned in the payment response or written to logs |
 | Device call-state | Derivable from a paired Android device; unavailable otherwise |
+| Authentication | None in the demo; a single fixed `guardpay-demo` workspace |
 
 ## 6. Honest limitations
 
 - PayPal approval needs a human with a Sandbox Personal account.
 - External webhook delivery needs a public tunnel (not configured; never faked).
 - Verification is a simulated channel; a production build must deliver the
-  challenge out of band and replace it with a real identity signal.
-- There is no authentication yet: history is scoped by an optional user id, and
-  an omitted id resolves to the documented demo user.
+  challenge out of band (the demo outbox is loopback-only) and replace it with a
+  real identity signal. Disable `GUARDPAY_DEV_VERIFICATION_OUTBOX` in production.
+- There is no multi-user authentication. Transaction history, guarded payments,
+  verification, risk, and capture all use the fixed server-side `guardpay-demo`
+  workspace; clients cannot supply an owner or user id.
 - The guarded endpoint will not reach `STOP` on deterministic signals alone in a
   fresh database (deterministic signals top out at `VERIFY`); a `STOP` needs
   strong AI/device evidence.

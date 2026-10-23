@@ -1,8 +1,10 @@
-"""Deterministic orchestration: agents in fixed order, merged findings.
+"""Deterministic orchestration: local checks first, optional LLM agents after.
 
 No CrewAI: three focused agents with a fixed pipeline need no multi-agent
 framework, and skipping it avoids heavy dependency/version churn for zero
-behavioral gain. The pipeline order is fixed, so output ordering is stable.
+behavioral gain. URL analysis is pure local logic and always runs, even when
+the model is unconfigured or unavailable. One failing LLM agent must not
+discard findings from the other agent or the local URL rules.
 """
 
 import logging
@@ -12,17 +14,27 @@ from ..agents.content_scam import ContentScamAgent
 from ..agents.social_engineering import SocialEngineeringAgent
 from ..agents.url_analysis import analyze_url
 from ..schemas.analysis import AiFinding, AnalyzeRequest, AnalyzeResponse
-from ..services.llm import LlmClient
+from ..services.llm import LlmClient, LlmError
 
 logger = logging.getLogger(__name__)
 
 
-def analyze_payment(request: AnalyzeRequest, llm: LlmClient) -> AnalyzeResponse:
-    """Run all agents; dedupe identical codes keeping highest confidence."""
+def analyze_payment(
+    request: AnalyzeRequest, llm: LlmClient | None = None
+) -> AnalyzeResponse:
+    """Run local checks always; run LLM agents only when a client is available."""
     findings: list[AiFinding] = []
-    findings.extend(SocialEngineeringAgent(llm).analyze(request))
-    findings.extend(ContentScamAgent(llm).analyze(request))
     findings.extend(analyze_url(request.content.url))
+
+    if llm is not None:
+        for name, agent in (
+            ("social-engineering", SocialEngineeringAgent(llm)),
+            ("content-scam", ContentScamAgent(llm)),
+        ):
+            try:
+                findings.extend(agent.analyze(request))
+            except LlmError as exc:
+                logger.warning("%s agent unavailable: %s", name, exc)
 
     merged: dict[str, AiFinding] = {}
     for finding in findings:

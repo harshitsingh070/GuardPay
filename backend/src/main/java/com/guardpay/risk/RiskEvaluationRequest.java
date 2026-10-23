@@ -19,4 +19,32 @@ public record RiskEvaluationRequest(
     boolean unexpectedInvoice,
     boolean urgentLanguage,
     boolean suspiciousUrl,
-    boolean socialEngineeringDetected) {}
+    boolean socialEngineeringDetected,
+    boolean missingContext) {
+
+  /** Backwards-compatible constructor; missing context defaults to false. */
+  public RiskEvaluationRequest(
+      BigDecimal currentAmount,
+      BigDecimal historicalAverage,
+      boolean activeCall,
+      boolean newRecipient,
+      boolean repeatedAttempts,
+      boolean unknownMerchant,
+      boolean unexpectedInvoice,
+      boolean urgentLanguage,
+      boolean suspiciousUrl,
+      boolean socialEngineeringDetected) {
+    this(
+        currentAmount,
+        historicalAverage,
+        activeCall,
+        newRecipient,
+        repeatedAttempts,
+        unknownMerchant,
+        unexpectedInvoice,
+        urgentLanguage,
+        suspiciousUrl,
+        socialEngineeringDetected,
+        false);
+  }
+}

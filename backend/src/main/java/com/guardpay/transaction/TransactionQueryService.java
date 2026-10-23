@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guardpay.payment.PaymentVerificationRepository;
-import com.guardpay.paypal.service.PayPalOrderService;
 import com.guardpay.risk.RiskAssessment;
 import com.guardpay.risk.RiskAssessmentRepository;
 import com.guardpay.risk.dto.RiskFindingDto;
@@ -12,8 +11,7 @@ import com.guardpay.transaction.dto.RiskAssessmentViewDto;
 import com.guardpay.transaction.dto.TransactionDetailDto;
 import com.guardpay.transaction.dto.TransactionPageDto;
 import com.guardpay.transaction.dto.TransactionSummaryDto;
-import com.guardpay.user.User;
-import com.guardpay.user.UserRepository;
+import com.guardpay.user.DemoUserService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +26,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Read-only transaction history.
+ * Read-only transaction history for the fixed demo account.
  *
- * <p>Ownership is enforced here: a caller may only ever see their own
- * transactions. With no authentication yet the owner is a query parameter, and
- * an omitted owner resolves to the documented demo user — a real user id that
- * has no transactions simply gets an empty page, and a foreign transaction id
- * is reported as not found rather than exposed.
+ * <p>The account is resolved server-side; callers cannot choose whose
+ * transactions they read.
  */
 @Service
 public class TransactionQueryService {
@@ -46,31 +41,27 @@ public class TransactionQueryService {
   private final TransactionRepository transactions;
   private final RiskAssessmentRepository assessments;
   private final PaymentVerificationRepository verifications;
-  private final UserRepository users;
+  private final DemoUserService demoUser;
 
   public TransactionQueryService(
       TransactionRepository transactions,
       RiskAssessmentRepository assessments,
       PaymentVerificationRepository verifications,
-      UserRepository users) {
+      DemoUserService demoUser) {
     this.transactions = transactions;
     this.assessments = assessments;
     this.verifications = verifications;
-    this.users = users;
+    this.demoUser = demoUser;
   }
 
   @Transactional(readOnly = true)
-  public TransactionPageDto list(UUID userId, int page, int size) {
+  public TransactionPageDto list(int page, int size) {
     int safePage = Math.max(0, page);
     int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
-    User owner = resolveOwner(userId);
-    if (owner == null) {
-      return new TransactionPageDto(List.of(), safePage, safeSize, 0, 0);
-    }
     Pageable pageable =
         PageRequest.of(
             safePage, safeSize, Sort.by(Sort.Direction.DESC, "transactionTimestamp"));
-    Page<Transaction> result = transactions.findByUserId(owner.getId(), pageable);
+    Page<Transaction> result = transactions.findByUserId(demoUser.currentUser().getId(), pageable);
     List<Transaction> rows = result.getContent();
     List<UUID> ids = rows.stream().map(Transaction::getId).toList();
     Map<UUID, RiskAssessment> latest = new HashMap<>();
@@ -87,28 +78,13 @@ public class TransactionQueryService {
   }
 
   @Transactional(readOnly = true)
-  public TransactionDetailDto detail(UUID transactionId, UUID userId) {
-    User owner = resolveOwner(userId);
+  public TransactionDetailDto detail(UUID transactionId) {
     Transaction transaction =
         transactions
             .findById(transactionId)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown transaction"));
-    if (owner == null
-        || transaction.getUser() == null
-        || !owner.getId().equals(transaction.getUser().getId())) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown transaction");
-    }
     return toDetail(transaction);
-  }
-
-  private User resolveOwner(UUID userId) {
-    if (userId != null) {
-      return users
-          .findById(userId)
-          .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user"));
-    }
-    return users.findByExternalUserId(PayPalOrderService.DEMO_USER_EXTERNAL_ID).orElse(null);
   }
 
   private TransactionDetailDto toDetail(Transaction transaction) {

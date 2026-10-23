@@ -17,6 +17,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,20 +33,35 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PaymentSignalCollectorService {
 
+  /** High-value payments need at least one independent context signal. */
+  static final BigDecimal HIGH_VALUE_CONTEXT_THRESHOLD = new BigDecimal("1000.00");
+
   private final UserRepository users;
   private final RecipientRepository recipients;
   private final MerchantRepository merchants;
   private final TransactionRepository transactions;
+  private final DeterministicContentAnalyzer contentAnalyzer;
 
   public PaymentSignalCollectorService(
       UserRepository users,
       RecipientRepository recipients,
       MerchantRepository merchants,
       TransactionRepository transactions) {
+    this(users, recipients, merchants, transactions, new DeterministicContentAnalyzer());
+  }
+
+  @Autowired
+  public PaymentSignalCollectorService(
+      UserRepository users,
+      RecipientRepository recipients,
+      MerchantRepository merchants,
+      TransactionRepository transactions,
+      DeterministicContentAnalyzer contentAnalyzer) {
     this.users = users;
     this.recipients = recipients;
     this.merchants = merchants;
     this.transactions = transactions;
+    this.contentAnalyzer = contentAnalyzer;
   }
 
   @Transactional(readOnly = true)
@@ -62,20 +78,25 @@ public class PaymentSignalCollectorService {
     List<Transaction> history = historyFor(user, request);
     BigDecimal average = averageOf(history);
 
+    DeterministicContentAnalyzer.ContentAnalysis content =
+        contentAnalyzer.analyze(request.contentText(), request.contentUrl());
+
     List<PaymentSignal> signals = new ArrayList<>();
     signals.add(unusualAmount(request.amount(), average));
     signals.add(repeatedAttempts(request, user));
-    signals.add(newRecipient(request, user));
-    signals.add(unknownMerchant(request, user));
-    signals.add(unavailable(PaymentSignalType.UNEXPECTED_INVOICE, SignalSource.PAYMENT_CONTEXT,
-        "INSUFFICIENT_CONTEXT", "No reliable invoice expectation data is available yet."));
-    signals.add(unavailable(PaymentSignalType.SUSPICIOUS_URL, SignalSource.URL_REPUTATION,
-        "URL_REPUTATION_NOT_CONFIGURED", "No URL reputation check is configured."));
-    signals.add(activeCallSignal(deviceSignal));
-    signals.add(unavailable(PaymentSignalType.URGENT_LANGUAGE, SignalSource.NOT_AVAILABLE,
-        "NOT_AVAILABLE_YET", "Language analysis arrives with AI content integration."));
-    signals.add(unavailable(PaymentSignalType.SOCIAL_ENGINEERING_DETECTED, SignalSource.NOT_AVAILABLE,
-        "NOT_AVAILABLE_YET", "Manipulation analysis arrives with AI integration."));
+    PaymentSignal newRecipientSignal = newRecipient(request, user);
+    signals.add(newRecipientSignal);
+    PaymentSignal unknownMerchantSignal = unknownMerchant(request, user);
+    signals.add(unknownMerchantSignal);
+    signals.add(unexpectedInvoice(content, request));
+    signals.add(suspiciousUrl(content, request));
+    PaymentSignal callSignal = activeCallSignal(deviceSignal);
+    signals.add(callSignal);
+    signals.add(urgentLanguage(content, request));
+    signals.add(
+        socialEngineering(
+            content, newRecipientSignal, unknownMerchantSignal, callSignal, request));
+    signals.add(missingContext(request, deviceSignal));
     return new AutomaticSignalCollectionResult(List.copyOf(signals), average);
   }
 
@@ -235,6 +256,175 @@ public class PaymentSignalCollectorService {
             : "NOT_AVAILABLE";
     return new PaymentSignal(PaymentSignalType.ACTIVE_CALL, false,
         SignalSource.NOT_AVAILABLE, reason, "No trusted call-state signal is available.");
+  }
+
+  private static PaymentSignal unexpectedInvoice(
+      DeterministicContentAnalyzer.ContentAnalysis content, SignalCollectionRequest request) {
+    if (content.unexpectedInvoice()) {
+      return new PaymentSignal(
+          PaymentSignalType.UNEXPECTED_INVOICE,
+          true,
+          SignalSource.PAYMENT_CONTEXT,
+          null,
+          content.invoiceEvidence());
+    }
+    if (!hasText(request.contentText()) && !hasText(request.contentUrl())) {
+      return unavailable(
+          PaymentSignalType.UNEXPECTED_INVOICE,
+          SignalSource.PAYMENT_CONTEXT,
+          "INSUFFICIENT_CONTEXT",
+          "No message or invoice text was supplied.");
+    }
+    return new PaymentSignal(
+        PaymentSignalType.UNEXPECTED_INVOICE,
+        false,
+        SignalSource.PAYMENT_CONTEXT,
+        null,
+        "No unexpected-invoice pattern was found in the supplied context.");
+  }
+
+  private static PaymentSignal suspiciousUrl(
+      DeterministicContentAnalyzer.ContentAnalysis content, SignalCollectionRequest request) {
+    if (content.suspiciousUrl()) {
+      return new PaymentSignal(
+          PaymentSignalType.SUSPICIOUS_URL,
+          true,
+          SignalSource.URL_REPUTATION,
+          "DETERMINISTIC_URL_STRUCTURE",
+          content.urlEvidence());
+    }
+    if (!hasText(request.contentUrl())) {
+      return unavailable(
+          PaymentSignalType.SUSPICIOUS_URL,
+          SignalSource.URL_REPUTATION,
+          "NO_URL_IN_CONTENT",
+          "No payment URL was supplied for structural analysis.");
+    }
+    return new PaymentSignal(
+        PaymentSignalType.SUSPICIOUS_URL,
+        false,
+        SignalSource.URL_REPUTATION,
+        null,
+        "No structural URL red flags were found.");
+  }
+
+  private static PaymentSignal urgentLanguage(
+      DeterministicContentAnalyzer.ContentAnalysis content, SignalCollectionRequest request) {
+    if (content.urgent()) {
+      return new PaymentSignal(
+          PaymentSignalType.URGENT_LANGUAGE,
+          true,
+          SignalSource.PAYMENT_CONTEXT,
+          null,
+          content.urgentEvidence());
+    }
+    if (!hasText(request.contentText())) {
+      return unavailable(
+          PaymentSignalType.URGENT_LANGUAGE,
+          SignalSource.NOT_AVAILABLE,
+          "CONTENT_UNAVAILABLE",
+          "No message text was supplied for language analysis.");
+    }
+    return new PaymentSignal(
+        PaymentSignalType.URGENT_LANGUAGE,
+        false,
+        SignalSource.PAYMENT_CONTEXT,
+        null,
+        "No urgent or pressuring language was found.");
+  }
+
+  /**
+   * A single AI/LLM finding is never required to identify a scam pattern:
+   * independent local signals are combined here. This is deliberately
+   * conservative and only fires when multiple indicators co-occur.
+   */
+  private static PaymentSignal socialEngineering(
+      DeterministicContentAnalyzer.ContentAnalysis content,
+      PaymentSignal newRecipientSignal,
+      PaymentSignal unknownMerchantSignal,
+      PaymentSignal activeCallSignal,
+      SignalCollectionRequest request) {
+    boolean newCounterparty = newRecipientSignal.detected() || unknownMerchantSignal.detected();
+    boolean activeCall = activeCallSignal.detected();
+    boolean combination =
+        content.scamPattern()
+            || (content.paymentInstruction() && (newCounterparty || activeCall))
+            || (content.unexpectedInvoice()
+                && newCounterparty
+                && (content.urgent() || activeCall))
+            || (activeCall
+                && (content.urgent()
+                    || content.unexpectedInvoice()
+                    || content.paymentInstruction()));
+    if (combination) {
+      String evidence =
+          content.scamEvidence() != null
+              ? content.scamEvidence()
+              : "Multiple independent scam indicators co-occur with a new/unknown counterparty"
+                  + (activeCall ? " and an active call." : ".");
+      return new PaymentSignal(
+          PaymentSignalType.SOCIAL_ENGINEERING_DETECTED,
+          true,
+          SignalSource.PAYMENT_CONTEXT,
+          null,
+          evidence);
+    }
+    if (!hasText(request.contentText())
+        && !hasText(request.contentUrl())
+        && !activeCall
+        && !newCounterparty) {
+      return unavailable(
+          PaymentSignalType.SOCIAL_ENGINEERING_DETECTED,
+          SignalSource.NOT_AVAILABLE,
+          "INSUFFICIENT_CONTEXT",
+          "Not enough independent context to evaluate a scam pattern.");
+    }
+    return new PaymentSignal(
+        PaymentSignalType.SOCIAL_ENGINEERING_DETECTED,
+        false,
+        SignalSource.PAYMENT_CONTEXT,
+        null,
+        "No multi-signal social-engineering pattern was found.");
+  }
+
+  private static PaymentSignal missingContext(
+      SignalCollectionRequest request, DeviceCallSignal deviceSignal) {
+    if (request.amount() == null) {
+      return unavailable(
+          PaymentSignalType.MISSING_CONTEXT,
+          SignalSource.PAYMENT_CONTEXT,
+          "AMOUNT_UNAVAILABLE",
+          "No amount was supplied.");
+    }
+    if (request.amount().compareTo(HIGH_VALUE_CONTEXT_THRESHOLD) < 0) {
+      return new PaymentSignal(
+          PaymentSignalType.MISSING_CONTEXT,
+          false,
+          SignalSource.PAYMENT_CONTEXT,
+          "BELOW_HIGH_VALUE_THRESHOLD",
+          "Payment is below the high-value context threshold.");
+    }
+    boolean contentMissing =
+        !hasText(request.contentText()) && !hasText(request.contentUrl());
+    boolean deviceUnknown = deviceSignal == null || deviceSignal.activeCall() == null;
+    if (contentMissing && deviceUnknown) {
+      return new PaymentSignal(
+          PaymentSignalType.MISSING_CONTEXT,
+          true,
+          SignalSource.PAYMENT_CONTEXT,
+          "HIGH_VALUE_CONTEXT_MISSING",
+          "High-value payment has no message/link and no trusted device observation.");
+    }
+    return new PaymentSignal(
+        PaymentSignalType.MISSING_CONTEXT,
+        false,
+        SignalSource.PAYMENT_CONTEXT,
+        "CONTEXT_SUFFICIENT",
+        "At least one independent context signal is available.");
+  }
+
+  private static boolean hasText(String value) {
+    return value != null && !value.isBlank();
   }
 
   private static PaymentSignal unavailable(

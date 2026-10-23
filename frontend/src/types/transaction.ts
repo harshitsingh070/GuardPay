@@ -61,6 +61,6 @@ export interface TransactionDetail {
 
 /** History data source. The real implementation calls the Spring Boot API. */
 export interface TransactionHistoryService {
-  list(userId: string | undefined, page: number, size: number): Promise<TransactionPage>;
-  detail(id: string, userId: string | undefined): Promise<TransactionDetail>;
+  list(page: number, size: number): Promise<TransactionPage>;
+  detail(id: string): Promise<TransactionDetail>;
 }

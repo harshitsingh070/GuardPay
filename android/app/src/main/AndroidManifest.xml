@@ -7,8 +7,7 @@
 
     <application
         android:label="GuardPay"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:usesCleartextTraffic="true">
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"

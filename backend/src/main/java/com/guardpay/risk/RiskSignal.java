@@ -43,6 +43,10 @@ public enum RiskSignal {
   SOCIAL_ENGINEERING(
       "Known scam pattern",
       "Behavior is consistent with a known social-engineering payment scam pattern.",
+      20),
+  MISSING_CONTEXT(
+      "Unverified high-value payment",
+      "A high-value payment was requested without message, link, or trusted device context.",
       20);
 
   private final String title;

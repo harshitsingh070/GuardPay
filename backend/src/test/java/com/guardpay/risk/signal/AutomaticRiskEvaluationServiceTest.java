@@ -1,7 +1,6 @@
 package com.guardpay.risk.signal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
@@ -19,8 +18,8 @@ import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
+import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
-import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -30,9 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Full deterministic path (real collector + real engine, mocked
@@ -44,7 +41,8 @@ class AutomaticRiskEvaluationServiceTest {
   private static final UUID USER_ID = UUID.randomUUID();
   private static final UUID RECIPIENT_ID = UUID.randomUUID();
 
-  @Mock private UserRepository users;
+  @Mock private DemoUserService demoUser;
+  @Mock private com.guardpay.user.UserRepository users;
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
   @Mock private TransactionRepository transactions;
@@ -66,11 +64,12 @@ class AutomaticRiskEvaluationServiceTest {
         new AutomaticRiskEvaluationService(
             collector,
             new DeterministicRiskEngine(),
-            users,
+            demoUser,
             deviceStates,
             recipients,
             merchants,
             aiClient);
+    lenient().when(demoUser.currentUser()).thenReturn(user);
     lenient()
         .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
         .thenReturn(List.of());
@@ -87,7 +86,6 @@ class AutomaticRiskEvaluationServiceTest {
   private AutomaticEvaluationRequestDto request(String amount, UUID recipientId) {
     AutomaticEvaluationRequestDto dto = new AutomaticEvaluationRequestDto();
     dto.setAmount(new BigDecimal(amount));
-    dto.setUserId(USER_ID);
     dto.setRecipientId(recipientId);
     return dto;
   }
@@ -95,7 +93,6 @@ class AutomaticRiskEvaluationServiceTest {
   @Test
   void newRecipientWithLargeAmountYieldsVerify() {
     // History average: (50 + 87 + 120 + 80 + 98) / 5 = 87.
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(
@@ -114,21 +111,12 @@ class AutomaticRiskEvaluationServiceTest {
 
     AutomaticEvaluationResponseDto response = service.evaluate(request("2499", RECIPIENT_ID));
 
-    assertEquals(40, response.score());
+    // 20 unusual amount + 20 new recipient + 20 missing context.
+    assertEquals(60, response.score());
     assertEquals(RiskLevel.MEDIUM, response.riskLevel());
     assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
-    assertEquals(9, response.automaticSignals().size());
-    assertEquals(9, response.findings().size());
+    assertEquals(10, response.automaticSignals().size());
+    assertEquals(10, response.findings().size());
   }
 
-  @Test
-  void unknownUserIsNotFound() {
-    when(users.existsById(USER_ID)).thenReturn(false);
-
-    AutomaticEvaluationRequestDto dto = request("45", null);
-    ResponseStatusException failure =
-        assertThrows(ResponseStatusException.class, () -> service.evaluate(dto));
-
-    assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
-  }
 }

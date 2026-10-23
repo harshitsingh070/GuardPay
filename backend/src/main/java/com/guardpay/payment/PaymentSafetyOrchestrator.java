@@ -4,14 +4,13 @@ import com.guardpay.merchant.Merchant;
 import com.guardpay.merchant.MerchantRepository;
 import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
-import com.guardpay.paypal.service.PayPalOrderService;
 import com.guardpay.recipient.Recipient;
 import com.guardpay.recipient.RecipientRepository;
 import com.guardpay.risk.signal.AutomaticRiskEvaluationService;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationRequestDto;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
+import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
-import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Optional;
@@ -24,8 +23,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Single guarded-payment flow: resolve identities (learning unknown payee
- * names into the catalog so history semantics stay real) → full automatic
- * pipeline (history, device, AI, engine) → transactional completion.
+ * names into the catalog so history semantics stay real) â†’ full automatic
+ * pipeline (history, device, AI, engine) â†’ transactional completion.
  *
  * <p>Risk evaluation happens outside any database transaction so a slow AI
  * call never holds a connection or a row lock. Scoring stays in the engine,
@@ -39,7 +38,7 @@ public class PaymentSafetyOrchestrator {
 
   private final AutomaticRiskEvaluationService automaticRisk;
   private final GuardedPaymentCompletionService completion;
-  private final UserRepository users;
+  private final DemoUserService demoUser;
   private final RecipientRepository recipients;
   private final MerchantRepository merchants;
   private final GuardedPaymentIdempotencyRepository idempotency;
@@ -47,52 +46,67 @@ public class PaymentSafetyOrchestrator {
   public PaymentSafetyOrchestrator(
       AutomaticRiskEvaluationService automaticRisk,
       GuardedPaymentCompletionService completion,
-      UserRepository users,
+      DemoUserService demoUser,
       RecipientRepository recipients,
       MerchantRepository merchants,
       GuardedPaymentIdempotencyRepository idempotency) {
     this.automaticRisk = automaticRisk;
     this.completion = completion;
-    this.users = users;
+    this.demoUser = demoUser;
     this.recipients = recipients;
     this.merchants = merchants;
     this.idempotency = idempotency;
   }
 
-  public GuardedPaymentResponseDto initiate(GuardedPaymentRequestDto dto) {
-    return initiate(dto, null);
-  }
-
   /**
-   * Guarded initiation with optional client idempotency key. A repeated key
-   * returns the stored result verbatim; a reused key with different content
-   * is rejected. The completion step locks the key before side effects.
+   * Guarded initiation for the fixed demo account. A repeated key returns the
+   * stored result verbatim; a reused key with different content is rejected.
+   * The completion step locks the key before side effects.
    */
   public GuardedPaymentResponseDto initiate(
       GuardedPaymentRequestDto dto, String idempotencyKey) {
     String key = normalizeKey(idempotencyKey);
     if (key != null) {
-      Optional<GuardedPaymentIdempotency> existing = idempotency.findByIdempotencyKey(key);
+      Optional<GuardedPaymentIdempotency> existing =
+          idempotency.findByIdempotencyKey(key);
       if (existing.isPresent()) {
         return GuardedPaymentReplay.replayOrConflict(existing.get(), dto);
       }
     }
 
     BigDecimal amount = dto.getAmount().setScale(2, RoundingMode.HALF_UP);
-    User user = resolveUser(dto.getUserId());
-    Recipient recipient = resolveRecipient(user, dto.getRecipientId(), dto.getRecipientName());
+    User user = demoUser.currentUser();
+    Recipient recipient =
+        resolveRecipient(
+            user,
+            dto.getRecipientId(),
+            dto.getRecipientName(),
+            dto.getRecipientEmail(),
+            dto.getRecipientPaypalAccountId());
+    if (recipient == null) {
+      // A payment with no counterparty is not a meaningful PayPal destination
+      // and would otherwise let every identity-based signal silently vanish.
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "recipientName or recipientId is required");
+    }
     Merchant merchant = resolveMerchant(dto.getMerchantId(), dto.getMerchantName());
 
     AutomaticEvaluationRequestDto auto = new AutomaticEvaluationRequestDto();
     auto.setAmount(amount);
     auto.setCurrency(dto.getCurrency());
-    auto.setUserId(user.getId());
     auto.setRecipientId(recipient != null ? recipient.getId() : null);
     auto.setMerchantId(merchant != null ? merchant.getId() : null);
     auto.setDeviceId(dto.getDeviceId());
     auto.setContentText(dto.getContentText());
     auto.setContentUrl(dto.getContentUrl());
     AutomaticEvaluationResponseDto risk = automaticRisk.evaluate(auto);
+    if (risk.recommendedAction() != com.guardpay.risk.RecommendedAction.STOP
+        && blankToNull(recipient.getEmail()) == null
+        && blankToNull(recipient.getPaypalAccountId()) == null) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "recipientEmail or recipientPaypalAccountId is required for a PayPal destination");
+    }
 
     log.debug("Guarded payment evaluated (action={})", risk.recommendedAction());
     return completion.complete(dto, key, amount, user, recipient, merchant, risk);
@@ -110,45 +124,59 @@ public class PaymentSafetyOrchestrator {
     return key;
   }
 
-  private User resolveUser(UUID userId) {
-    if (userId != null) {
-      return users
-          .findById(userId)
-          .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user"));
-    }
-    // No authentication yet: shared demo owner (same documented placeholder as orders).
-    return users
-        .findByExternalUserId(PayPalOrderService.DEMO_USER_EXTERNAL_ID)
-        .orElseGet(
-            () -> {
-              User user = new User();
-              user.setExternalUserId(PayPalOrderService.DEMO_USER_EXTERNAL_ID);
-              user.setEmail("sandbox-demo@guardpay.local");
-              user.setDisplayName("Sandbox Demo User");
-              user.setCurrency("USD");
-              return users.save(user);
-            });
-  }
-
-  private Recipient resolveRecipient(User user, UUID recipientId, String recipientName) {
+  private Recipient resolveRecipient(
+      User user,
+      UUID recipientId,
+      String recipientName,
+      String recipientEmail,
+      String recipientPaypalAccountId) {
+    String email = blankToNull(recipientEmail);
+    String paypalAccount = blankToNull(recipientPaypalAccountId);
     if (recipientId != null) {
-      return recipients
-          .findById(recipientId)
-          .filter(candidate -> isOwnedBy(candidate.getUser(), user))
-          .orElseThrow(
-              () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown recipient"));
+      Recipient existing =
+          recipients
+              .findById(recipientId)
+              .orElseThrow(
+                  () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown recipient"));
+      if (email != null) {
+        existing.setEmail(email.toLowerCase(java.util.Locale.ROOT));
+      }
+      if (paypalAccount != null) {
+        existing.setPaypalAccountId(paypalAccount);
+      }
+      return recipients.save(existing);
     }
     String name = blankToNull(recipientName);
-    if (name == null) {
+    if (name == null && email == null) {
       return null;
     }
-    return recipients
-        .findByUserIdAndNameIgnoreCase(user.getId(), name)
+    Optional<Recipient> known =
+        email != null
+            ? recipients.findByUserIdAndEmailIgnoreCase(user.getId(), email)
+            : recipients.findByUserIdAndNameIgnoreCase(user.getId(), name);
+    return known
+        .map(
+            recipient -> {
+              boolean changed = false;
+              if (email != null
+                  && !email.equalsIgnoreCase(recipient.getEmail())) {
+                recipient.setEmail(email.toLowerCase(java.util.Locale.ROOT));
+                changed = true;
+              }
+              if (paypalAccount != null
+                  && !paypalAccount.equals(recipient.getPaypalAccountId())) {
+                recipient.setPaypalAccountId(paypalAccount);
+                changed = true;
+              }
+              return changed ? recipients.save(recipient) : recipient;
+            })
         .orElseGet(
             () -> {
               Recipient fresh = new Recipient();
               fresh.setUser(user);
-              fresh.setName(name);
+              fresh.setName(name != null ? name : email);
+              fresh.setEmail(email == null ? null : email.toLowerCase(java.util.Locale.ROOT));
+              fresh.setPaypalAccountId(paypalAccount);
               return recipients.save(fresh);
             });
   }
@@ -171,13 +199,6 @@ public class PaymentSafetyOrchestrator {
               fresh.setName(name);
               return merchants.save(fresh);
             });
-  }
-
-  private static boolean isOwnedBy(User candidate, User owner) {
-    return candidate != null
-        && owner != null
-        && owner.getId() != null
-        && owner.getId().equals(candidate.getId());
   }
 
   private static String blankToNull(String value) {

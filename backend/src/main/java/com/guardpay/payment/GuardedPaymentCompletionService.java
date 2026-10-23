@@ -82,7 +82,8 @@ public class GuardedPaymentCompletionService {
       AutomaticEvaluationResponseDto risk) {
     if (key != null) {
       lock.acquire(key);
-      Optional<GuardedPaymentIdempotency> existing = idempotency.findByIdempotencyKey(key);
+      Optional<GuardedPaymentIdempotency> existing =
+          idempotency.findByIdempotencyKey(key);
       if (existing.isPresent()) {
         return GuardedPaymentReplay.replayOrConflict(existing.get(), dto);
       }
@@ -103,8 +104,14 @@ public class GuardedPaymentCompletionService {
           response(transaction, risk, statusFor(risk.recommendedAction()), null, verification));
     }
 
-    CreatedPaypalOrder created = orderService.createPaypalOrder(amount, dto.getDescription());
+    CreatedPaypalOrder created =
+        orderService.createPaypalOrder(
+            amount,
+            dto.getDescription(),
+            recipient.getEmail(),
+            recipient.getPaypalAccountId());
     transaction.setPaypalOrderId(created.orderId());
+    transaction.setPaypalApprovalUrl(created.approvalUrl());
     transaction.setStatus(TransactionStatus.PENDING);
     transactions.save(transaction);
     log.info("Guarded payment allowed; PayPal order created (risk={})", risk.riskLevel());

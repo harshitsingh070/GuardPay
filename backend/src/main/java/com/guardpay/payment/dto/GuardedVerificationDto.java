@@ -1,6 +1,5 @@
 package com.guardpay.payment.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.guardpay.payment.VerificationStatus;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -8,9 +7,8 @@ import java.util.UUID;
 /**
  * Controlled verification challenge returned with a VERIFY decision.
  *
- * <p>{@code challengeCode} is present only for the clearly-labelled simulated
- * channel used when no real identity provider is configured; a production
- * channel would deliver the answer out of band and never echo it here.
+ * <p>The answer itself is never part of this DTO. It is delivered through a
+ * separate out-of-band channel (in the demo: a local-only server outbox).
  */
 public record GuardedVerificationDto(
     UUID verificationId,
@@ -18,5 +16,4 @@ public record GuardedVerificationDto(
     OffsetDateTime expiresAt,
     int attemptsRemaining,
     boolean simulated,
-    String channelHint,
-    @JsonInclude(JsonInclude.Include.NON_NULL) String challengeCode) {}
+    String channelHint) {}

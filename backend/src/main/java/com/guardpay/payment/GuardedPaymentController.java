@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Guarded payments (development stage — no authentication yet).
+ * Guarded payments for the fixed demo account.
  *
  * <p>Accepts payment/business context only. Risk is derived server-side;
  * nothing here can force a decision. Thin by design.
@@ -42,7 +42,8 @@ public class GuardedPaymentController {
 
   @PostMapping("/{paymentId}/verification/confirm")
   public ResponseEntity<VerificationConfirmResponseDto> confirmVerification(
-      @PathVariable UUID paymentId, @Valid @RequestBody VerificationConfirmRequestDto request) {
+      @PathVariable UUID paymentId,
+      @Valid @RequestBody VerificationConfirmRequestDto request) {
     return ResponseEntity.ok(verificationService.confirm(paymentId, request.code()));
   }
 }

@@ -220,7 +220,6 @@ export function useCheckout(service: CheckoutService = getCheckoutService()) {
                             ...previous.result.verification,
                             status: 'VERIFIED',
                             attemptsRemaining: verification.attemptsRemaining,
-                            challengeCode: undefined,
                           },
                   },
             error: null,

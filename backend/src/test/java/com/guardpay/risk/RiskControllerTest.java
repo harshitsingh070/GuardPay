@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
-import com.guardpay.common.config.SecurityConfig;
 import org.hamcrest.CoreMatchers;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
@@ -22,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * mocks). No database, no AI, no PayPal, no Python required.
  */
 @WebMvcTest(RiskController.class)
-@Import({SecurityConfig.class, CorsConfig.class, RiskEvaluationService.class, DeterministicRiskEngine.class})
+@Import({CorsConfig.class, RiskEvaluationService.class, DeterministicRiskEngine.class})
 class RiskControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -32,6 +31,7 @@ class RiskControllerTest {
     mockMvc
         .perform(
             post("/api/risk/evaluate")
+
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
@@ -45,7 +45,7 @@ class RiskControllerTest {
         .andExpect(jsonPath("$.riskLevel").value("LOW"))
         .andExpect(jsonPath("$.recommendedAction").value("ALLOW"))
         .andExpect(jsonPath("$.explanation").isNotEmpty())
-        .andExpect(jsonPath("$.findings.length()").value(9));
+        .andExpect(jsonPath("$.findings.length()").value(10));
   }
 
   @Test
@@ -53,6 +53,7 @@ class RiskControllerTest {
     mockMvc
         .perform(
             post("/api/risk/evaluate")
+
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
@@ -65,10 +66,10 @@ class RiskControllerTest {
         .andExpect(jsonPath("$.score").value(100))
         .andExpect(jsonPath("$.riskLevel").value("CRITICAL"))
         .andExpect(jsonPath("$.recommendedAction").value("STOP"))
-        .andExpect(jsonPath("$.findings.length()").value(9))
-        .andExpect(
-            jsonPath("$.findings[*].triggered", Matchers.everyItem(CoreMatchers.is(true))))
-        .andExpect(jsonPath("$.findings[0].code").value("ACTIVE_CALL"));
+        .andExpect(jsonPath("$.findings.length()").value(10))
+        .andExpect(jsonPath("$.findings[0].code").value("ACTIVE_CALL"))
+        .andExpect(jsonPath("$.findings[9].code").value("MISSING_CONTEXT"))
+        .andExpect(jsonPath("$.findings[9].triggered").value(false));
   }
 
   @Test
@@ -76,6 +77,7 @@ class RiskControllerTest {
     mockMvc
         .perform(
             post("/api/risk/evaluate")
+
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
@@ -95,6 +97,7 @@ class RiskControllerTest {
     mockMvc
         .perform(
             post("/api/risk/evaluate")
+
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
@@ -112,6 +115,7 @@ class RiskControllerTest {
     mockMvc
         .perform(
             post("/api/risk/evaluate")
+
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
@@ -131,6 +135,7 @@ class RiskControllerTest {
     mockMvc
         .perform(
             post("/api/risk/evaluate")
+
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{not valid json"))
         .andExpect(status().isBadRequest())

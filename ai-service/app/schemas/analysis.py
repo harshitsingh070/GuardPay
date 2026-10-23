@@ -1,10 +1,15 @@
-"""Structured AI-analysis contract (internal: Spring Boot only, never browsers)."""
+"""Structured AI-analysis contract (internal: Spring Boot only, never browsers).
+
+The canonical wire format is snake_case. Request aliases also accept the
+camelCase names used by older Java builds so a version skew cannot silently
+drop risk context.
+"""
 
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 FindingCode = Literal[
     "URGENT_LANGUAGE",
@@ -21,13 +26,25 @@ Severity = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
 
 class TransactionContext(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     amount: Decimal = Field(ge=0)
     currency: str = "USD"
-    merchant_name: str | None = None
-    recipient_name: str | None = None
-    is_new_recipient: bool = False
-    is_unknown_merchant: bool = False
-    unexpected_invoice: bool = False
+    merchant_name: str | None = Field(
+        default=None, validation_alias=AliasChoices("merchant_name", "merchantName")
+    )
+    recipient_name: str | None = Field(
+        default=None, validation_alias=AliasChoices("recipient_name", "recipientName")
+    )
+    is_new_recipient: bool = Field(
+        default=False, validation_alias=AliasChoices("is_new_recipient", "isNewRecipient")
+    )
+    is_unknown_merchant: bool = Field(
+        default=False, validation_alias=AliasChoices("is_unknown_merchant", "isUnknownMerchant")
+    )
+    unexpected_invoice: bool = Field(
+        default=False, validation_alias=AliasChoices("unexpected_invoice", "unexpectedInvoice")
+    )
 
 
 class ContentContext(BaseModel):
@@ -36,13 +53,17 @@ class ContentContext(BaseModel):
 
 
 class DeviceContext(BaseModel):
-    active_call: bool | None = None
+    model_config = ConfigDict(populate_by_name=True)
+
+    active_call: bool | None = Field(
+        default=None, validation_alias=AliasChoices("active_call", "activeCall")
+    )
 
 
 class AnalyzeRequest(BaseModel):
     transaction: TransactionContext
-    content: ContentContext = ContentContext()
-    device: DeviceContext = DeviceContext()
+    content: ContentContext = Field(default_factory=ContentContext)
+    device: DeviceContext = Field(default_factory=DeviceContext)
 
 
 class AiFinding(BaseModel):
@@ -58,5 +79,5 @@ class AiFinding(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     analysis_id: UUID = Field(default_factory=uuid4)
-    findings: list[AiFinding] = []
+    findings: list[AiFinding] = Field(default_factory=list)
     summary: str

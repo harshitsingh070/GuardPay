@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
-import com.guardpay.common.config.SecurityConfig;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
 import com.guardpay.risk.dto.RiskFindingDto;
@@ -24,22 +23,20 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * Automatic endpoint with a mocked service: shape passthrough and input
- * validation — never live data.
+ * validation â€” never live data.
  */
 @WebMvcTest(AutomaticRiskController.class)
-@Import({SecurityConfig.class, CorsConfig.class})
+@Import(CorsConfig.class)
 class AutomaticRiskControllerTest {
 
   @Autowired private MockMvc mockMvc;
 
   @MockBean private AutomaticRiskEvaluationService service;
 
-  private static String body(String amount, String user) {
+  private static String body(String amount) {
     return "{\"amount\": "
         + amount
-        + ", \"userId\": \""
-        + user
-        + "\", \"recipientId\": null, \"merchantId\": null}";
+        + ", \"recipientId\": null, \"merchantId\": null}";
   }
 
   @Test
@@ -66,7 +63,7 @@ class AutomaticRiskControllerTest {
         .perform(
             post("/api/risk/evaluate-automatic")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(body("2499", "123e4567-e89b-12d3-a456-426614174000")))
+                .content(body("2499")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.score").value(40))
         .andExpect(jsonPath("$.riskLevel").value("MEDIUM"))
@@ -83,17 +80,7 @@ class AutomaticRiskControllerTest {
         .perform(
             post("/api/risk/evaluate-automatic")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\": \"123e4567-e89b-12d3-a456-426614174000\"}"))
-        .andExpect(status().isBadRequest());
-  }
-
-  @Test
-  void missingUserIsRejected() throws Exception {
-    mockMvc
-        .perform(
-            post("/api/risk/evaluate-automatic")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"amount\": 45}"))
+                .content("{}"))
         .andExpect(status().isBadRequest());
   }
 }

@@ -24,6 +24,7 @@ import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
+import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
 import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
@@ -48,6 +49,7 @@ class AutomaticRiskAiServiceTest {
   private static final UUID RECIPIENT_ID = UUID.randomUUID();
   private static final UUID MERCHANT_ID = UUID.randomUUID();
 
+  @Mock private DemoUserService demoUser;
   @Mock private UserRepository users;
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
@@ -66,8 +68,9 @@ class AutomaticRiskAiServiceTest {
         new PaymentSignalCollectorService(users, recipients, merchants, transactions);
     service =
         new AutomaticRiskEvaluationService(
-            collector, new DeterministicRiskEngine(), users, deviceStates, recipients, merchants,
+            collector, new DeterministicRiskEngine(), demoUser, deviceStates, recipients, merchants,
             aiClient);
+    lenient().when(demoUser.currentUser()).thenReturn(user);
     lenient()
         .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
         .thenReturn(List.of());
@@ -82,10 +85,21 @@ class AutomaticRiskAiServiceTest {
   }
 
   private AutomaticEvaluationRequestDto request(String amount) {
+    AutomaticEvaluationRequestDto dto = requestWithoutContent(amount);
+    dto.setContentText("Pay this invoice immediately.");
+    return dto;
+  }
+
+  private AutomaticEvaluationRequestDto requestWithoutContent(String amount) {
     AutomaticEvaluationRequestDto dto = new AutomaticEvaluationRequestDto();
     dto.setAmount(new BigDecimal(amount));
-    dto.setUserId(USER_ID);
-    dto.setContentText("Pay this invoice immediately.");
+    return dto;
+  }
+
+  /** Content is present (so AI runs) but has no local deterministic indicators. */
+  private AutomaticEvaluationRequestDto benignRequest(String amount) {
+    AutomaticEvaluationRequestDto dto = requestWithoutContent(amount);
+    dto.setContentText("Thanks for the update.");
     return dto;
   }
 
@@ -100,7 +114,6 @@ class AutomaticRiskAiServiceTest {
 
   @Test
   void aiUnavailableKeepsDeterministicDecision() {
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(
@@ -119,22 +132,22 @@ class AutomaticRiskAiServiceTest {
     dto.setRecipientId(RECIPIENT_ID);
     AutomaticEvaluationResponseDto response = service.evaluate(dto);
 
-    assertEquals(40, response.score());
-    assertEquals(RiskLevel.MEDIUM, response.riskLevel());
-    assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
+    // Deterministic content analysis alone reaches STOP when AI is down.
+    assertEquals(85, response.score());
+    assertEquals(RiskLevel.CRITICAL, response.riskLevel());
+    assertEquals(RecommendedAction.STOP, response.recommendedAction());
     assertEquals("UNAVAILABLE", response.aiStatus());
   }
 
   @Test
   void aiFindingsMergeIntoEngineDecision() {
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of());
     when(aiClient.analyze(any()))
         .thenReturn(aiResponse(aiFinding("URGENT_LANGUAGE", 0.9), aiFinding("IMPERSONATION", 0.8)));
 
-    AutomaticEvaluationResponseDto response = service.evaluate(request("45"));
+    AutomaticEvaluationResponseDto response = service.evaluate(benignRequest("45"));
 
     // Deterministic baseline is 0; AI adds urgent (10) + social (20).
     assertEquals(30, response.score());
@@ -149,7 +162,6 @@ class AutomaticRiskAiServiceTest {
 
   @Test
   void repeatedSocialEvidenceCountsOnce() {
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of());
@@ -162,7 +174,7 @@ class AutomaticRiskAiServiceTest {
                 aiFinding("SECRECY_REQUEST", 0.9),
                 aiFinding("SUSPICIOUS_PAYMENT_INSTRUCTION", 0.9)));
 
-    AutomaticEvaluationResponseDto response = service.evaluate(request("45"));
+    AutomaticEvaluationResponseDto response = service.evaluate(benignRequest("45"));
 
     // Five social-group findings collapse onto one +20 engine signal.
     assertEquals(20, response.score());
@@ -172,7 +184,6 @@ class AutomaticRiskAiServiceTest {
 
   @Test
   void combinedSignalsStillCapAtOneHundred() {
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of(completed("100")));
@@ -208,14 +219,13 @@ class AutomaticRiskAiServiceTest {
 
   @Test
   void severityNeverDecidesAlone() {
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of());
     when(aiClient.analyze(any()))
         .thenReturn(aiResponse(aiFinding("URGENT_LANGUAGE", 0.99)));
 
-    AutomaticEvaluationResponseDto response = service.evaluate(request("45"));
+    AutomaticEvaluationResponseDto response = service.evaluate(benignRequest("45"));
 
     // One HIGH-severity AI finding is +10 evidence, still LOW/ALLOW by engine math.
     assertEquals(10, response.score());
@@ -224,14 +234,12 @@ class AutomaticRiskAiServiceTest {
 
   @Test
   void withoutContentAiIsNeverCalled() {
-    when(users.existsById(USER_ID)).thenReturn(true);
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of());
 
     AutomaticEvaluationRequestDto dto = new AutomaticEvaluationRequestDto();
     dto.setAmount(new BigDecimal("45"));
-    dto.setUserId(USER_ID);
     AutomaticEvaluationResponseDto response = service.evaluate(dto);
 
     assertEquals(0, response.score());

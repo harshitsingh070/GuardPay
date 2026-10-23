@@ -17,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Global exception handling structure (basic).
@@ -73,6 +74,12 @@ public class GlobalExceptionHandler {
       return error(HttpStatus.CONFLICT, ex.getMessage(), request);
     }
     return error(HttpStatus.BAD_GATEWAY, "PayPal service unavailable", request);
+  }
+
+  @ExceptionHandler(NoResourceFoundException.class)
+  public ResponseEntity<ApiError> handleNotFound(
+      NoResourceFoundException ex, HttpServletRequest request) {
+    return error(HttpStatus.NOT_FOUND, "Resource not found", request);
   }
 
   @ExceptionHandler(ResponseStatusException.class)

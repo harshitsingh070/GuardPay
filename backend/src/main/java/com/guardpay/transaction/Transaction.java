@@ -51,6 +51,9 @@ public class Transaction extends BaseEntity {
   @Column(name = "paypal_capture_id", length = 128)
   private String paypalCaptureId;
 
+  @Column(name = "paypal_approval_url", length = 2048)
+  private String paypalApprovalUrl;
+
   @Column(name = "amount", precision = 19, scale = 4, nullable = false)
   private BigDecimal amount;
 
@@ -117,6 +120,14 @@ public class Transaction extends BaseEntity {
 
   public void setPaypalCaptureId(String paypalCaptureId) {
     this.paypalCaptureId = paypalCaptureId;
+  }
+
+  public String getPaypalApprovalUrl() {
+    return paypalApprovalUrl;
+  }
+
+  public void setPaypalApprovalUrl(String paypalApprovalUrl) {
+    this.paypalApprovalUrl = paypalApprovalUrl;
   }
 
   public BigDecimal getAmount() {

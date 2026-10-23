@@ -1,7 +1,7 @@
-# GuardPay — Deterministic Risk Engine (planned design)
+# GuardPay - Deterministic Risk Engine (design + implemented behavior)
 
-> Design only. **Do NOT implement yet.** This doc defines the intended behavior
-> for a later milestone. No risk-engine code exists in `backend/` in this step.
+> The engine is implemented in `com.guardpay.risk`; this document keeps the
+> original design and notes where the built behavior matches or extends it.
 
 ## 1. Purpose
 

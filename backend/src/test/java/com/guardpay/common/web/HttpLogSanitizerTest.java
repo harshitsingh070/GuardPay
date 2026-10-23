@@ -27,6 +27,44 @@ class HttpLogSanitizerTest {
   }
 
   @Test
+  void masksVerificationCodesAndChallengeCodes() {
+    String body =
+        HttpLogSanitizer.body(
+            "{\"code\":\"123456\",\"challengeCode\":\"654321\",\"statusCode\":200,"
+                + "\"findings\":[{\"code\":\"ACTIVE_CALL\"}]}",
+            "application/json",
+            8_000);
+
+    assertThat(body).contains("\"code\" : \"***\"");
+    assertThat(body).contains("\"challengeCode\" : \"***\"");
+    assertThat(body).contains("\"statusCode\" : 200");
+    assertThat(body).contains("\"code\" : \"ACTIVE_CALL\"");
+    assertThat(body).doesNotContain("123456").doesNotContain("654321");
+  }
+
+  @Test
+  void masksUserContentAndDestinationPii() {
+    String body =
+        HttpLogSanitizer.body(
+            "{\"amount\":45,\"description\":\"gift\",\"contentText\":\"call support now\","
+                + "\"contentUrl\":\"https://scam.test/pay\",\"recipientName\":\"Sam\","
+                + "\"recipientEmail\":\"sam@example.com\",\"merchantName\":\"Shop\","
+                + "\"text\":\"invoice\",\"url\":\"https://shop.test\"}",
+            "application/json",
+            8_000);
+
+    assertThat(body).contains("\"amount\" : 45");
+    assertThat(body).contains("\"recipientName\" : \"***\"");
+    assertThat(body).contains("\"recipientEmail\" : \"***\"");
+    assertThat(body)
+        .doesNotContain("call support now")
+        .doesNotContain("scam.test")
+        .doesNotContain("sam@example.com")
+        .doesNotContain("\"Sam\"")
+        .doesNotContain("\"Shop\"");
+  }
+
+  @Test
   void masksFormValues() {
     assertThat(
             HttpLogSanitizer.body(

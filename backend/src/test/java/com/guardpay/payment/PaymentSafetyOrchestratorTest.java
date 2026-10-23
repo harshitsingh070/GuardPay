@@ -29,8 +29,8 @@ import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
+import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
-import com.guardpay.user.UserRepository;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -50,7 +50,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Orchestrator branching with mocked pipeline and repositories — no network,
+ * Orchestrator branching with mocked pipeline and repositories â€” no network,
  * no database. The engine decision (canned here, real elsewhere) alone
  * routes to order creation or refusal.
  */
@@ -64,7 +64,7 @@ class PaymentSafetyOrchestratorTest {
   @Mock private TransactionRepository transactions;
   @Mock private PaymentContextRepository contexts;
   @Mock private RiskAssessmentRepository assessments;
-  @Mock private UserRepository users;
+  @Mock private DemoUserService demoUser;
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
   @Mock private GuardedPaymentIdempotencyRepository idempotency;
@@ -73,6 +73,7 @@ class PaymentSafetyOrchestratorTest {
 
   private PaymentSafetyOrchestrator orchestrator;
   private User user;
+  private Recipient defaultRecipient;
 
   @BeforeEach
   void setUp() {
@@ -82,11 +83,18 @@ class PaymentSafetyOrchestratorTest {
             verificationService);
     orchestrator =
         new PaymentSafetyOrchestrator(
-            automaticRisk, completion, users, recipients, merchants, idempotency);
+            automaticRisk, completion, demoUser, recipients, merchants, idempotency);
     user = new User();
     ReflectionTestUtils.setField(user, "id", USER_ID);
+    defaultRecipient = new Recipient();
+    defaultRecipient.setUser(user);
+    defaultRecipient.setName("Recipient");
+    defaultRecipient.setEmail("recipient@example.com");
     // Lenient: the structural test below never initiates, behavior tests always do.
-    lenient().when(users.findById(USER_ID)).thenReturn(Optional.of(user));
+    lenient().when(demoUser.currentUser()).thenReturn(user);
+    lenient()
+        .when(recipients.findByUserIdAndEmailIgnoreCase(USER_ID, "recipient@example.com"))
+        .thenReturn(Optional.of(defaultRecipient));
   }
 
   private GuardedPaymentRequestDto request() {
@@ -94,7 +102,8 @@ class PaymentSafetyOrchestratorTest {
     dto.setAmount(new BigDecimal("45.00"));
     dto.setCurrency("USD");
     dto.setDescription("GuardPay protected payment");
-    dto.setUserId(USER_ID);
+    dto.setRecipientName("Recipient");
+    dto.setRecipientEmail("recipient@example.com");
     return dto;
   }
 
@@ -115,10 +124,10 @@ class PaymentSafetyOrchestratorTest {
     stubEchoSaves();
     when(automaticRisk.evaluate(any()))
         .thenReturn(risk(10, RiskLevel.LOW, RecommendedAction.ALLOW));
-    when(orderService.createPaypalOrder(any(), any()))
+    when(orderService.createPaypalOrder(any(), any(), any(), any()))
         .thenReturn(new CreatedPaypalOrder("O-1", "CREATED", "https://sandbox.paypal.com/approve"));
 
-    GuardedPaymentResponseDto response = orchestrator.initiate(request());
+    GuardedPaymentResponseDto response = orchestrator.initiate(request(), null);
 
     assertEquals(GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED, response.paymentStatus());
     assertEquals("O-1", response.paypalOrder().orderId());
@@ -138,11 +147,11 @@ class PaymentSafetyOrchestratorTest {
     when(automaticRisk.evaluate(any()))
         .thenReturn(risk(100, RiskLevel.CRITICAL, RecommendedAction.STOP));
 
-    GuardedPaymentResponseDto response = orchestrator.initiate(request());
+    GuardedPaymentResponseDto response = orchestrator.initiate(request(), null);
 
     assertEquals(GuardedPaymentStatus.BLOCKED, response.paymentStatus());
     assertNull(response.paypalOrder());
-    verify(orderService, never()).createPaypalOrder(any(), any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
 
     ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
     verify(transactions).save(saved.capture());
@@ -155,11 +164,11 @@ class PaymentSafetyOrchestratorTest {
     when(automaticRisk.evaluate(any()))
         .thenReturn(risk(60, RiskLevel.MEDIUM, RecommendedAction.VERIFY));
 
-    GuardedPaymentResponseDto response = orchestrator.initiate(request());
+    GuardedPaymentResponseDto response = orchestrator.initiate(request(), null);
 
     assertEquals(GuardedPaymentStatus.VERIFICATION_REQUIRED, response.paymentStatus());
     assertNull(response.paypalOrder());
-    verify(orderService, never()).createPaypalOrder(any(), any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
   }
 
   @Test
@@ -174,18 +183,17 @@ class PaymentSafetyOrchestratorTest {
             OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(10),
             3,
             true,
-            "simulated",
-            "123456");
+            "simulated");
     when(verificationService.startChallenge(any())).thenReturn(challenge);
 
-    GuardedPaymentResponseDto response = orchestrator.initiate(request());
+    GuardedPaymentResponseDto response = orchestrator.initiate(request(), null);
 
     assertEquals(GuardedPaymentStatus.VERIFICATION_REQUIRED, response.paymentStatus());
     assertNull(response.paypalOrder());
     assertNotNull(response.verification());
     assertEquals(VerificationStatus.PENDING, response.verification().status());
     verify(verificationService).startChallenge(any());
-    verify(orderService, never()).createPaypalOrder(any(), any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
   }
 
   @Test
@@ -194,12 +202,13 @@ class PaymentSafetyOrchestratorTest {
     when(automaticRisk.evaluate(any()))
         .thenReturn(risk(20, RiskLevel.LOW, RecommendedAction.ALLOW));
     when(recipients.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-    when(orderService.createPaypalOrder(any(), any()))
+    when(orderService.createPaypalOrder(any(), any(), any(), any()))
         .thenReturn(new CreatedPaypalOrder("O-2", "CREATED", "https://sandbox.paypal.com/approve"));
 
     GuardedPaymentRequestDto dto = request();
     dto.setRecipientName("Brand New Stranger");
-    GuardedPaymentResponseDto response = orchestrator.initiate(dto);
+    dto.setRecipientEmail("stranger@example.com");
+    GuardedPaymentResponseDto response = orchestrator.initiate(dto, null);
 
     assertEquals(GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED, response.paymentStatus());
     verify(recipients).save(any());
@@ -213,43 +222,25 @@ class PaymentSafetyOrchestratorTest {
     stubEchoSaves();
     when(automaticRisk.evaluate(any()))
         .thenReturn(risk(20, RiskLevel.LOW, RecommendedAction.ALLOW));
-    when(orderService.createPaypalOrder(any(), any()))
+    when(orderService.createPaypalOrder(any(), any(), any(), any()))
         .thenReturn(new CreatedPaypalOrder("O-3", "CREATED", "https://sandbox.paypal.com/approve"));
     Recipient known = new Recipient();
     known.setUser(user);
     known.setName("Known Person");
-    when(recipients.findByUserIdAndNameIgnoreCase(USER_ID, "known person"))
+    known.setEmail("known@example.com");
+    when(recipients.findByUserIdAndEmailIgnoreCase(USER_ID, "known@example.com"))
         .thenReturn(Optional.of(known));
 
     GuardedPaymentRequestDto dto = request();
     dto.setRecipientName("known person");
-    GuardedPaymentResponseDto response = orchestrator.initiate(dto);
+    dto.setRecipientEmail("known@example.com");
+    GuardedPaymentResponseDto response = orchestrator.initiate(dto, null);
 
     assertEquals(GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED, response.paymentStatus());
     verify(recipients, never()).save(any());
     ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
     verify(transactions, times(2)).save(saved.capture());
     assertEquals("Known Person", saved.getAllValues().get(1).getRecipient().getName());
-  }
-
-  @Test
-  void foreignRecipientIdIsRejectedInsteadOfSilentlyIgnored() {
-    User otherOwner = new User();
-    ReflectionTestUtils.setField(otherOwner, "id", UUID.randomUUID());
-    Recipient foreign = new Recipient();
-    foreign.setUser(otherOwner);
-    UUID foreignId = UUID.randomUUID();
-    when(recipients.findById(foreignId)).thenReturn(Optional.of(foreign));
-
-    GuardedPaymentRequestDto dto = request();
-    dto.setRecipientId(foreignId);
-
-    ResponseStatusException failure =
-        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto));
-
-    assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
-    verify(automaticRisk, never()).evaluate(any());
-    verify(orderService, never()).createPaypalOrder(any(), any());
   }
 
   @Test
@@ -261,11 +252,25 @@ class PaymentSafetyOrchestratorTest {
     dto.setMerchantId(unknownId);
 
     ResponseStatusException failure =
-        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto));
+        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto, null));
 
     assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
     verify(automaticRisk, never()).evaluate(any());
-    verify(orderService, never()).createPaypalOrder(any(), any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
+  }
+
+  @Test
+  void amountOnlyRequestIsRejectedBeforeRiskEvaluation() {
+    GuardedPaymentRequestDto dto = new GuardedPaymentRequestDto();
+    dto.setAmount(new BigDecimal("2499.00"));
+    dto.setCurrency("USD");
+
+    ResponseStatusException failure =
+        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto, null));
+
+    assertEquals(HttpStatus.BAD_REQUEST, failure.getStatusCode());
+    verify(automaticRisk, never()).evaluate(any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
   }
 
   @Test

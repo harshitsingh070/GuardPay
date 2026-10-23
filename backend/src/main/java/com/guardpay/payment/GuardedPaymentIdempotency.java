@@ -21,7 +21,7 @@ import java.util.UUID;
 @Table(name = "guarded_payment_idempotency")
 public class GuardedPaymentIdempotency extends BaseEntity {
 
-  @Column(name = "idempotency_key", length = 128, nullable = false, unique = true)
+  @Column(name = "idempotency_key", length = 128, nullable = false)
   private String idempotencyKey;
 
   @Column(name = "request_hash", length = 64, nullable = false)

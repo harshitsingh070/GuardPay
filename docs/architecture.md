@@ -70,9 +70,9 @@ Kubernetes, or extra microservices) — a deliberate hackathon scope decision.
 
 ### 3.1 React + Vite (frontend/)
 
-- Payment interface (amount, currency, recipient, merchant, invoice/message, URL, call-state toggle).
+- Payment interface (amount, currency, recipient, recipient PayPal email, merchant, invoice/message, URL) with no account gate.
 - Risk-warning interface (score, severity, evidence, explanation, STOP / VERIFY / CONTINUE).
-- Client-side routing with React Router (`/` home, `/payment`, `/risk`, `/dashboard`, `/transactions`).
+- Client-side routing with React Router (`/` home, `/payment`, `/dashboard`, `/transactions`).
 - Security dashboard + transaction history via AG Grid (sorting, filtering, search, pagination, detail view).
 - Real-time risk updates (consumes Spring Boot WebSocket/SSE events).
 - Talks to Spring Boot exclusively through REST APIs (`VITE_API_BASE_URL`) plus the real-time channel.
@@ -80,7 +80,7 @@ Kubernetes, or extra microservices) — a deliberate hackathon scope decision.
 
 ### 3.2 Spring Boot (backend/) — the trusted business layer
 
-- Authentication (planned Spring Security + JWT) and user isolation.
+- A single fixed server-side demo user (`guardpay-demo`); no account/session authentication.
 - Users, transactions, recipients, merchants, subscriptions, alerts, scam reports.
 - Payment processing + PayPal integration (sandbox REST: orders, payments, transaction search, invoicing, subscriptions, disputes where useful).
 - PayPal webhooks receiver (idempotent processing → PostgreSQL → real-time push to UI).
@@ -89,7 +89,7 @@ Kubernetes, or extra microservices) — a deliberate hackathon scope decision.
 - Persists risk assessments + signals; makes the **final ALLOW / VERIFY / STOP decision**.
 - Exposes REST APIs and real-time channels to React + Vite.
 
-Package map (`com.guardpay`): `auth`, `user`, `transaction`, `recipient`,
+Package map (`com.guardpay`): `user`, `transaction`, `recipient`,
 `merchant`, `payment`, `paypal`, `webhook`, `risk`, `common`.
 
 ### 3.3 Python FastAPI (ai-service/) — the intelligence layer
@@ -121,7 +121,7 @@ PayPal ──webhook events──▶ Spring Boot (/api/webhooks/paypal) ──�
 
 ## 5. Why Spring Boot handles business logic
 
-- Money and identity need a mature, typed, transactional platform: JPA/Hibernate, Spring Security, validation, idempotent webhook handling, auditable risk decisions.
+- Money and identity need a mature, typed, transactional platform: JPA/Hibernate, validation, idempotent webhook handling, auditable risk decisions.
 - PayPal integration, PostgreSQL ownership, and the risk engine must live in one accountable place so the final decision is reproducible and testable without an LLM.
 - Java 17 + Spring Boot 3.x is the team's chosen business stack; Python is deliberately kept out of this role to avoid splitting the system of record.
 

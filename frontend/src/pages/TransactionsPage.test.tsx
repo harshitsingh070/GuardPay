@@ -39,7 +39,7 @@ describe('TransactionsPage', () => {
     renderPage(service);
 
     expect(await screen.findByText(/No transactions yet/)).toBeInTheDocument();
-    expect(list).toHaveBeenCalledWith(undefined, 0, 20);
+    expect(list).toHaveBeenCalledWith(0, 20);
   });
 
   it('surfaces a load failure', async () => {

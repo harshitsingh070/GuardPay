@@ -3,6 +3,7 @@ package com.guardpay.payment;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -25,8 +26,8 @@ import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
+import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
-import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -55,7 +56,7 @@ class GuardedPaymentIdempotencyTest {
   @Mock private TransactionRepository transactions;
   @Mock private PaymentContextRepository contexts;
   @Mock private RiskAssessmentRepository assessments;
-  @Mock private UserRepository users;
+  @Mock private DemoUserService demoUser;
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
   @Mock private GuardedPaymentIdempotencyRepository idempotency;
@@ -75,7 +76,7 @@ class GuardedPaymentIdempotencyTest {
             verificationService);
     orchestrator =
         new PaymentSafetyOrchestrator(
-            automaticRisk, completion, users, recipients, merchants, idempotency);
+            automaticRisk, completion, demoUser, recipients, merchants, idempotency);
     user = new User();
     ReflectionTestUtils.setField(user, "id", USER_ID);
   }
@@ -84,7 +85,8 @@ class GuardedPaymentIdempotencyTest {
     GuardedPaymentRequestDto dto = new GuardedPaymentRequestDto();
     dto.setAmount(new BigDecimal("45.00"));
     dto.setCurrency("USD");
-    dto.setUserId(USER_ID);
+    dto.setRecipientName("Sam");
+    dto.setRecipientEmail("sam@example.com");
     return dto;
   }
 
@@ -94,12 +96,13 @@ class GuardedPaymentIdempotencyTest {
   }
 
   private void stubHappyAllow() {
-    when(users.findById(USER_ID)).thenReturn(Optional.of(user));
+    when(demoUser.currentUser()).thenReturn(user);
     when(automaticRisk.evaluate(any())).thenReturn(allowRisk());
     when(transactions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+    when(recipients.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     when(contexts.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     when(assessments.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-    when(orderService.createPaypalOrder(any(), any()))
+    when(orderService.createPaypalOrder(any(), any(), any(), any()))
         .thenReturn(new CreatedPaypalOrder("O-1", "CREATED", "https://sandbox.paypal.com/approve"));
   }
 
@@ -118,7 +121,7 @@ class GuardedPaymentIdempotencyTest {
     GuardedPaymentResponseDto second = orchestrator.initiate(request(), "key-1");
 
     assertEquals(first, second);
-    verify(orderService, times(1)).createPaypalOrder(any(), any());
+    verify(orderService, times(1)).createPaypalOrder(any(), any(), any(), any());
     verify(automaticRisk, times(1)).evaluate(any());
     verify(lock, times(1)).acquire("key-1");
   }
@@ -137,12 +140,13 @@ class GuardedPaymentIdempotencyTest {
         assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(other, "key-1"));
 
     assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
-    verify(orderService, never()).createPaypalOrder(any(), any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
   }
 
   @Test
   void winnerCommittedAfterInitialCheckIsReplayedUnderLock() throws Exception {
-    when(users.findById(USER_ID)).thenReturn(Optional.of(user));
+    when(demoUser.currentUser()).thenReturn(user);
+    when(recipients.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     when(automaticRisk.evaluate(any())).thenReturn(allowRisk());
     GuardedPaymentRequestDto dto = request();
     GuardedPaymentResponseDto winnerBody =
@@ -165,7 +169,7 @@ class GuardedPaymentIdempotencyTest {
 
     assertEquals(winnerBody, response);
     verify(lock).acquire("key-1");
-    verify(orderService, never()).createPaypalOrder(any(), any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
     verify(idempotency, never()).save(any());
   }
 

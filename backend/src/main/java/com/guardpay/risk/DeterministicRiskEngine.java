@@ -52,6 +52,7 @@ public class DeterministicRiskEngine {
     findings.add(finding(RiskSignal.URGENT_LANGUAGE, request.urgentLanguage()));
     findings.add(finding(RiskSignal.SUSPICIOUS_URL, request.suspiciousUrl()));
     findings.add(finding(RiskSignal.SOCIAL_ENGINEERING, request.socialEngineeringDetected()));
+    findings.add(finding(RiskSignal.MISSING_CONTEXT, request.missingContext()));
 
     int total = findings.stream().filter(RiskFinding::triggered).mapToInt(RiskFinding::points).sum();
     int score = Math.min(total, RiskLevels.MAX_SCORE);

@@ -26,6 +26,17 @@ function setup() {
 
 async function fillAmount(user: ReturnType<typeof userEvent.setup>, amount = '45') {
   await user.type(screen.getByLabelText(/Amount \(USD\)/), amount);
+  const email = screen.getByLabelText('Recipient PayPal email');
+  if ((email as HTMLInputElement).value === '') {
+    await user.type(email, 'known@example.com');
+  }
+}
+
+async function continuePastCallCheck(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = screen.queryByRole('alertdialog');
+  if (dialog !== null) {
+    await user.click(screen.getByRole('button', { name: 'No, continue payment' }));
+  }
 }
 
 describe('GuardedPaymentPage', () => {
@@ -44,6 +55,7 @@ describe('GuardedPaymentPage', () => {
 
     expect(screen.getByLabelText(/Amount \(USD\)/)).toBeInTheDocument();
     expect(screen.getByLabelText('Recipient')).toBeInTheDocument();
+    expect(screen.getByLabelText('Recipient PayPal email')).toBeInTheDocument();
     expect(screen.getByLabelText('Merchant')).toBeInTheDocument();
     expect(screen.getByLabelText(/Payment description/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Payment link/)).toBeInTheDocument();
@@ -68,6 +80,7 @@ describe('GuardedPaymentPage', () => {
     await fillAmount(user);
     await user.type(screen.getByLabelText('Recipient'), 'Known Co');
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
 
     expect(screen.getByText('Checking this payment')).toBeInTheDocument();
     expect(
@@ -113,6 +126,7 @@ describe('GuardedPaymentPage', () => {
     render(<GuardedPaymentPage service={service} />);
     await fillAmount(user);
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
     await user.click(await screen.findByRole('button', { name: /I approved/ }));
 
     expect(await screen.findByText('Payment not completed')).toBeInTheDocument();
@@ -128,6 +142,7 @@ describe('GuardedPaymentPage', () => {
     render(<GuardedPaymentPage service={service} />);
     await fillAmount(user);
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
 
     expect(await screen.findByText('Verification required')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Approve in PayPal Sandbox/ })).toBeNull();
@@ -146,6 +161,7 @@ describe('GuardedPaymentPage', () => {
     render(<GuardedPaymentPage service={service} />);
     await fillAmount(user);
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
     expect(await screen.findByText('Confirm this payment')).toBeInTheDocument();
     expect(capturePayment).not.toHaveBeenCalled();
 
@@ -168,6 +184,7 @@ describe('GuardedPaymentPage', () => {
     render(<GuardedPaymentPage service={service} />);
     await fillAmount(user);
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
     await screen.findByText('Confirm this payment');
 
     await user.type(screen.getByLabelText('Verification code'), '000000');
@@ -188,6 +205,7 @@ describe('GuardedPaymentPage', () => {
     render(<GuardedPaymentPage service={service} />);
     await fillAmount(user);
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
     await screen.findByText('Confirm this payment');
 
     await user.type(screen.getByLabelText('Verification code'), '000000');
@@ -205,6 +223,7 @@ describe('GuardedPaymentPage', () => {
     render(<GuardedPaymentPage service={service} />);
     await fillAmount(user);
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
 
     expect(await screen.findByText('Payment blocked')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Approve in PayPal Sandbox/ })).toBeNull();
@@ -224,6 +243,7 @@ describe('GuardedPaymentPage', () => {
     render(<GuardedPaymentPage service={service} />);
     await fillAmount(user);
     await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await continuePastCallCheck(user);
 
     expect(await screen.findByText('Payment not completed')).toBeInTheDocument();
     expect(
@@ -235,10 +255,34 @@ describe('GuardedPaymentPage', () => {
     await user.clear(amount);
     await user.type(amount, '46');
     await user.click(screen.getByRole('button', { name: /^Pay \$46\.00$/ }));
+    await continuePastCallCheck(user);
 
     expect(await screen.findByText('Payment allowed')).toBeInTheDocument();
     expect(createPayment).toHaveBeenCalledTimes(2);
     expect(createPayment.mock.calls[0]?.[1]).not.toBe(createPayment.mock.calls[1]?.[1]);
+  });
+
+  it('asks about a call on the web before paying', async () => {
+    const { createPayment, service } = setup();
+    createPayment.mockResolvedValue(paymentResponse());
+    const user = userEvent.setup();
+
+    render(<GuardedPaymentPage service={service} />);
+    await fillAmount(user);
+    await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByText('Are you on a phone call?')).toBeInTheDocument();
+    expect(createPayment).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Yes, cancel payment' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(createPayment).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^Pay \$45\.00$/ }));
+    await user.click(screen.getByRole('button', { name: 'No, continue payment' }));
+
+    expect(createPayment).toHaveBeenCalledTimes(1);
   });
 
   it('warns only when paying during a call and continues on request', async () => {

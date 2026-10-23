@@ -77,6 +77,40 @@ class DeviceSignalServiceTest {
   }
 
   @Test
+  void staleObservationCannotOverwriteANewerState() {
+    OffsetDateTime storedAt = OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1);
+    DeviceCallState stored = new DeviceCallState();
+    stored.setDeviceId(DEVICE_ID);
+    stored.setActiveCall(true);
+    stored.setObservedAt(storedAt);
+    when(states.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(stored));
+
+    DeviceCallStateRequestDto stale = request(false);
+    stale.setObservedAt(storedAt.minusMinutes(5));
+
+    ResponseStatusException failure =
+        assertThrows(
+            ResponseStatusException.class, () -> service.report("dev-token-123", stale));
+
+    assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
+    assertTrue(stored.isActiveCall());
+    assertEquals(storedAt, stored.getObservedAt());
+    verify(states, never()).save(any());
+  }
+
+  @Test
+  void futureObservationIsClampedToNow() {
+    when(states.findByDeviceId(DEVICE_ID)).thenReturn(Optional.empty());
+    when(states.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+    DeviceCallStateRequestDto future = request(true);
+    future.setObservedAt(OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+
+    DeviceCallStateResponseDto response = service.report("dev-token-123", future);
+
+    assertFalse(response.observedAt().isAfter(OffsetDateTime.now(ZoneOffset.UTC)));
+  }
+
+  @Test
   void missingTokenIsUnauthorized() {
     ResponseStatusException failure =
         assertThrows(ResponseStatusException.class, () -> service.report(null, request(true)));

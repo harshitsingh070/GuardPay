@@ -7,9 +7,10 @@ Configuration errors fail clearly (503); model failures fail safely (502);
 nothing secret is ever logged or returned.
 """
 
+import hmac
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -33,19 +34,25 @@ def health() -> dict:
 
 
 @app.post("/api/v1/analyze", response_model=AnalyzeResponse)
-def analyze(request: AnalyzeRequest) -> AnalyzeResponse | JSONResponse:
-    if not settings.ai_configured:
-        logger.warning("analyze rejected: OPENAI_API_KEY is not configured")
-        return JSONResponse(
-            status_code=503, content={"detail": "AI is not configured: set OPENAI_API_KEY"}
-        )
-    try:
+def analyze(
+    request: AnalyzeRequest,
+    x_guardpay_internal_token: str | None = Header(default=None),
+) -> AnalyzeResponse | JSONResponse:
+    if settings.internal_token and not hmac.compare_digest(
+        x_guardpay_internal_token or "", settings.internal_token
+    ):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    llm = None
+    if settings.ai_configured:
         llm = OpenAiLlmClient(
             api_key=settings.openai_api_key,
             model=settings.openai_model,
             timeout_seconds=settings.llm_timeout_seconds,
             base_url=settings.openai_base_url,
         )
+    else:
+        logger.info("OPENAI_API_KEY not configured; returning local URL findings only")
+    try:
         return analyze_payment(request, llm)
     except LlmError as exc:
         logger.warning("analyze failed: %s", exc)

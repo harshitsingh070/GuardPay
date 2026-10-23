@@ -30,6 +30,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
   @Query("select t from Transaction t where t.paypalOrderId = :orderId")
   Optional<Transaction> findByPaypalOrderIdForUpdate(@Param("orderId") String orderId);
 
+  /**
+   * Row-locked lookup for verification confirmation: serializes concurrent
+   * confirmations for the same payment so only one order is ever created.
+   */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select t from Transaction t where t.id = :id")
+  Optional<Transaction> findByIdForUpdate(@Param("id") UUID id);
+
   List<Transaction> findByUserAndStatus(User user, TransactionStatus status);
 
   /** Paged transaction history for one user (owner-scoped access). */

@@ -7,8 +7,6 @@ const links = [
   { to: '/payment', label: 'Payment' },
   { to: '/transactions', label: 'Transactions' },
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/risk', label: 'Risk warning' },
-  { to: '/payment/manual', label: 'Manual demo' },
 ];
 
 function desktopLinkClass({ isActive }: { isActive: boolean }) {
@@ -113,6 +111,7 @@ export default function RootLayout() {
               Make a protected payment
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
+
           </nav>
         )}
       </header>
@@ -160,16 +159,8 @@ export default function RootLayout() {
           <div>
             <h2 className="text-xs font-bold uppercase tracking-wider text-guardpay-ink">Demo</h2>
             <ul className="mt-3 space-y-2 text-xs text-guardpay-muted">
-              <li>
-                <Link to="/risk" className="hover:text-guardpay-blue">
-                  Risk result
-                </Link>
-              </li>
-              <li>
-                <Link to="/payment/manual" className="hover:text-guardpay-blue">
-                  Manual risk demo
-                </Link>
-              </li>
+              <li>No account required</li>
+              <li>Single demo workspace</li>
               <li>PayPal Sandbox only</li>
             </ul>
           </div>

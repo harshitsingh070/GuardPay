@@ -29,12 +29,6 @@ const ACTIONS = [
     title: 'Review transaction history',
     body: 'Inspect stored decisions, signals, and PayPal references.',
   },
-  {
-    to: '/payment/manual',
-    Icon: Sparkles,
-    title: 'Try the manual risk demo',
-    body: 'Toggle individual signals and evaluate a payment on demand.',
-  },
 ];
 
 const PIPELINE = [

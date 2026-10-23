@@ -1,0 +1,18 @@
+{
+  "transaction": {
+    "amount": 2499,
+    "currency": "USD",
+    "merchant_name": "Example",
+    "recipient_name": "Someone",
+    "is_new_recipient": true,
+    "is_unknown_merchant": true,
+    "unexpected_invoice": true
+  },
+  "content": {
+    "text": "Pay now.",
+    "url": "https://example.com/pay"
+  },
+  "device": {
+    "active_call": true
+  }
+}

@@ -83,7 +83,6 @@ export function verifyResponse(): GuardedPaymentResponse {
       attemptsRemaining: 3,
       simulated: true,
       channelHint: 'Test channel.',
-      challengeCode: '123456',
     },
   });
 }

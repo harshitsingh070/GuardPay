@@ -11,11 +11,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Transaction history (development stage — no authentication yet).
+ * Read-only transaction history for the fixed demo account.
  *
- * <p>Read-only. Ownership is enforced server-side by
- * {@link TransactionQueryService}: the optional {@code userId} selects the
- * caller's history and never widens access to anyone else's transactions.
+ * <p>Clients cannot select or widen the history scope.
  */
 @RestController
 @RequestMapping("/api/transactions")
@@ -29,15 +27,13 @@ public class TransactionController {
 
   @GetMapping
   public ResponseEntity<TransactionPageDto> list(
-      @RequestParam(name = "userId", required = false) UUID userId,
       @RequestParam(name = "page", defaultValue = "0") int page,
       @RequestParam(name = "size", defaultValue = "20") int size) {
-    return ResponseEntity.ok(service.list(userId, page, size));
+    return ResponseEntity.ok(service.list(page, size));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<TransactionDetailDto> detail(
-      @PathVariable UUID id, @RequestParam(name = "userId", required = false) UUID userId) {
-    return ResponseEntity.ok(service.detail(id, userId));
+  public ResponseEntity<TransactionDetailDto> detail(@PathVariable UUID id) {
+    return ResponseEntity.ok(service.detail(id));
   }
 }

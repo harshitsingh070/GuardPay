@@ -120,8 +120,10 @@ class RequestLoggingFilterTest {
     assertThat(logs).contains("request body:").contains("\"amount\" : 45");
     assertThat(logs).contains("\"access_token\" : \"***\"");
     assertThat(logs).contains("response body:").contains("\"status\" : \"VERIFY\"");
+    assertThat(logs).contains("\"challengeCode\" : \"***\"");
     assertThat(logs).doesNotContain("super-secret");
     assertThat(logs).doesNotContain("device-secret");
+    assertThat(logs).doesNotContain("123456");
     assertThat(response.getContentAsString())
         .isEqualTo("{\"status\":\"VERIFY\",\"challengeCode\":\"123456\"}");
   }

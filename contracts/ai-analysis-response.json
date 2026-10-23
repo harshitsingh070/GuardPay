@@ -1,0 +1,14 @@
+{
+  "analysis_id": "123e4567-e89b-12d3-a456-426614174000",
+  "findings": [
+    {
+      "code": "URGENT_LANGUAGE",
+      "title": "Urgent pressure",
+      "description": "The message pressures the payer to act immediately.",
+      "severity": "HIGH",
+      "confidence": 0.9,
+      "evidence": "Pay now."
+    }
+  ],
+  "summary": "1 scam indicator observed in the supplied context."
+}

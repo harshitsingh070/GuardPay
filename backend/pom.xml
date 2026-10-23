@@ -15,7 +15,7 @@
   <artifactId>guardpay-backend</artifactId>
   <version>0.0.1-SNAPSHOT</version>
   <name>GuardPay Backend</name>
-  <description>GuardPay main backend — Spring Boot owns auth, payments, PayPal, PostgreSQL, deterministic risk engine, and final ALLOW/VERIFY/STOP decision. (Init scaffold: no business logic yet.)</description>
+  <description>GuardPay main backend - Spring Boot owns payments, PayPal, PostgreSQL, deterministic risk engine, and final ALLOW/VERIFY/STOP decision.</description>
   <packaging>jar</packaging>
 
   <properties>
@@ -36,11 +36,6 @@
       <artifactId>spring-boot-starter-data-jpa</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-security</artifactId>
-    </dependency>
-
-    <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <scope>runtime</scope>
@@ -60,11 +55,6 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.security</groupId>
-      <artifactId>spring-security-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

@@ -62,10 +62,14 @@ class MainActivity : Activity() {
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.setSupportZoom(false)
-            // The demo backend is plain HTTP on the LAN while the bundled page
-            // uses the appassets HTTPS origin, so allow that one mixed content
-            // direction. Do not ship this configuration as production advice.
-            settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            // Debug builds may talk to a local HTTP Sandbox backend. Release
+            // builds are HTTPS-only and never silently downgrade to cleartext.
+            settings.mixedContentMode =
+                if (BuildConfig.DEBUG) {
+                    WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                } else {
+                    WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                }
             addJavascriptInterface(NativeBridge(), "GuardPayNative")
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(

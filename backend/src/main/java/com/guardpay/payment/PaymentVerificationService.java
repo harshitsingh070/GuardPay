@@ -37,8 +37,9 @@ import org.springframework.web.server.ResponseStatusException;
  * the outcome, only supply an answer.
  *
  * <p>With no identity provider configured this runs a clearly-labelled
- * <em>simulated</em> channel (the code is returned in the API response). It is
- * not real identity verification and must be replaced before production.
+ * <em>simulated</em> channel. The code is delivered out of band and is never
+ * returned by the public API or written to browser state. It is not real
+ * identity verification and must be replaced before production.
  */
 @Service
 public class PaymentVerificationService {
@@ -52,6 +53,7 @@ public class PaymentVerificationService {
   private final TransactionRepository transactions;
   private final RiskAssessmentRepository assessments;
   private final PayPalOrderService orderService;
+  private final VerificationChannel channel;
 
   @Value("${guardpay.verification.ttl-minutes:10}")
   private long ttlMinutes;
@@ -63,11 +65,13 @@ public class PaymentVerificationService {
       PaymentVerificationRepository verifications,
       TransactionRepository transactions,
       RiskAssessmentRepository assessments,
-      PayPalOrderService orderService) {
+      PayPalOrderService orderService,
+      VerificationChannel channel) {
     this.verifications = verifications;
     this.transactions = transactions;
     this.assessments = assessments;
     this.orderService = orderService;
+    this.channel = channel;
   }
 
   /**
@@ -77,30 +81,47 @@ public class PaymentVerificationService {
   GuardedVerificationDto startChallenge(Transaction transaction) {
     PaymentVerification existing = verifications.findByTransaction(transaction).orElse(null);
     if (existing != null) {
-      return toDto(existing, null);
+      if (existing.getStatus() == VerificationStatus.PENDING
+          && !channel.has(transaction.getId())) {
+        // The in-memory channel can lose its copy across a restart. Rotate the
+        // hash and deliver again rather than stranding a pending challenge.
+        issueCode(existing, transaction);
+      }
+      return toDto(existing);
     }
-    String code = randomCode();
     PaymentVerification verification = new PaymentVerification();
     verification.setTransaction(transaction);
     verification.setStatus(VerificationStatus.PENDING);
-    verification.setChallengeCodeHash(hash(code, transaction.getId()));
     verification.setAttempts(0);
     verification.setMaxAttempts(maxAttempts);
     verification.setExpiresAt(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(ttlMinutes));
+    issueCode(verification, transaction);
+    return toDto(verification);
+  }
+
+  private void issueCode(PaymentVerification verification, Transaction transaction) {
+    String code = randomCode();
+    verification.setChallengeCodeHash(hash(code, transaction.getId()));
     verifications.save(verification);
-    log.info("Controlled verification challenge issued (simulated channel)");
-    return toDto(verification, code);
+    try {
+      channel.deliver(transaction.getId(), code);
+    } catch (IllegalStateException unavailable) {
+      throw new ResponseStatusException(
+          HttpStatus.SERVICE_UNAVAILABLE,
+          "Verification delivery is not configured; no challenge was exposed");
+    }
+    log.info("Controlled verification challenge issued (simulated out-of-band channel)");
   }
 
   @Transactional
   public VerificationConfirmResponseDto confirm(UUID paymentId, String code) {
     Transaction transaction =
         transactions
-            .findById(paymentId)
+            .findByIdForUpdate(paymentId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown payment"));
     PaymentVerification verification =
         verifications
-            .findByTransaction(transaction)
+            .findByTransactionIdForUpdate(transaction.getId())
             .orElseThrow(
                 () ->
                     new ResponseStatusException(
@@ -119,6 +140,7 @@ public class PaymentVerificationService {
     if (OffsetDateTime.now(ZoneOffset.UTC).isAfter(verification.getExpiresAt())) {
       verification.setStatus(VerificationStatus.EXPIRED);
       verifications.save(verification);
+      channel.clear(transaction.getId());
       return failure(transaction, verification, "This verification has expired. Start a new payment attempt.");
     }
 
@@ -126,6 +148,7 @@ public class PaymentVerificationService {
       verification.setAttempts(verification.getAttempts() + 1);
       if (verification.getAttempts() >= verification.getMaxAttempts()) {
         verification.setStatus(VerificationStatus.FAILED);
+        channel.clear(transaction.getId());
       }
       verifications.save(verification);
       String message =
@@ -157,6 +180,9 @@ public class PaymentVerificationService {
   private VerificationConfirmResponseDto verifiedSuccess(
       Transaction transaction, PaymentVerification verification) {
     GuardedPaypalOrderDto order = ensurePaypalOrder(transaction);
+    // Clear only after the order exists: if PayPal creation fails, the
+    // transaction and verification roll back and the user may retry the code.
+    channel.clear(transaction.getId());
     return new VerificationConfirmResponseDto(
         transaction.getId(),
         VerificationStatus.VERIFIED,
@@ -169,11 +195,29 @@ public class PaymentVerificationService {
 
   private GuardedPaypalOrderDto ensurePaypalOrder(Transaction transaction) {
     if (transaction.getPaypalOrderId() != null) {
-      return new GuardedPaypalOrderDto(transaction.getPaypalOrderId(), null);
+      String approvalUrl = transaction.getPaypalApprovalUrl();
+      if (approvalUrl == null) {
+        // Rows created before the approval URL was persisted can still recover
+        // the same PayPal order's approve link instead of returning null or
+        // creating a second order.
+        approvalUrl = orderService.fetchApprovalUrl(transaction.getPaypalOrderId());
+        transaction.setPaypalApprovalUrl(approvalUrl);
+        transactions.save(transaction);
+      }
+      return new GuardedPaypalOrderDto(transaction.getPaypalOrderId(), approvalUrl);
+    }
+    if (transaction.getRecipient() == null) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "This payment has no verified PayPal destination");
     }
     CreatedPaypalOrder created =
-        orderService.createPaypalOrder(transaction.getAmount(), transaction.getDescription());
+        orderService.createPaypalOrder(
+            transaction.getAmount(),
+            transaction.getDescription(),
+            transaction.getRecipient().getEmail(),
+            transaction.getRecipient().getPaypalAccountId());
     transaction.setPaypalOrderId(created.orderId());
+    transaction.setPaypalApprovalUrl(created.approvalUrl());
     transaction.setStatus(TransactionStatus.PENDING);
     transactions.save(transaction);
     return new GuardedPaypalOrderDto(created.orderId(), created.approvalUrl());
@@ -191,7 +235,7 @@ public class PaymentVerificationService {
         message);
   }
 
-  private GuardedVerificationDto toDto(PaymentVerification verification, String code) {
+  private GuardedVerificationDto toDto(PaymentVerification verification) {
     boolean simulated = true;
     return new GuardedVerificationDto(
         verification.getId(),
@@ -199,8 +243,8 @@ public class PaymentVerificationService {
         verification.getExpiresAt(),
         Math.max(0, verification.getMaxAttempts() - verification.getAttempts()),
         simulated,
-        "Code delivered through the GuardPay simulated challenge channel.",
-        code);
+        "Ask the developer to read the code from the server-side dev outbox; "
+            + "it is never returned to the browser.");
   }
 
   private boolean codeMatches(PaymentVerification verification, Transaction transaction, String code) {

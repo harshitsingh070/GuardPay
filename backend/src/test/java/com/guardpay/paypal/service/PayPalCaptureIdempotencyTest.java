@@ -7,15 +7,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.guardpay.payment.PaymentContextRepository;
 import com.guardpay.payment.PaymentVerificationRepository;
-import com.guardpay.paypal.auth.PayPalOAuthService;
 import com.guardpay.paypal.client.PayPalClient;
-import com.guardpay.paypal.config.PayPalProperties;
 import com.guardpay.paypal.dto.CaptureOrderResponseDto;
 import com.guardpay.paypal.dto.PayPalAmount;
 import com.guardpay.paypal.dto.PayPalCaptureResponse;
-import com.guardpay.risk.DeterministicRiskEngine;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskAssessment;
 import com.guardpay.risk.RiskAssessmentRepository;
@@ -23,15 +19,17 @@ import com.guardpay.risk.RiskLevel;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
-import com.guardpay.user.UserRepository;
+import com.guardpay.user.User;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Capture replay safety: the second request for an already-captured order
@@ -40,26 +38,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class PayPalCaptureIdempotencyTest {
 
+  private static final UUID OWNER = UUID.randomUUID();
+
   @Mock private PayPalClient payPalClient;
   @Mock private TransactionRepository transactions;
-  @Mock private PaymentContextRepository contexts;
   @Mock private RiskAssessmentRepository assessments;
-  @Mock private UserRepository users;
   @Mock private PaymentVerificationRepository verifications;
 
   private PayPalOrderService service;
 
   @BeforeEach
   void setUp() {
-    service =
-        new PayPalOrderService(
-            payPalClient,
-            new DeterministicRiskEngine(),
-            transactions,
-            contexts,
-            assessments,
-            users,
-            verifications);
+    service = new PayPalOrderService(payPalClient, transactions, assessments, verifications);
   }
 
   private static PayPalCaptureResponse captureResponse() {
@@ -88,6 +78,9 @@ class PayPalCaptureIdempotencyTest {
     transaction.setAmount(new BigDecimal("5.00"));
     transaction.setCurrency("USD");
     transaction.setStatus(TransactionStatus.PENDING);
+    User owner = new User();
+    ReflectionTestUtils.setField(owner, "id", OWNER);
+    transaction.setUser(owner);
     when(transactions.findByPaypalOrderIdForUpdate("ORDER-7")).thenReturn(Optional.of(transaction));
     when(assessments.findByTransactionOrderByCreatedAtDesc(transaction))
         .thenReturn(List.of(allowDecision()));

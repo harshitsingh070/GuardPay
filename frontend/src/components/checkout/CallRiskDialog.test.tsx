@@ -31,6 +31,19 @@ describe('CallRiskDialog', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it('asks the user about a call on the web', () => {
+    render(
+      <CallRiskDialog open variant="self-check" onCancel={vi.fn()} onContinue={vi.fn()} />,
+    );
+
+    expect(screen.getByText('Are you on a phone call?')).toBeInTheDocument();
+    expect(screen.getByText(/it may be fraud/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Yes, cancel payment' })).toHaveFocus();
+    expect(
+      screen.getByRole('button', { name: 'No, continue payment' }),
+    ).toBeInTheDocument();
+  });
+
   it('renders nothing when closed', () => {
     render(<CallRiskDialog open={false} onCancel={vi.fn()} onContinue={vi.fn()} />);
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();

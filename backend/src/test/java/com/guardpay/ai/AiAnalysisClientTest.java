@@ -53,7 +53,7 @@ class AiAnalysisClientTest {
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
         .andRespond(
             withSuccess(
-                "{\"analysisId\": \"123e4567-e89b-12d3-a456-426614174000\","
+                "{\"analysis_id\": \"123e4567-e89b-12d3-a456-426614174000\","
                     + " \"findings\": [{\"code\": \"URGENT_LANGUAGE\", \"title\": \"T\","
                     + " \"description\": \"D\", \"severity\": \"HIGH\","
                     + " \"confidence\": 0.9, \"evidence\": \"E\"}], \"summary\": \"S\"}",

@@ -3,13 +3,7 @@
 // backend URL through the native bridge so the bundled UI stays portable.
 
 import { readNative } from '@/services/native-bridge';
-import type { RiskEvaluationRequest, RiskEvaluationResponse } from '@/types/risk';
-import type {
-  CreatePayPalOrderRequest,
-  PayPalCaptureResponse,
-  PayPalGateResponse,
-  PayPalOrderResponse,
-} from '@/types/paypal';
+import type { PayPalCaptureResponse, PayPalGateResponse } from '@/types/paypal';
 import type {
   GuardedPaymentRequest,
   GuardedPaymentResponse,
@@ -101,17 +95,6 @@ export async function apiFetch<T>(
   }
 }
 
-/**
- * Submits payment context for evaluation. No scoring happens here — the
- * backend DeterministicRiskEngine is the only source of truth.
- */
-export function evaluateRisk(request: RiskEvaluationRequest): Promise<RiskEvaluationResponse> {
-  return apiFetch<RiskEvaluationResponse>('/api/risk/evaluate', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  });
-}
-
 /** Error for a risk-gate refusal — carries the server's gate body. */
 export class PayPalGateError extends ApiRequestError {
   readonly gate: PayPalGateResponse;
@@ -131,19 +114,6 @@ function isGateResponse(value: unknown): value is PayPalGateResponse {
     typeof candidate.action === 'string' &&
     typeof candidate.message === 'string'
   );
-}
-
-/**
- * Creates a PayPal Sandbox order (moves no money). The backend re-runs risk
- * evaluation server-side and decides whether an order may be created.
- */
-export function createPayPalOrder(
-  request: CreatePayPalOrderRequest,
-): Promise<PayPalOrderResponse> {
-  return apiFetch<PayPalOrderResponse>('/api/paypal/orders', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  });
 }
 
 /**
@@ -182,28 +152,15 @@ export function confirmPaymentVerification(
   );
 }
 
-/** Paged transaction history. The optional user id scopes the query server-side. */
-export function listTransactions(
-  userId: string | undefined,
-  page: number,
-  size: number,
-): Promise<TransactionPage> {
+/** Paged transaction history for the server-side demo workspace. */
+export function listTransactions(page: number, size: number): Promise<TransactionPage> {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
-  if (userId !== undefined) params.set('userId', userId);
   return apiFetch<TransactionPage>(`/api/transactions?${params.toString()}`);
 }
 
 /** Full detail for one transaction, including the stored decision and findings. */
-export function getTransaction(
-  id: string,
-  userId: string | undefined,
-): Promise<TransactionDetail> {
-  const params = new URLSearchParams();
-  if (userId !== undefined) params.set('userId', userId);
-  const query = params.toString();
-  return apiFetch<TransactionDetail>(
-    `/api/transactions/${encodeURIComponent(id)}${query === '' ? '' : `?${query}`}`,
-  );
+export function getTransaction(id: string): Promise<TransactionDetail> {
+  return apiFetch<TransactionDetail>(`/api/transactions/${encodeURIComponent(id)}`);
 }
 
 /** Captures an approved order. Allowed only by the stored server-side decision. */
@@ -212,7 +169,9 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalCapture
     `${apiBaseUrl}/api/paypal/orders/${encodeURIComponent(orderId)}/capture`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+      },
     },
   );
   const body = await readJson(res);

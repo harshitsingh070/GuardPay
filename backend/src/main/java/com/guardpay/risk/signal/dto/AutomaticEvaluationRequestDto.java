@@ -8,7 +8,7 @@ import java.util.UUID;
 
 /**
  * Request for {@code POST /api/risk/evaluate-automatic}: payment context
- * only. No risk booleans exist on this path — the backend derives them.
+ * only. No risk booleans exist on this path â€” the backend derives them.
  */
 public class AutomaticEvaluationRequestDto {
 
@@ -18,9 +18,6 @@ public class AutomaticEvaluationRequestDto {
 
   private String currency;
 
-  @NotNull(message = "userId is required")
-  private UUID userId;
-
   private UUID recipientId;
 
   private UUID merchantId;
@@ -29,7 +26,7 @@ public class AutomaticEvaluationRequestDto {
 
   /**
    * Optional device identity for trusted call-state lookup. There is
-   * deliberately no {@code activeCall} field — the backend resolves device
+   * deliberately no {@code activeCall} field â€” the backend resolves device
    * state itself and a client boolean could never override it.
    */
   private UUID deviceId;
@@ -56,14 +53,6 @@ public class AutomaticEvaluationRequestDto {
 
   public void setCurrency(String currency) {
     this.currency = currency;
-  }
-
-  public UUID getUserId() {
-    return userId;
-  }
-
-  public void setUserId(UUID userId) {
-    this.userId = userId;
   }
 
   public UUID getRecipientId() {

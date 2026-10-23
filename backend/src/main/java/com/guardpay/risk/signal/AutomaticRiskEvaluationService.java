@@ -16,7 +16,7 @@ import com.guardpay.ai.dto.AiAnalysisRequest;
 import com.guardpay.ai.dto.AiAnalysisResponse;
 import com.guardpay.merchant.MerchantRepository;
 import com.guardpay.recipient.RecipientRepository;
-import com.guardpay.user.UserRepository;
+import com.guardpay.user.DemoUserService;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -26,13 +26,11 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Automatic evaluation pipeline: trusted context → collected signals →
- * existing engine → response. Nothing is persisted on this path (consistent
+ * Automatic evaluation pipeline: trusted context â†’ collected signals â†’
+ * existing engine â†’ response. Nothing is persisted on this path (consistent
  * with the manual evaluation endpoint); history is only read.
  */
 @Service
@@ -48,7 +46,7 @@ public class AutomaticRiskEvaluationService {
 
   private final PaymentSignalCollectorService collector;
   private final DeterministicRiskEngine engine;
-  private final UserRepository users;
+  private final DemoUserService demoUser;
   private final DeviceCallStateRepository deviceStates;
   private final RecipientRepository recipients;
   private final MerchantRepository merchants;
@@ -57,14 +55,14 @@ public class AutomaticRiskEvaluationService {
   public AutomaticRiskEvaluationService(
       PaymentSignalCollectorService collector,
       DeterministicRiskEngine engine,
-      UserRepository users,
+      DemoUserService demoUser,
       DeviceCallStateRepository deviceStates,
       RecipientRepository recipients,
       MerchantRepository merchants,
       AiAnalysisClient aiClient) {
     this.collector = collector;
     this.engine = engine;
-    this.users = users;
+    this.demoUser = demoUser;
     this.deviceStates = deviceStates;
     this.recipients = recipients;
     this.merchants = merchants;
@@ -72,24 +70,23 @@ public class AutomaticRiskEvaluationService {
   }
 
   public AutomaticEvaluationResponseDto evaluate(AutomaticEvaluationRequestDto dto) {
-    if (!users.existsById(dto.getUserId())) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user");
-    }
     SignalCollectionRequest collectionRequest =
         new SignalCollectionRequest(
             dto.getAmount(),
             dto.getCurrency(),
-            dto.getUserId(),
+            demoUser.currentUser().getId(),
             dto.getRecipientId(),
             dto.getMerchantId(),
-            dto.getTransactionId());
+            dto.getTransactionId(),
+            dto.getContentText(),
+            dto.getContentUrl());
 
     DeviceCallSignal deviceSignal = resolveDeviceSignal(dto.getDeviceId());
     AutomaticSignalCollectionResult deterministic =
         collector.collect(collectionRequest, deviceSignal);
 
     // AI evidence (optional): consulted only when the caller supplied content.
-    // Any AI problem degrades to UNAVAILABLE — deterministic signals decide alone.
+    // Any AI problem degrades to UNAVAILABLE â€” deterministic signals decide alone.
     List<PaymentSignal> aiSignals = List.of();
     String aiStatus;
     if (hasContent(dto)) {
@@ -164,7 +161,7 @@ public class AutomaticRiskEvaluationService {
   /**
    * Resolves a device id to a trusted call signal. Unknown devices, missing
    * observations, and observations older than {@link #DEVICE_STATE_MAX_AGE}
-   * all resolve to unavailable — never guessed, never an old "active".
+   * all resolve to unavailable â€” never guessed, never an old "active".
    */
   private DeviceCallSignal resolveDeviceSignal(UUID deviceId) {
     if (deviceId == null) {

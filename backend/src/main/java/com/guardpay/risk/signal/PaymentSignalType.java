@@ -22,5 +22,7 @@ public enum PaymentSignalType {
   SUSPICIOUS_PAYMENT_INSTRUCTION,
   SCAM_PATTERN,
   SUSPICIOUS_URL_STRUCTURE,
-  UNEXPECTED_INVOICE_CONTEXT
+  UNEXPECTED_INVOICE_CONTEXT,
+  // Deterministic policy: high-value payment with no verifiable context.
+  MISSING_CONTEXT
 }

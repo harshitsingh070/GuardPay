@@ -282,21 +282,22 @@ class PaymentSignalCollectorServiceTest {
         "INSUFFICIENT_CONTEXT", signal(result, PaymentSignalType.UNEXPECTED_INVOICE).reason());
     assertFalse(result.detected(PaymentSignalType.SUSPICIOUS_URL));
     assertEquals(
-        "URL_REPUTATION_NOT_CONFIGURED", signal(result, PaymentSignalType.SUSPICIOUS_URL).reason());
+        "NO_URL_IN_CONTENT", signal(result, PaymentSignalType.SUSPICIOUS_URL).reason());
   }
 
   @Test
-  void futureSignalsReportNotAvailable() {
+  void missingContentReportsUnavailableInsteadOfSafe() {
     AutomaticSignalCollectionResult result = collector.collect(request(new BigDecimal("45")));
 
-    for (PaymentSignalType type :
-        List.of(
-            PaymentSignalType.ACTIVE_CALL,
-            PaymentSignalType.URGENT_LANGUAGE,
-            PaymentSignalType.SOCIAL_ENGINEERING_DETECTED)) {
-      assertFalse(result.detected(type));
-      assertEquals("NOT_AVAILABLE_YET", signal(result, type).reason());
-    }
+    assertFalse(result.detected(PaymentSignalType.ACTIVE_CALL));
+    assertEquals("NOT_AVAILABLE_YET", signal(result, PaymentSignalType.ACTIVE_CALL).reason());
+    assertFalse(result.detected(PaymentSignalType.URGENT_LANGUAGE));
+    assertEquals(
+        "CONTENT_UNAVAILABLE", signal(result, PaymentSignalType.URGENT_LANGUAGE).reason());
+    assertFalse(result.detected(PaymentSignalType.SOCIAL_ENGINEERING_DETECTED));
+    assertEquals(
+        "INSUFFICIENT_CONTEXT",
+        signal(result, PaymentSignalType.SOCIAL_ENGINEERING_DETECTED).reason());
   }
 
   @Test

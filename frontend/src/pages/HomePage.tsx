@@ -272,10 +272,10 @@ export default function HomePage() {
               Start a payment
             </Link>
             <Link
-              to="/payment/manual"
+              to="/transactions"
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/25 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/10"
             >
-              Try the manual demo
+              View transaction history
             </Link>
           </div>
         </div>

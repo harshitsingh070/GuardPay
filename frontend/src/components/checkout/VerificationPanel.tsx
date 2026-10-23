@@ -6,7 +6,7 @@ import type { GuardedVerification } from '@/types/payment';
 /** The subset the panel needs; satisfied by both the challenge and a confirm result. */
 type VerificationView = Pick<
   GuardedVerification,
-  'attemptsRemaining' | 'simulated' | 'channelHint' | 'challengeCode'
+  'attemptsRemaining' | 'simulated' | 'channelHint'
 >;
 
 interface Props {
@@ -56,14 +56,6 @@ export default function VerificationPanel({
           <p className="mt-0.5 text-xs">
             {verification.channelHint} This is a prototype stand-in, not real identity verification.
           </p>
-          {verification.challengeCode !== undefined && (
-            <p className="mt-2 text-xs">
-              Development code:{' '}
-              <span className="font-mono text-base font-semibold tracking-widest">
-                {verification.challengeCode}
-              </span>
-            </p>
-          )}
         </div>
       )}
 

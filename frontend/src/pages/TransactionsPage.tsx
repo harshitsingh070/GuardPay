@@ -13,10 +13,7 @@ import TransactionDetailPanel from '@/components/TransactionDetailPanel';
 import TransactionTable from '@/components/TransactionTable';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { ApiRequestError } from '@/services/api-client';
-import {
-  defaultUserId,
-  getTransactionHistoryService,
-} from '@/services/transaction-service';
+import { getTransactionHistoryService } from '@/services/transaction-service';
 import type {
   TransactionDetail,
   TransactionHistoryService,
@@ -37,7 +34,6 @@ export default function TransactionsPage({
   service?: TransactionHistoryService;
 }) {
   usePageTitle('Transactions');
-  const userId = defaultUserId();
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [data, setData] = useState<TransactionPage | null>(null);
@@ -52,7 +48,7 @@ export default function TransactionsPage({
     setListLoading(true);
     setListError(null);
     service
-      .list(userId, page, PAGE_SIZE)
+      .list(page, PAGE_SIZE)
       .then((result) => {
         if (active) setData(result);
       })
@@ -65,7 +61,7 @@ export default function TransactionsPage({
     return () => {
       active = false;
     };
-  }, [service, userId, page, reload]);
+  }, [service, page, reload]);
 
   const selectRow = useCallback(
     (id: string) => {
@@ -73,12 +69,12 @@ export default function TransactionsPage({
       setDetailError(null);
       setDetailLoading(true);
       service
-        .detail(id, userId)
+        .detail(id)
         .then(setDetail)
         .catch((error: unknown) => setDetailError(messageOf(error)))
         .finally(() => setDetailLoading(false));
     },
-    [service, userId],
+    [service],
   );
 
   const items = data?.items ?? [];

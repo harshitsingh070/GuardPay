@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # gateways work by overriding this (they accept the same client).
     openai_base_url: str = "https://api.openai.com/v1"
     llm_timeout_seconds: float = 30.0
+    # Optional shared secret for the Spring Boot -> AI hop. When set, requests
+    # without a matching X-GuardPay-Internal-Token are rejected with 401.
+    internal_token: str = Field(default="", validation_alias="AI_SERVICE_INTERNAL_TOKEN")
 
     @property
     def ai_configured(self) -> bool:
