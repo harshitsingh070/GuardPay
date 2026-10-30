@@ -39,7 +39,7 @@ class DeterministicRiskEngineTest {
     assertEquals(0, result.score());
     assertEquals(RiskLevel.LOW, result.riskLevel());
     assertEquals(RecommendedAction.ALLOW, result.recommendedAction());
-    assertEquals(10, result.findings().size());
+    assertEquals(11, result.findings().size());
     assertTrue(triggeredBy(result).values().stream().noneMatch(b -> b));
     assertTrue(result.explanation() != null && !result.explanation().isBlank());
   }
@@ -106,6 +106,19 @@ class DeterministicRiskEngineTest {
   }
 
   @Test
+  void recipientAmountAnomalyAddsTwenty() {
+    RiskEvaluationRequest request =
+        new RiskEvaluationRequest(
+            new BigDecimal("45"), new BigDecimal("87"),
+            false, false, false, false, false, false, false, false, false, true);
+
+    RiskEvaluationResult result = engine.evaluate(request);
+
+    assertEquals(20, result.score());
+    assertTrue(triggeredBy(result).get("RECIPIENT_AMOUNT_ANOMALY"));
+  }
+
+  @Test
   void multipleSignalsSumToSixty() {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
@@ -124,11 +137,11 @@ class DeterministicRiskEngineTest {
     RiskEvaluationRequest request =
         new RiskEvaluationRequest(
             new BigDecimal("2499"), new BigDecimal("87"),
-            true, true, true, true, true, true, true, true, true);
+            true, true, true, true, true, true, true, true, true, true);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    // Raw total is 155; the final score must be capped at 100.
+    // Raw total is 175; the final score must be capped at 100.
     assertEquals(100, result.score());
     assertEquals(RiskLevel.CRITICAL, result.riskLevel());
     assertEquals(RecommendedAction.STOP, result.recommendedAction());
@@ -227,6 +240,7 @@ class DeterministicRiskEngineTest {
             "ACTIVE_CALL",
             "NEW_RECIPIENT",
             "LARGE_AMOUNT",
+            "RECIPIENT_AMOUNT_ANOMALY",
             "REPEATED_ATTEMPTS",
             "UNKNOWN_MERCHANT",
             "UNEXPECTED_INVOICE",

@@ -106,8 +106,6 @@ class AutomaticRiskEvaluationServiceTest {
     ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
     fresh.setUser(user);
     when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
-    when(transactions.findByUserAndRecipientAndStatus(fresh.getUser(), fresh, TransactionStatus.COMPLETED))
-        .thenReturn(List.of());
 
     AutomaticEvaluationResponseDto response = service.evaluate(request("2499", RECIPIENT_ID));
 
@@ -115,8 +113,8 @@ class AutomaticRiskEvaluationServiceTest {
     assertEquals(60, response.score());
     assertEquals(RiskLevel.MEDIUM, response.riskLevel());
     assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
-    assertEquals(10, response.automaticSignals().size());
-    assertEquals(10, response.findings().size());
+    assertEquals(11, response.automaticSignals().size());
+    assertEquals(11, response.findings().size());
   }
 
 }

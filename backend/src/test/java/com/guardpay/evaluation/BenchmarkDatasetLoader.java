@@ -125,6 +125,22 @@ public final class BenchmarkDatasetLoader {
         invalid(origin, lineNumber, "input.historyAmounts values must be positive");
       }
     }
+    if (input.recipientHistoryAmounts() != null) {
+      for (BigDecimal amount : input.recipientHistoryAmounts()) {
+        if (amount == null || amount.signum() <= 0) {
+          invalid(
+              origin, lineNumber, "input.recipientHistoryAmounts values must be positive");
+        }
+      }
+      if (input.recipient() != null
+          && input.recipient() != CounterpartyState.KNOWN
+          && !input.recipientHistoryAmounts().isEmpty()) {
+        invalid(
+            origin,
+            lineNumber,
+            "input.recipientHistoryAmounts requires input.recipient=KNOWN");
+      }
+    }
     if (input.recentAttempts() == null || input.recentAttempts() < 0) {
       invalid(origin, lineNumber, "input.recentAttempts must be >= 0");
     }

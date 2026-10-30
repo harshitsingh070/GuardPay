@@ -3,18 +3,25 @@
 ## Purpose
 
 The fraud benchmark measures how the existing GuardPay risk pipeline behaves
-against a labeled, synthetic dataset. It is an evaluation harness, not a new
+against labeled, synthetic datasets. It is an evaluation harness, not a new
 decision path:
 
-- It does not change signal weights, thresholds, scoring, or actions.
+- It does not change signal weights, production thresholds, scoring, or actions.
 - It does not create PayPal orders, captures, payments, or verification records.
 - It does not use a database, Spring context, device, or external network.
 - It runs the real `AutomaticRiskEvaluationService`, `PaymentSignalCollectorService`,
   `DeterministicContentAnalyzer`, `AutomaticSignalAdapter`, and
   `DeterministicRiskEngine` with mocked repositories.
 
-The checked-in dataset contains 49 scenarios: 25 labeled fraud and 24 labeled
-legitimate payments, including the canonical fraud and legitimate regressions.
+There are two distinct datasets:
+
+- **Dev** (`54` scenarios: `26` fraud, `28` legitimate) is used for diagnosis
+  and threshold exploration.
+- **Held-out** (`32` scenarios: `16` fraud, `16` legitimate) is PayPal-specific,
+  uses different IDs and inputs, and is evaluated only with the fixed
+  production policy. It must not be used to select thresholds or tune scenarios.
+
+The dev dataset includes the canonical fraud and legitimate regressions.
 
 ## Architecture
 
@@ -30,15 +37,23 @@ BenchmarkHarness        (fresh mocks per scenario)
     v
 AutomaticRiskEvaluationService
     |-- PaymentSignalCollectorService + DeterministicContentAnalyzer
+    |   `-- RecipientHistoryService + RecipientRiskEvaluator
     |-- optional simulated AI findings through mocked AiAnalysisClient
     `-- DeterministicRiskEngine
     |
     v
 BenchmarkResult -> BenchmarkMetrics
                 -> CategoryMetrics (primary category and signal dimensions)
+                -> RecipientComparison (history on vs off, per mode)
                 -> ThresholdAnalysis (benchmark-only score policy comparison)
                 -> report.json + report.md
+                -> optional BenchmarkComparison (dev vs held-out)
+                -> comparison.json + comparison.md
 ```
+
+The report is tagged as a `DEV` or `HELD_OUT` run. A `HELD_OUT` report evaluates
+only the fixed `production-baseline` policy and does not compute best-by-metric
+labels or optimize thresholds.
 
 The harness never calls `PaymentSafetyOrchestrator`, PayPal, the webhook
 pipeline, or any controller. AI evidence is simulated by returning synthetic,
@@ -50,33 +65,44 @@ contacted.
 From `backend/`:
 
 ```powershell
-mvn -q "-Dtest=FraudBenchmarkTest" test
+mvn -q "-Dtest=FraudBenchmarkTest,HeldOutBenchmarkTest" test
 ```
 
 From the repository root:
 
 ```powershell
-mvn -f backend -q "-Dtest=FraudBenchmarkTest" test
+mvn -f backend -q "-Dtest=FraudBenchmarkTest,HeldOutBenchmarkTest" test
 ```
 
-The test runs every scenario in both modes, asserts the dataset expectations,
-and writes:
+`FraudBenchmarkTest` runs the dev dataset in both modes and writes:
 
 - `backend/target/fraud-benchmark/report.json`
 - `backend/target/fraud-benchmark/report.md`
 
+`HeldOutBenchmarkTest` runs the held-out dataset with the fixed production
+policy, writes:
+
+- `backend/target/fraud-benchmark/held-out/report.json`
+- `backend/target/fraud-benchmark/held-out/report.md`
+
+and then writes the dev/held-out comparison:
+
+- `backend/target/fraud-benchmark/comparison.json`
+- `backend/target/fraud-benchmark/comparison.md`
+
 Generated reports contain timestamps and must not be committed. The source of
-truth is the dataset plus the test.
+truth is the datasets plus the tests.
 
-The report stores the dataset path, scenario count, and SHA-256 of the dataset
-file for reproducibility. It also contains overall metrics, primary-category
-metrics, overlapping signal-dimension metrics, threshold comparisons,
-best-by-metric labels, and generated recommendations.
+Each report stores the dataset role, path, scenario count, and SHA-256 of the
+dataset file for reproducibility. It also contains overall metrics,
+primary-category metrics, overlapping signal-dimension metrics, threshold
+comparisons, and generated recommendations. Dev reports include best-by-metric
+labels; held-out reports do not.
 
-Dataset, metrics, category, and threshold tests can be run together:
+Dataset, metrics, category, threshold, and held-out tests can be run together:
 
 ```powershell
-mvn -q "-Dtest=FraudBenchmarkTest,BenchmarkDatasetLoaderTest,BenchmarkMetricsTest,CategoryMetricsTest,ThresholdConfigurationTest,ThresholdAnalysisTest" test
+mvn -q "-Dtest=FraudBenchmarkTest,HeldOutBenchmarkTest,BenchmarkDatasetLoaderTest,BenchmarkMetricsTest,CategoryMetricsTest,ThresholdConfigurationTest,ThresholdAnalysisTest" test
 ```
 
 ## Modes
@@ -102,8 +128,18 @@ does not request AI (`aiStatus=NOT_REQUESTED`).
 
 ## Dataset
 
-File:
-`backend/src/test/resources/fraud-benchmark/dataset/scenarios.jsonl`
+Files:
+
+- Dev: `backend/src/test/resources/fraud-benchmark/dataset/scenarios.jsonl`
+  (`54` scenarios, IDs such as `F01`/`L01`, including `F26`/`F27` and
+  `L26`–`L28` for recipient intelligence).
+- Held-out: `backend/src/test/resources/fraud-benchmark/held-out/scenarios.jsonl`
+  (`32` PayPal-specific scenarios, IDs `HF01`–`HF16` and `HL01`–`HL16`).
+
+Held-out IDs and exact input records must remain disjoint from the dev dataset.
+`HeldOutBenchmarkTest` enforces both constraints. Do not inspect held-out
+results and then edit held-out scenarios, thresholds, or signal weights; that
+would defeat the purpose of the held-out evaluation.
 
 Each line is one JSON object. Blank lines are ignored. IDs must be unique.
 Unknown JSON fields, invalid enums, unknown signals, inconsistent
@@ -126,6 +162,7 @@ Example shape:
     "amount": 1200,
     "currency": "USD",
     "historyAmounts": [100, 120],
+    "recipientHistoryAmounts": [],
     "recentAttempts": 0,
     "recipient": "NEW",
     "merchant": "NEW",
@@ -158,7 +195,8 @@ Example shape:
 | `expectedSignals` | Triggered engine signal codes, using `RiskSignal` names. |
 | `input.amount` | Positive payment amount. |
 | `input.currency` | Currency code; the harness uses `USD` scenarios today. |
-| `input.historyAmounts` | Completed historical amounts used for the average. Use `[]` when none. |
+| `input.historyAmounts` | Completed historical amounts used for the account-wide average. Use `[]` when none. |
+| `input.recipientHistoryAmounts` | Optional completed amounts for this recipient. When omitted, `KNOWN` recipients default to `historyAmounts`; `NEW` recipients must use `[]`. |
 | `input.recentAttempts` | Prior attempts inside the 10-minute velocity window; current attempt is added automatically. |
 | `input.recipient` | `NEW`, `KNOWN`, or `NONE`. `KNOWN` requires at least one completed transaction. |
 | `input.merchant` | `NEW`, `KNOWN`, or `NONE`. |
@@ -183,6 +221,10 @@ scenario input is wrong.
 `expectedAi` is optional for deterministic scenarios. If absent, the AI-mode
 expectation is the same as the deterministic expectation.
 
+Dev expectations may be refined during normal development. Held-out
+expectations must be fixed from the current engine behavior before the first
+held-out results are reviewed and must not be retrofitted to improve metrics.
+
 ## Categories
 
 The checked-in dataset uses categories such as:
@@ -192,6 +234,8 @@ The checked-in dataset uses categories such as:
 - missing-context and boundary cases
 - known subscriptions, legitimate new payees, legitimate high-value payments,
   legitimate urgent language, shorteners, active calls, and AI false positives
+- recipient amount anomalies, recipient velocity, and legitimate known-recipient
+  controls
 - canonical fraud and legitimate regressions
 
 Categories are descriptive rather than a fixed schema. A new category is valid
@@ -205,8 +249,9 @@ The report has two separate diagnostic views:
   Their counts add up to the selected dataset.
 - **Signal-dimension metrics** group scenarios that are expected to involve a
   given engine signal, such as `SOCIAL_ENGINEERING`, `SUSPICIOUS_URL`,
-  `UNEXPECTED_INVOICE`, `NEW_RECIPIENT`, `LARGE_AMOUNT`, `REPEATED_ATTEMPTS`, or
-  `UNKNOWN_MERCHANT`. A scenario can appear in several dimensions.
+  `UNEXPECTED_INVOICE`, `NEW_RECIPIENT`, `RECIPIENT_AMOUNT_ANOMALY`,
+  `LARGE_AMOUNT`, `REPEATED_ATTEMPTS`, or `UNKNOWN_MERCHANT`. A scenario can
+  appear in several dimensions.
 
 Signal dimensions are multi-label and are **not** additive partitions. They
 answer questions such as "how does the engine perform on payments involving a
@@ -270,12 +315,12 @@ Latency is measured around `service.evaluate()`, not around mock setup.
 
 ## Current baseline
 
-Latest checked-in run (49 scenarios):
+Latest checked-in dev run (54 scenarios: 26 fraud, 28 legitimate):
 
 | Mode | TP | FN | FP | TN | Precision | Recall | F1 | FPR | Accuracy |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY` | 19 | 6 | 8 | 16 | 70.37% | 76.00% | 73.08% | 33.33% | 71.43% |
-| `VALIDATED_AI` | 21 | 4 | 9 | 15 | 70.00% | 84.00% | 76.36% | 37.50% | 73.47% |
+| `DETERMINISTIC_ONLY` | 21 | 5 | 8 | 20 | 72.41% | 80.77% | 76.36% | 28.57% | 75.93% |
+| `VALIDATED_AI` | 23 | 3 | 9 | 19 | 71.88% | 88.46% | 79.31% | 32.14% | 77.78% |
 
 Exact score/level/action and signal agreement are 100% because the dataset is
 constructed to characterize the current engine. That is a regression property,
@@ -286,18 +331,21 @@ Deterministic misses in this dataset:
 - `F08-paypal-lookalike-known` — 30 `ALLOW`; AI raises it to 50 `VERIFY`.
 - `F09-urgent-giftcard-known` — 30 `ALLOW`; social pattern alone is below the verify threshold.
 - `F15-account-takeover-known` — 30 `ALLOW`; AI raises it to 50 `VERIFY`.
-- `F16-known-payee-no-context` — 0 `ALLOW`; intentionally a boundary case with no signals.
 - `F20-payment-instruction-url-known` — 30 `ALLOW`.
-- `F23-just-below-missing-threshold` — 30 `ALLOW`.
+- `F23-just-below-missing-threshold` — 30 `ALLOW`; intentionally documents the
+  `$1000` missing-context threshold gap.
 
-Validated AI still misses `F09`, `F16`, `F20`, and `F23`, and adds one
-legitimate false positive (`L22-ai-false-positive-medium`). These results are
-for the synthetic dataset only.
+`L25-known-payee-no-context` is a labeled legitimate boundary case: it produces
+no signals and is correctly allowed. It is not a fraud miss.
+
+Validated AI still misses `F09`, `F20`, and `F23`, and adds one legitimate false
+positive (`L22-ai-false-positive-medium`). These results are for the synthetic
+dataset only.
 
 Notable category observations from the current dataset:
 
-- `boundary` has 0/2 fraud scenarios detected in both modes; both are below the
-  production `VERIFY` boundary.
+- `boundary` has 0/1 fraud scenarios detected in both modes; `F23` is below the
+  production `VERIFY` boundary, while `L25` is correctly allowed.
 - `invoice_scam` detects 5/5 fraud scenarios with no legitimate false positives.
 - `legitimate_new_payee` has 5/8 legitimate payments sent to `VERIFY` in
   deterministic mode and 5/8 in validated-AI mode, the largest friction source.
@@ -306,6 +354,75 @@ Notable category observations from the current dataset:
 
 Small categories make these rates volatile; use the counts alongside the
 percentages.
+
+### Recipient intelligence comparison
+
+The dev run evaluates each mode twice: once with recipient intelligence
+disabled (the previous account-wide behavior) and once with the real
+`RecipientHistoryService` and `RecipientRiskEvaluator`. The disabled run mocks a
+recipient context with no usable amount history, so it reproduces the old
+behavior without changing production code paths.
+
+| Configuration | TP | FN | FP | TN | Precision | Recall | F1 | Amount anomaly |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `DETERMINISTIC_ONLY_BASELINE` | 20 | 6 | 8 | 20 | 71.43% | 76.92% | 74.07% | 0/1 |
+| `DETERMINISTIC_ONLY_RECIPIENT` | 21 | 5 | 8 | 20 | 72.41% | 80.77% | 76.36% | 1/1 |
+| `VALIDATED_AI_BASELINE` | 22 | 4 | 9 | 19 | 70.97% | 84.62% | 77.19% | 0/1 |
+| `VALIDATED_AI_RECIPIENT` | 23 | 3 | 9 | 19 | 71.88% | 88.46% | 79.31% | 1/1 |
+
+Recipient intelligence adds one true positive and no false positives in each
+mode by detecting `F26-known-recipient-amount-anomaly`. Across all
+configurations, new recipients are detected `30/30`, known recipients are never
+misclassified as new (`0/24`), repeated recipient attempts are detected `4/4`,
+and only `7/54` scenarios (`12.96%`) have at least three completed recipient
+history samples. The remaining `47/54` (`87.04%`) are insufficient-history
+cases, so they deliberately produce no amount-anomaly signal. That sparse
+history coverage is expected in a synthetic dataset. Held-out data was not used
+to choose the `5x` multiplier, the 20-point weight, or the comparison scenarios.
+
+## Held-out evaluation
+
+The held-out dataset is PayPal-specific and was not used to choose thresholds or
+signal weights. It contains 16 fraud and 16 legitimate scenarios, with IDs and
+exact inputs disjoint from dev. It is always evaluated with the fixed
+`production-baseline` policy:
+
+| Mode | TP | FN | FP | TN | Precision | Recall | F1 | FPR | Accuracy |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `DETERMINISTIC_ONLY` | 15 | 1 | 2 | 14 | 88.24% | 93.75% | 90.91% | 12.50% | 90.63% |
+| `VALIDATED_AI` | 15 | 1 | 2 | 14 | 88.24% | 93.75% | 90.91% | 12.50% | 90.63% |
+
+Both modes record 2 legitimate `VERIFY` outcomes and 0 legitimate `STOP`
+outcomes. Recipient-specific held-out metrics are identical with recipient
+intelligence enabled or disabled:
+
+- Recipient scenarios: `32/32`
+- New recipient detection: `18/18`
+- Known recipient misclassified as new: `0/14`
+- Recipient amount anomaly detection: `0/0` (the held-out dataset contains no
+  recipient amount-anomaly scenario, so this metric has no held-out coverage)
+- Repeated recipient attempts: `2/2`
+- Sufficient recipient history (at least 3 completed samples): `9/32` (`28.13%`)
+- Insufficient recipient history: `23/32` (`71.88%`)
+
+Current held-out observations:
+
+- The sole fraud miss in both modes is `HF16-paypal-known-urgent-payment` at
+  score `10 LOW ALLOW` with only `URGENT_LANGUAGE`; a known recipient suppresses
+  the new-recipient/merchant evidence.
+- `HL02-paypal-freelancer-invoice` and `HL13-paypal-shortener-new` are the two
+  legitimate `VERIFY` outcomes.
+- `HF07-paypal-invoice-known-ai-impersonation` scores `45 MEDIUM VERIFY`
+  deterministically and `65 MEDIUM VERIFY` with AI.
+- `HL14-paypal-ai-false-positive` stays `0 LOW ALLOW` deterministically and
+  `20 LOW ALLOW` with AI.
+- Official PayPal domains/subdomains such as `paypal.com` and `paypal.me` are not
+  treated as lookalikes, even when brand names overlap. This URL false positive
+  was found during held-out evaluation and fixed in `DeterministicContentAnalyzer`;
+  regression coverage was added to `DeterministicContentAnalyzerTest`.
+
+The comparison report shows dev and held-out metrics side by side plus deltas.
+Held-out results are evidence for the fixed policy, not a new tuning signal.
 
 ## Threshold analysis
 
@@ -337,23 +454,26 @@ built-in comparisons are:
 | `recall-first-20-70` | 20 | 60 | 69 | Earlier verify and stop. |
 | `friction-first-55-95` | 55 | 75 | 94 | Later verify and stop. |
 
-The report marks the best policy for precision, recall, F1, accuracy, FPR, FNR,
+Dev reports mark the best policy for precision, recall, F1, accuracy, FPR, FNR,
 fraud allowed, legitimate verification, legitimate stop, and legitimate payment
-friction.
+friction. Held-out reports evaluate only `production-baseline` and contain no
+best-by-metric labels.
 
-Current threshold observations:
+Current dev threshold observations:
 
-- Deterministic mode: the production baseline has 76.00% recall, 73.08% F1,
-  and 8 legitimate false positives. `allow-20` reaches 96.00% recall and 78.69%
+- Deterministic mode: the production baseline has 80.77% recall, 76.36% F1,
+  and 8 legitimate false positives. `allow-20` reaches 100.00% recall and 81.25%
   F1, but raises legitimate false positives to 12. `allow-50` reduces friction
-  to 1 false positive but drops recall to 52.00%.
-- Validated-AI mode: the production baseline remains best by F1 at 76.36%.
-  `allow-20` reaches 96.00% recall but raises legitimate false positives to 14;
-  `allow-50` reduces friction to 2 false positives with 56.00% recall.
+  to 1 false positive but drops recall to 50.00%.
+- Validated-AI mode: the production baseline remains best by F1 and accuracy at
+  79.31% and 77.78%. `allow-20` reaches 100.00% recall but raises legitimate
+  false positives to 14; `allow-50` reduces friction to 2 false positives with
+  53.85% recall.
 
-These are trade-offs on a small synthetic dataset. A higher recall or F1 here
-does not by itself justify a production threshold change; it is evidence for a
-separate, reviewed experiment with a larger and held-out dataset.
+These are trade-offs on a small synthetic dev dataset. A higher recall or F1
+here does not by itself justify a production threshold change. Threshold
+selection must use dev data only; held-out data is reserved for evaluating the
+fixed production policy after selection.
 
 ## Filtering
 
@@ -367,37 +487,54 @@ BenchmarkReport report =
 ```
 
 `FraudBenchmarkTest.filterSelectsMatchingScenarios` demonstrates selecting the
-canonical fraud regression. The main benchmark test runs the full 49-scenario
+canonical fraud regression. The main benchmark test runs the full 54-scenario
 dataset.
 
 ## Adding scenarios
 
-1. Append one JSON object per line to `scenarios.jsonl`.
-2. Use a unique ID and an existing or intentionally new category.
+1. Append one JSON object per line to the chosen dataset:
+   - Dev for diagnosis and new regression coverage.
+   - Held-out only for genuinely unseen PayPal-specific evaluation cases, and
+     never after using their results to tune the policy.
+2. Use a unique ID and an existing or intentionally new category. Held-out IDs
+   start with `H`.
 3. Set `expectedScore`/`expectedRiskLevel`/`expectedAction` from the documented
    engine thresholds, and `expectedSignals` from actual engine output.
 4. If AI findings are supplied, add `expectedAi` and keep `aiFindings` to
    controlled `PaymentSignalType` codes other than `ACTIVE_CALL`.
-5. Run `mvn -q "-Dtest=FraudBenchmarkTest" test`.
+5. Run `mvn -q "-Dtest=FraudBenchmarkTest,HeldOutBenchmarkTest" test` for dev
+   changes; run `HeldOutBenchmarkTest` for held-out changes.
 6. Review any mismatch. Update the scenario only after deciding whether the
    input or the engine behavior is wrong. Do not weaken the test to hide a
-   regression.
+   regression, and do not edit held-out expectations to improve results.
 7. Keep data synthetic. Never add real names, emails, account IDs, payment
    credentials, or unsupported PII.
 
+Held-out scenarios must not duplicate dev IDs or exact input records. If a new
+case is added to held-out, keep it out of dev and do not use its outcome for
+threshold selection.
+
 ## Limitations
 
-- The dataset is small, curated, and synthetic; it does not represent live fraud
-  prevalence or attacker adaptation.
+- The datasets are small, curated, and synthetic; they do not represent live
+  fraud prevalence or attacker adaptation.
 - A single run is not a statistical confidence interval. Category and signal
   rates with few scenarios can move sharply from one case.
-- Threshold policies are ranked on the same dataset used for diagnosis, so the
-  best-by-metric policy may be overfit. It is not a production recommendation
-  without a larger, held-out evaluation and explicit product review.
+- Threshold policies are ranked on dev data used for diagnosis, so the
+  best-by-metric policy may be overfit. The held-out run evaluates only the fixed
+  production policy; it is not a threshold search and not a production
+  recommendation by itself.
+- Both datasets are small and synthetic. Held-out results reduce, but do not
+  eliminate, selection bias from development.
 - Signal dimensions overlap; their counts must not be added together.
 - Latency is in-process and mock-backed, not end-to-end payment latency.
 - AI mode uses fixed synthetic findings, not an LLM quality evaluation.
 - The benchmark intentionally excludes PayPal, webhooks, persistence, and
   verification workflow behavior.
+- Recipient intelligence is exercised with synthetic history only. Held-out has
+  no recipient amount-anomaly scenario, so that signal has dev-only coverage;
+  the held-out run confirms no regression, not independent anomaly accuracy.
+- Unsuccessful (`FAILED`/`CANCELLED`) recipient attempts are tracked but not
+  separately scored by the current engine.
 - Exact expectations describe the current engine; they can become stale after
   an intentional risk-engine change and must be reviewed then.

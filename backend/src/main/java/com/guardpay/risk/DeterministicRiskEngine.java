@@ -46,6 +46,8 @@ public class DeterministicRiskEngine {
     // "no previous history" case, so history must not add points a second time.
     findings.add(finding(RiskSignal.NEW_RECIPIENT, request.newRecipient()));
     findings.add(finding(RiskSignal.LARGE_AMOUNT, isLargeAmount(request)));
+    findings.add(
+        finding(RiskSignal.RECIPIENT_AMOUNT_ANOMALY, request.recipientAmountAnomaly()));
     findings.add(finding(RiskSignal.REPEATED_ATTEMPTS, request.repeatedAttempts()));
     findings.add(finding(RiskSignal.UNKNOWN_MERCHANT, request.unknownMerchant()));
     findings.add(finding(RiskSignal.UNEXPECTED_INVOICE, request.unexpectedInvoice()));

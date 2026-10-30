@@ -25,7 +25,7 @@ class FraudBenchmarkTest {
 
     BenchmarkReport report = new FraudBenchmarkRunner().run(dataset, output);
 
-    assertEquals(49, report.scenarioCount());
+    assertEquals(54, report.scenarioCount());
     assertTrue(report.failures().isEmpty(), String.join("\n", report.failures()));
     assertTrue(Files.exists(output.resolve("report.json")));
     assertTrue(Files.exists(output.resolve("report.md")));
@@ -65,25 +65,26 @@ class FraudBenchmarkTest {
     BenchmarkMetrics deterministic =
         report.metrics().get(BenchmarkMode.DETERMINISTIC_ONLY.name());
     assertNotNull(deterministic);
-    assertEquals(19, deterministic.truePositives());
-    assertEquals(6, deterministic.falseNegatives());
+    assertEquals(21, deterministic.truePositives());
+    assertEquals(5, deterministic.falseNegatives());
     assertEquals(8, deterministic.falsePositives());
-    assertEquals(16, deterministic.trueNegatives());
-    assertEquals(0.76, deterministic.recall(), DELTA);
-    assertEquals(19.0 / 27.0, deterministic.precision(), DELTA);
-    assertEquals(35.0 / 49.0, deterministic.classificationAccuracy(), DELTA);
+    assertEquals(20, deterministic.trueNegatives());
+    assertEquals(21.0 / 26.0, deterministic.recall(), DELTA);
+    assertEquals(21.0 / 29.0, deterministic.precision(), DELTA);
+    assertEquals(42.0 / 55.0, deterministic.f1(), DELTA);
+    assertEquals(41.0 / 54.0, deterministic.classificationAccuracy(), DELTA);
     assertEquals(0, deterministic.legitimateStopped());
     assertEquals(1.0, deterministic.exactActionAccuracy(), DELTA);
 
     BenchmarkMetrics validatedAi = report.metrics().get(BenchmarkMode.VALIDATED_AI.name());
     assertNotNull(validatedAi);
-    assertEquals(21, validatedAi.truePositives());
-    assertEquals(4, validatedAi.falseNegatives());
+    assertEquals(23, validatedAi.truePositives());
+    assertEquals(3, validatedAi.falseNegatives());
     assertEquals(9, validatedAi.falsePositives());
-    assertEquals(15, validatedAi.trueNegatives());
-    assertEquals(0.84, validatedAi.recall(), DELTA);
-    assertEquals(0.70, validatedAi.precision(), DELTA);
-    assertEquals(36.0 / 49.0, validatedAi.classificationAccuracy(), DELTA);
+    assertEquals(19, validatedAi.trueNegatives());
+    assertEquals(23.0 / 26.0, validatedAi.recall(), DELTA);
+    assertEquals(23.0 / 32.0, validatedAi.precision(), DELTA);
+    assertEquals(42.0 / 54.0, validatedAi.classificationAccuracy(), DELTA);
     assertEquals(0, validatedAi.legitimateStopped());
 
     assertEquals(64, report.datasetSha256().length());
@@ -97,9 +98,11 @@ class FraudBenchmarkTest {
     CategoryMetrics boundary =
         report.categories().get(BenchmarkMode.DETERMINISTIC_ONLY.name()).get("boundary");
     assertNotNull(boundary);
-    assertEquals(2, boundary.fraudScenarios());
-    assertEquals(2, boundary.falseNegatives());
+    assertEquals(1, boundary.fraudScenarios());
+    assertEquals(1, boundary.falseNegatives());
     assertEquals(1.0, boundary.falseNegativeRate(), DELTA);
+    assertEquals(1, boundary.legitimateScenarios());
+    assertEquals(1, boundary.trueNegatives());
 
     ThresholdAnalysis thresholds =
         report.thresholdAnalysis().get(BenchmarkMode.DETERMINISTIC_ONLY.name());
@@ -108,10 +111,10 @@ class FraudBenchmarkTest {
     assertEquals(39, baseline.lowMax());
     assertEquals(69, baseline.mediumMax());
     assertEquals(84, baseline.highMax());
-    assertEquals(19, baseline.truePositives());
-    assertEquals(6, baseline.falseNegatives());
+    assertEquals(21, baseline.truePositives());
+    assertEquals(5, baseline.falseNegatives());
     assertEquals(8, baseline.falsePositives());
-    assertEquals(16, baseline.trueNegatives());
+    assertEquals(20, baseline.trueNegatives());
     assertTrue(baseline.baseline());
     assertFalse("n/a".equals(thresholds.best().get("recall")));
     assertFalse("n/a".equals(thresholds.best().get("f1")));
@@ -128,8 +131,23 @@ class FraudBenchmarkTest {
     assertTrue(json.contains("\"categories\""));
     assertTrue(json.contains("\"thresholdAnalysis\""));
     assertTrue(json.contains("\"recommendations\""));
+    RecipientComparison recipient =
+        report.recipientComparison().get("DETERMINISTIC_ONLY_RECIPIENT");
+    RecipientComparison recipientBaseline =
+        report.recipientComparison().get("DETERMINISTIC_ONLY_BASELINE");
+    assertNotNull(recipient);
+    assertNotNull(recipientBaseline);
+    assertEquals(21, recipient.metrics().truePositives());
+    assertEquals(20, recipientBaseline.metrics().truePositives());
+    assertEquals(1, recipient.recipientMetrics().amountAnomalyDetected());
+    assertEquals(0, recipientBaseline.recipientMetrics().amountAnomalyDetected());
+    assertEquals(0, recipient.recipientMetrics().knownRecipientFalseNew());
+    assertEquals(4, recipient.recipientMetrics().repeatedRecipientAttemptDetected());
+    assertNotNull(report.recipientComparison().get("VALIDATED_AI_RECIPIENT"));
+
     String markdown = Files.readString(output.resolve("report.md"));
     assertTrue(markdown.contains("## Threshold analysis"));
+    assertTrue(markdown.contains("## Recipient intelligence comparison"));
     assertTrue(markdown.contains("Best by metric"));
     assertTrue(markdown.contains("Signal dimensions are cross-cutting"));
 
@@ -142,6 +160,32 @@ class FraudBenchmarkTest {
     assertEquals(20, canonicalLegit.actualScore());
     assertEquals(RiskLevel.LOW, canonicalLegit.actualLevel());
     assertEquals(RecommendedAction.ALLOW, canonicalLegit.actualAction());
+
+    BenchmarkResult recipientAnomaly =
+        result(report, BenchmarkMode.DETERMINISTIC_ONLY, "F26-known-recipient-amount-anomaly");
+    assertEquals(45, recipientAnomaly.actualScore());
+    assertTrue(recipientAnomaly.actualSignals().contains("RECIPIENT_AMOUNT_ANOMALY"));
+
+    BenchmarkResult recipientInsufficientHistory =
+        result(
+            report,
+            BenchmarkMode.DETERMINISTIC_ONLY,
+            "L27-known-recipient-insufficient-history");
+    assertEquals(0, recipientInsufficientHistory.actualScore());
+    assertFalse(
+        recipientInsufficientHistory.actualSignals().contains("RECIPIENT_AMOUNT_ANOMALY"));
+
+    BenchmarkResult justBelowThreshold =
+        result(report, BenchmarkMode.DETERMINISTIC_ONLY, "F23-just-below-missing-threshold");
+    assertEquals(30, justBelowThreshold.actualScore());
+    assertEquals(RiskLevel.LOW, justBelowThreshold.actualLevel());
+    assertEquals(RecommendedAction.ALLOW, justBelowThreshold.actualAction());
+
+    BenchmarkResult knownPayeeWithoutEvidence =
+        result(report, BenchmarkMode.DETERMINISTIC_ONLY, "L25-known-payee-no-context");
+    assertEquals(0, knownPayeeWithoutEvidence.actualScore());
+    assertEquals(RiskLevel.LOW, knownPayeeWithoutEvidence.actualLevel());
+    assertEquals(RecommendedAction.ALLOW, knownPayeeWithoutEvidence.actualAction());
 
     BenchmarkResult aiRescue = result(report, BenchmarkMode.VALIDATED_AI, "F08-paypal-lookalike-known");
     assertEquals(50, aiRescue.actualScore());

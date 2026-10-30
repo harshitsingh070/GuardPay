@@ -5,19 +5,24 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.guardpay.merchant.Merchant;
 import com.guardpay.merchant.MerchantRepository;
 import com.guardpay.recipient.Recipient;
+import com.guardpay.recipient.RecipientHistoryService;
 import com.guardpay.recipient.RecipientRepository;
+import com.guardpay.recipient.RecipientRiskEvaluator;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
 import com.guardpay.user.User;
 import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +30,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.data.domain.Pageable;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -51,7 +57,15 @@ class PaymentSignalCollectorServiceTest {
 
   @BeforeEach
   void setUp() {
-    collector = new PaymentSignalCollectorService(users, recipients, merchants, transactions);
+    collector =
+        new PaymentSignalCollectorService(
+            users,
+            recipients,
+            merchants,
+            transactions,
+            new DeterministicContentAnalyzer(),
+            new RecipientHistoryService(transactions),
+            new RecipientRiskEvaluator());
     user = new User();
     ReflectionTestUtils.setField(user, "id", USER_ID);
     // Lenient: structural tests below never collect, behavior tests always do.
@@ -59,6 +73,21 @@ class PaymentSignalCollectorServiceTest {
     lenient()
         .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
         .thenReturn(List.of());
+    lenient()
+        .when(
+            transactions.findRecipientCompletedHistory(
+                any(), any(), any(), any(), any(), any(Pageable.class)))
+        .thenReturn(List.of());
+    lenient()
+        .when(
+            transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
+                any(), any(), any(), any(Pageable.class)))
+        .thenReturn(List.of());
+    lenient()
+        .when(
+            transactions.countRecipientUnsuccessfulAttempts(
+                any(), any(), any(), any(), any()))
+        .thenReturn(0L);
   }
 
   private SignalCollectionRequest request(BigDecimal amount) {
@@ -70,6 +99,13 @@ class PaymentSignalCollectorServiceTest {
     transaction.setAmount(new BigDecimal(amount));
     transaction.setCurrency("USD");
     transaction.setStatus(TransactionStatus.COMPLETED);
+    transaction.setTransactionTimestamp(OffsetDateTime.now(ZoneOffset.UTC).minusDays(30));
+    return transaction;
+  }
+
+  private static Transaction recent(String amount) {
+    Transaction transaction = completed(amount);
+    transaction.setTransactionTimestamp(OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
     return transaction;
   }
 
@@ -178,7 +214,8 @@ class PaymentSignalCollectorServiceTest {
   void newRecipientWhenNoPriorHistory() {
     Recipient fresh = recipientOf(user);
     when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
-    when(transactions.findByUserAndRecipientAndStatus(user, fresh, TransactionStatus.COMPLETED))
+    when(transactions.findRecipientCompletedHistory(
+            eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any(Pageable.class)))
         .thenReturn(List.of());
 
     SignalCollectionRequest withRecipient =
@@ -192,7 +229,8 @@ class PaymentSignalCollectorServiceTest {
   void knownRecipientWhenPriorHistoryExists() {
     Recipient known = recipientOf(user);
     when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
-    when(transactions.findByUserAndRecipientAndStatus(user, known, TransactionStatus.COMPLETED))
+    when(transactions.findRecipientCompletedHistory(
+            eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any(Pageable.class)))
         .thenReturn(List.of(completed("45")));
 
     SignalCollectionRequest withRecipient =
@@ -200,6 +238,69 @@ class PaymentSignalCollectorServiceTest {
     AutomaticSignalCollectionResult result = collector.collect(withRecipient);
 
     assertFalse(result.detected(PaymentSignalType.NEW_RECIPIENT));
+  }
+
+  @Test
+  void recipientAmountAnomalyUsesRecipientMedian() {
+    Recipient known = recipientOf(user);
+    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
+    when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
+        .thenReturn(List.of(completed("500"), completed("500"), completed("500")));
+    when(transactions.findRecipientCompletedHistory(
+            eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any(Pageable.class)))
+        .thenReturn(List.of(completed("40"), completed("45"), completed("50")));
+
+    SignalCollectionRequest withRecipient =
+        new SignalCollectionRequest(
+            new BigDecimal("300"), null, USER_ID, RECIPIENT_ID, null, null);
+    AutomaticSignalCollectionResult result = collector.collect(withRecipient);
+
+    assertFalse(result.detected(PaymentSignalType.UNUSUAL_AMOUNT));
+    assertTrue(result.detected(PaymentSignalType.RECIPIENT_AMOUNT_ANOMALY));
+    assertTrue(
+        signal(result, PaymentSignalType.RECIPIENT_AMOUNT_ANOMALY)
+            .evidence()
+            .contains("median"));
+  }
+
+  @Test
+  void insufficientRecipientHistoryDoesNotJudgeAmount() {
+    Recipient known = recipientOf(user);
+    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
+    when(transactions.findRecipientCompletedHistory(
+            eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any(Pageable.class)))
+        .thenReturn(List.of(completed("40"), completed("45")));
+
+    SignalCollectionRequest withRecipient =
+        new SignalCollectionRequest(
+            new BigDecimal("300"), null, USER_ID, RECIPIENT_ID, null, null);
+    AutomaticSignalCollectionResult result = collector.collect(withRecipient);
+
+    assertFalse(result.detected(PaymentSignalType.RECIPIENT_AMOUNT_ANOMALY));
+    assertEquals(
+        "INSUFFICIENT_RECIPIENT_HISTORY",
+        signal(result, PaymentSignalType.RECIPIENT_AMOUNT_ANOMALY).reason());
+  }
+
+  @Test
+  void repeatedAttemptsIncludeRecipientSpecificEvidence() {
+    Recipient known = recipientOf(user);
+    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
+    when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
+        .thenReturn(List.of(recent("20"), recent("20")));
+    when(transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
+            eq(USER_ID), eq(RECIPIENT_ID), any(), any(Pageable.class)))
+        .thenReturn(List.of(recent("20"), recent("20")));
+
+    SignalCollectionRequest withRecipient =
+        new SignalCollectionRequest(new BigDecimal("45"), null, USER_ID, RECIPIENT_ID, null, null);
+    AutomaticSignalCollectionResult result = collector.collect(withRecipient);
+
+    assertTrue(result.detected(PaymentSignalType.REPEATED_ATTEMPTS));
+    assertTrue(
+        signal(result, PaymentSignalType.REPEATED_ATTEMPTS)
+            .evidence()
+            .contains("to this recipient"));
   }
 
   @Test

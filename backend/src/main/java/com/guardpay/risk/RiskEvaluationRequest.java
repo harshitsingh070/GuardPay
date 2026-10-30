@@ -20,7 +20,36 @@ public record RiskEvaluationRequest(
     boolean urgentLanguage,
     boolean suspiciousUrl,
     boolean socialEngineeringDetected,
-    boolean missingContext) {
+    boolean missingContext,
+    boolean recipientAmountAnomaly) {
+
+  /** Backwards-compatible constructor; recipient amount anomaly defaults to false. */
+  public RiskEvaluationRequest(
+      BigDecimal currentAmount,
+      BigDecimal historicalAverage,
+      boolean activeCall,
+      boolean newRecipient,
+      boolean repeatedAttempts,
+      boolean unknownMerchant,
+      boolean unexpectedInvoice,
+      boolean urgentLanguage,
+      boolean suspiciousUrl,
+      boolean socialEngineeringDetected,
+      boolean missingContext) {
+    this(
+        currentAmount,
+        historicalAverage,
+        activeCall,
+        newRecipient,
+        repeatedAttempts,
+        unknownMerchant,
+        unexpectedInvoice,
+        urgentLanguage,
+        suspiciousUrl,
+        socialEngineeringDetected,
+        missingContext,
+        false);
+  }
 
   /** Backwards-compatible constructor; missing context defaults to false. */
   public RiskEvaluationRequest(

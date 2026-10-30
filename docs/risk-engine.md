@@ -31,10 +31,67 @@ without** AI findings. The LLM never scores or decides directly.
 | 6 | Urgent / threatening language | +10 | social-engineering + content agents |
 | 7 | Suspicious / unsafe URL | +10 | URL-reputation + content agent |
 | 8 | Known scam pattern (e.g. impersonation / payment-request scam) | +20 | social-engineering agent classification |
+| 9 | Amount anomaly versus this recipient's history | +20 | recipient history comparison |
 
 Weights are prototype heuristics, **not** statistical probabilities. Tuning them
 is a later step; the init rule is: weights are constants in one place, changeable
 without touching agents or UI.
+
+### 3.1 Recipient intelligence (implemented)
+
+Recipient intelligence is derived from the current GuardPay account's own
+transaction history (the existing user ownership model; a single demo account in
+the current configuration); it is never shared across accounts and adds no new
+storage or gateway.
+
+- Recipient identity is the persisted `recipients` row scoped to the owning
+  `user_id`. Display name, email text, and PayPal account strings are never used
+  as identity, and no fuzzy matching or cross-account lookup occurs.
+- `RecipientHistoryService` loads at most 20 most recent `COMPLETED` payments
+  for the current user and recipient, optionally filtered to the payment
+  currency. The query is owner-scoped (`user_id`) and bounded to 21 rows, so it
+  never loads unbounded history. Rows at or after the current attempt, the
+  current transaction, non-`COMPLETED` rows (`PENDING`, `APPROVED`, `FAILED`,
+  `CANCELLED`), future rows, invalid amounts, and other currencies are excluded.
+  Duplicate transaction IDs are collapsed.
+- At least 3 completed samples are required before an amount is considered
+  anomalous. The recipient baseline is the median of those samples, which is
+  robust to a small number of historical outliers. Insufficient history is
+  reported explicitly and never produces a fraud signal.
+- `RECIPIENT_AMOUNT_ANOMALY` (`+20`) fires when the current amount is at least
+  `5x` the recipient median. It is suppressed when the account-wide
+  `LARGE_AMOUNT` signal already fires, avoiding double-counting the same amount
+  evidence. The multiplier reuses the existing `LARGE_AMOUNT_MULTIPLIER`
+  constant; no new weight or tuning was introduced.
+- `NEW_RECIPIENT` remains based on completed history only. A recipient with no
+  completed payment is new even if an earlier attempt failed or was cancelled.
+  A recipient with no reliable identity (missing or owned by another account)
+  is `unavailable`, not new. A first payment to a legitimate new recipient is a
+  supported scenario and is not automatically stopped.
+- `REPEATED_ATTEMPTS` still uses the account-wide 10-minute velocity window. Its
+  evidence is strengthened to mention how many of those attempts targeted the
+  same recipient, but the signal and weight do not change. Recipient attempts
+  are bounded to 50 rows, exclude the current transaction and future rows, and
+  collapse duplicate transaction IDs; no separate recipient-velocity signal is
+  created.
+- `RecipientRiskContext` also tracks `FAILED` and `CANCELLED` attempts as
+  unsuccessful attempts for diagnostics and future work. `PENDING`, `APPROVED`,
+  and unknown outcomes are never classified as confirmed failures. The current
+  engine does not score those diagnostics directly.
+
+History queries use the existing `transactions` table and indexes
+(`idx_transactions_user_id`, `idx_transactions_recipient_id`,
+`idx_transactions_timestamp`). No schema migration was needed for this feature.
+
+#### PayPal data boundary
+
+Recipient intelligence uses only GuardPay's own `transactions` and `recipients`
+rows. It does not call PayPal, does not assume access to PayPal internal risk
+scores, recipient reputation, private recipient identity data, or a complete
+PayPal transaction history, and does not create or capture payments. The
+existing PayPal Orders / webhook / capture lifecycle is unchanged; recipient
+evidence is consumed only by the server-side signal collector and deterministic
+engine.
 
 ## 4. Scoring algorithm (planned)
 
@@ -58,9 +115,14 @@ Determinism requirement: identical validated inputs ⇒ identical score and deci
 Example: `$2,499` to a new recipient on an active call with an unexpected urgent
 invoice and flagged URL ⇒ ~94/100 ⇒ CRITICAL ⇒ STOP (hero demo scenario).
 
+The implemented pipeline also evaluates recipient history before scoring: a
+known recipient is not automatically safe, because a payment far outside that
+recipient's completed history adds `RECIPIENT_AMOUNT_ANOMALY`. This is
+account-scoped and uses only completed payments.
+
 ## 6. AI-failure fallback (planned)
 
-- If `POST /ai/analyze-payment` times out, errors, or returns invalid schema: log the failure, proceed with deterministic-only signals (amount anomaly, new recipient, unknown merchant, call state, deterministic invoice/URL checks), and mark the assessment `aiUnavailable: true` so the UI shows "AI analysis unavailable — basic protection active".
+- If `POST /ai/analyze-payment` times out, errors, or returns invalid schema: log the failure, proceed with deterministic-only signals (account-wide amount anomaly, recipient-specific amount anomaly, new recipient, unknown merchant, call state, deterministic invoice/URL checks), and mark the assessment `aiUnavailable: true` so the UI shows "AI analysis unavailable — basic protection active".
 - AI findings can only **add documented evidence**; they cannot bypass the engine, execute payments, or change the decision policy.
 
 ## 7. Explanation output (planned)

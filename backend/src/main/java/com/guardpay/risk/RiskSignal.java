@@ -20,6 +20,10 @@ public enum RiskSignal {
       "Unusually large amount",
       "Payment amount is significantly higher than the user's normal transaction amount.",
       20),
+  RECIPIENT_AMOUNT_ANOMALY(
+      "Unusual amount for this recipient",
+      "Payment amount is significantly higher than this recipient's normal completed payment amount.",
+      20),
   REPEATED_ATTEMPTS(
       "Repeated payment attempts",
       "Several payment attempts were made in a short period of time.",

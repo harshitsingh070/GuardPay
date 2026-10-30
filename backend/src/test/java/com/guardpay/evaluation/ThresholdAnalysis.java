@@ -15,6 +15,15 @@ public record ThresholdAnalysis(
     best = best == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(best));
   }
 
+  /** Evaluates one fixed policy and deliberately omits best-by-metric rankings. */
+  public static ThresholdAnalysis fixed(
+      BenchmarkMode mode,
+      List<BenchmarkResult> results,
+      ThresholdConfiguration configuration) {
+    return new ThresholdAnalysis(
+        List.of(ThresholdComparison.from(mode, results, configuration)), Map.of());
+  }
+
   public static ThresholdAnalysis from(
       BenchmarkMode mode,
       List<BenchmarkResult> results,

@@ -124,8 +124,6 @@ class AutomaticRiskAiServiceTest {
     ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
     fresh.setUser(user);
     when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
-    when(transactions.findByUserAndRecipientAndStatus(fresh.getUser(), fresh, TransactionStatus.COMPLETED))
-        .thenReturn(List.of());
     when(aiClient.analyze(any())).thenThrow(new AiUnavailableException("down"));
 
     AutomaticEvaluationRequestDto dto = request("2499");
@@ -191,8 +189,6 @@ class AutomaticRiskAiServiceTest {
     ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
     fresh.setUser(user);
     when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
-    when(transactions.findByUserAndRecipientAndStatus(fresh.getUser(), fresh, TransactionStatus.COMPLETED))
-        .thenReturn(List.of());
     Merchant unknown = new Merchant();
     ReflectionTestUtils.setField(unknown, "id", MERCHANT_ID);
     when(merchants.findById(MERCHANT_ID)).thenReturn(Optional.of(unknown));

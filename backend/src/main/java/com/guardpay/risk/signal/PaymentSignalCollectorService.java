@@ -3,7 +3,10 @@ package com.guardpay.risk.signal;
 import com.guardpay.merchant.Merchant;
 import com.guardpay.merchant.MerchantRepository;
 import com.guardpay.recipient.Recipient;
+import com.guardpay.recipient.RecipientHistoryService;
 import com.guardpay.recipient.RecipientRepository;
+import com.guardpay.recipient.RecipientRiskContext;
+import com.guardpay.recipient.RecipientRiskEvaluator;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
@@ -41,13 +44,38 @@ public class PaymentSignalCollectorService {
   private final MerchantRepository merchants;
   private final TransactionRepository transactions;
   private final DeterministicContentAnalyzer contentAnalyzer;
+  private final RecipientHistoryService recipientHistory;
+  private final RecipientRiskEvaluator recipientRiskEvaluator;
 
   public PaymentSignalCollectorService(
       UserRepository users,
       RecipientRepository recipients,
       MerchantRepository merchants,
       TransactionRepository transactions) {
-    this(users, recipients, merchants, transactions, new DeterministicContentAnalyzer());
+    this(
+        users,
+        recipients,
+        merchants,
+        transactions,
+        new DeterministicContentAnalyzer(),
+        new RecipientHistoryService(transactions),
+        new RecipientRiskEvaluator());
+  }
+
+  public PaymentSignalCollectorService(
+      UserRepository users,
+      RecipientRepository recipients,
+      MerchantRepository merchants,
+      TransactionRepository transactions,
+      DeterministicContentAnalyzer contentAnalyzer) {
+    this(
+        users,
+        recipients,
+        merchants,
+        transactions,
+        contentAnalyzer,
+        new RecipientHistoryService(transactions),
+        new RecipientRiskEvaluator());
   }
 
   @Autowired
@@ -56,12 +84,16 @@ public class PaymentSignalCollectorService {
       RecipientRepository recipients,
       MerchantRepository merchants,
       TransactionRepository transactions,
-      DeterministicContentAnalyzer contentAnalyzer) {
+      DeterministicContentAnalyzer contentAnalyzer,
+      RecipientHistoryService recipientHistory,
+      RecipientRiskEvaluator recipientRiskEvaluator) {
     this.users = users;
     this.recipients = recipients;
     this.merchants = merchants;
     this.transactions = transactions;
     this.contentAnalyzer = contentAnalyzer;
+    this.recipientHistory = recipientHistory;
+    this.recipientRiskEvaluator = recipientRiskEvaluator;
   }
 
   @Transactional(readOnly = true)
@@ -78,13 +110,30 @@ public class PaymentSignalCollectorService {
     List<Transaction> history = historyFor(user, request);
     BigDecimal average = averageOf(history);
 
+    Optional<Recipient> recipient = identifiedRecipient(request, user);
+    RecipientRiskContext recipientContext =
+        recipient
+            .map(
+                identified ->
+                    recipientHistory.load(
+                        user,
+                        identified,
+                        request.excludeTransactionId(),
+                        request.currency()))
+            .orElseGet(
+                () -> RecipientRiskContext.unavailable("RECIPIENT_IDENTITY_UNAVAILABLE"));
+
     DeterministicContentAnalyzer.ContentAnalysis content =
         contentAnalyzer.analyze(request.contentText(), request.contentUrl());
 
     List<PaymentSignal> signals = new ArrayList<>();
-    signals.add(unusualAmount(request.amount(), average));
-    signals.add(repeatedAttempts(request, user));
-    PaymentSignal newRecipientSignal = newRecipient(request, user);
+    PaymentSignal unusualAmountSignal = unusualAmount(request.amount(), average);
+    signals.add(unusualAmountSignal);
+    signals.add(
+        recipientRiskEvaluator.amountAnomaly(
+            request.amount(), recipientContext, unusualAmountSignal.detected()));
+    signals.add(repeatedAttempts(request, user, recipientContext));
+    PaymentSignal newRecipientSignal = recipientRiskEvaluator.newRecipient(recipientContext);
     signals.add(newRecipientSignal);
     PaymentSignal unknownMerchantSignal = unknownMerchant(request, user);
     signals.add(unknownMerchantSignal);
@@ -160,7 +209,8 @@ public class PaymentSignalCollectorService {
    * the current attempt. Missing user context therefore reports unavailable,
    * never a false "safe" or a false "fraudulent".
    */
-  private PaymentSignal repeatedAttempts(SignalCollectionRequest request, User user) {
+  private PaymentSignal repeatedAttempts(
+      SignalCollectionRequest request, User user, RecipientRiskContext recipientContext) {
     int windowMinutes = DeterministicRiskEngine.REPEATED_ATTEMPT_WINDOW_MINUTES;
     if (user == null) {
       return new PaymentSignal(PaymentSignalType.REPEATED_ATTEMPTS, false,
@@ -168,38 +218,15 @@ public class PaymentSignalCollectorService {
           "No user context is available for a velocity check.");
     }
     OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(windowMinutes);
+    List<Transaction> recent =
+        transactions.findByUserAndTransactionTimestampAfter(user, cutoff);
     long prior =
-        transactions.findByUserAndTransactionTimestampAfter(user, cutoff).stream()
+        (recent == null ? List.<Transaction>of() : recent).stream()
             .filter(transaction -> matchesCurrency(transaction, request.currency()))
             .filter(transaction -> !isExcluded(transaction, request.excludeTransactionId()))
             .count();
-    boolean hit = prior + 1 >= DeterministicRiskEngine.REPEATED_ATTEMPT_THRESHOLD;
-    String evidence =
-        hit
-            ? (prior + 1) + " payment attempts were made in the last " + windowMinutes + " minutes."
-            : "No unusual rate of payment attempts in the last " + windowMinutes + " minutes.";
-    return new PaymentSignal(PaymentSignalType.REPEATED_ATTEMPTS, hit,
-        SignalSource.TRANSACTION_HISTORY, null, evidence);
-  }
-
-  private PaymentSignal newRecipient(SignalCollectionRequest request, User user) {
-    Optional<Recipient> recipient = identifiedRecipient(request, user);
-    if (recipient.isEmpty()) {
-      return new PaymentSignal(PaymentSignalType.NEW_RECIPIENT, false,
-          SignalSource.TRANSACTION_HISTORY, "RECIPIENT_IDENTITY_UNAVAILABLE",
-          "No reliable recipient identity was provided.");
-    }
-    long prior =
-        transactions
-            .findByUserAndRecipientAndStatus(user, recipient.get(), TransactionStatus.COMPLETED)
-            .stream()
-            .filter(transaction -> !isExcluded(transaction, request.excludeTransactionId()))
-            .count();
-    return new PaymentSignal(PaymentSignalType.NEW_RECIPIENT, prior == 0,
-        SignalSource.TRANSACTION_HISTORY, null,
-        prior == 0
-            ? "No previous completed transaction exists for this recipient."
-            : prior + " previous completed transaction(s) with this recipient.");
+    return recipientRiskEvaluator.repeatedAttempts(
+        (int) Math.min(Integer.MAX_VALUE, prior), recipientContext);
   }
 
   private Optional<Recipient> identifiedRecipient(SignalCollectionRequest request, User user) {

@@ -26,11 +26,106 @@ public final class BenchmarkReportWriter {
         outputDirectory.resolve("report.md"), markdown(report), StandardCharsets.UTF_8);
   }
 
+  public void writeComparison(BenchmarkComparison comparison, Path outputDirectory)
+      throws IOException {
+    Objects.requireNonNull(comparison, "comparison must not be null");
+    Objects.requireNonNull(outputDirectory, "outputDirectory must not be null");
+    Files.createDirectories(outputDirectory);
+    mapper
+        .writerWithDefaultPrettyPrinter()
+        .writeValue(outputDirectory.resolve("comparison.json").toFile(), comparison);
+    Files.writeString(
+        outputDirectory.resolve("comparison.md"),
+        comparisonMarkdown(comparison),
+        StandardCharsets.UTF_8);
+  }
+
+  private static String comparisonMarkdown(BenchmarkComparison comparison) {
+    StringBuilder out = new StringBuilder();
+    out.append("# GuardPay Dev vs Held-Out Benchmark Comparison\n\n");
+    out.append("- Generated at: `").append(comparison.generatedAt()).append("`\n");
+    out.append("- Dev dataset: `").append(comparison.devDataset()).append("`\n");
+    out.append("- Dev SHA-256: `").append(comparison.devDatasetSha256()).append("`\n");
+    out.append("- Held-out dataset: `").append(comparison.heldOutDataset()).append("`\n");
+    out.append("- Held-out SHA-256: `").append(comparison.heldOutDatasetSha256()).append("`\n");
+    out.append(
+        "- Policy: held-out evaluation is separate and fixed-policy; it is not used for "
+            + "threshold selection or tuning.\n\n");
+
+    for (BenchmarkComparison.ModeComparison modeComparison : comparison.modes().values()) {
+      BenchmarkMetrics dev = modeComparison.dev();
+      BenchmarkMetrics heldOut = modeComparison.heldOut();
+      out.append("## ").append(modeComparison.mode().name()).append("\n\n");
+      out.append("| Metric | Dev | Held-out | Delta (held-out - dev) |\n");
+      out.append("|---|---:|---:|---:|\n");
+      appendCountRow(out, "Scenarios", dev.totalScenarios(), heldOut.totalScenarios());
+      appendCountRow(out, "TP", dev.truePositives(), heldOut.truePositives());
+      appendCountRow(out, "FN", dev.falseNegatives(), heldOut.falseNegatives());
+      appendCountRow(out, "FP", dev.falsePositives(), heldOut.falsePositives());
+      appendCountRow(out, "TN", dev.trueNegatives(), heldOut.trueNegatives());
+      appendRateRow(out, "Precision", dev.precision(), heldOut.precision());
+      appendRateRow(out, "Recall", dev.recall(), heldOut.recall());
+      appendRateRow(out, "F1", dev.f1(), heldOut.f1());
+      appendRateRow(
+          out, "False-positive rate", dev.falsePositiveRate(), heldOut.falsePositiveRate());
+      appendRateRow(
+          out,
+          "Classification accuracy",
+          dev.classificationAccuracy(),
+          heldOut.classificationAccuracy());
+      appendCountRow(
+          out,
+          "Legitimate payment friction",
+          dev.legitimateVerified() + dev.legitimateStopped(),
+          heldOut.legitimateVerified() + heldOut.legitimateStopped());
+      out.append('\n');
+    }
+    return out.toString();
+  }
+
+  private static void appendCountRow(
+      StringBuilder out, String label, int dev, int heldOut) {
+    out.append("| ")
+        .append(label)
+        .append(" | ")
+        .append(dev)
+        .append(" | ")
+        .append(heldOut)
+        .append(" | ")
+        .append(signedCount(heldOut - dev))
+        .append(" |\n");
+  }
+
+  private static void appendRateRow(
+      StringBuilder out, String label, Double dev, Double heldOut) {
+    Double delta = dev == null || heldOut == null ? null : heldOut - dev;
+    out.append("| ")
+        .append(label)
+        .append(" | ")
+        .append(percent(dev))
+        .append(" | ")
+        .append(percent(heldOut))
+        .append(" | ")
+        .append(signedPercentagePoints(delta))
+        .append(" |\n");
+  }
+
+  private static String signedCount(int value) {
+    return String.format(Locale.ROOT, "%+d", value);
+  }
+
+  private static String signedPercentagePoints(Double value) {
+    return value == null
+        ? "n/a"
+        : String.format(Locale.ROOT, "%+.2f pp", value * 100.0);
+  }
+
   private static String markdown(BenchmarkReport report) {
     StringBuilder out = new StringBuilder();
     out.append("# GuardPay Fraud Benchmark Report\n\n");
     out.append("- Generated at: `").append(report.generatedAt()).append("`\n");
     out.append("- Dataset: `").append(report.dataset()).append("`\n");
+    out.append("- Dataset role: `").append(report.datasetRole()).append("`\n");
     out.append("- Dataset SHA-256: `").append(report.datasetSha256()).append("`\n");
     out.append("- Scenarios: ").append(report.scenarioCount()).append("\n");
     out.append(
@@ -131,6 +226,8 @@ public final class BenchmarkReportWriter {
           .append(" |\n");
     }
 
+    appendRecipientComparisonSection(out, report.recipientComparison());
+
     for (BenchmarkMode mode : BenchmarkMode.values()) {
       appendCategorySection(
           out,
@@ -218,6 +315,66 @@ public final class BenchmarkReportWriter {
     }
 
     return out.toString();
+  }
+
+  private static void appendRecipientComparisonSection(
+      StringBuilder out, Map<String, RecipientComparison> comparisons) {
+    out.append("\n## Recipient intelligence comparison\n\n");
+    if (comparisons == null || comparisons.isEmpty()) {
+      out.append("None.\n");
+      return;
+    }
+    out.append(
+        "| Configuration | Mode | Recipient intelligence | TP | FN | FP | TN | Precision | Recall | F1 | Accuracy | Recipient scenarios | New recipient detected | Known recipient false-new | Amount anomaly detected | Repeated recipient attempts detected | History coverage |\n");
+    out.append(
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    for (RecipientComparison comparison : comparisons.values()) {
+      BenchmarkMetrics m = comparison.metrics();
+      RecipientMetrics r = comparison.recipientMetrics();
+      out.append("| ")
+          .append(escape(comparison.configuration()))
+          .append(" | ")
+          .append(comparison.mode().name())
+          .append(" | ")
+          .append(comparison.recipientIntelligence() ? "yes" : "no")
+          .append(" | ")
+          .append(m.truePositives())
+          .append(" | ")
+          .append(m.falseNegatives())
+          .append(" | ")
+          .append(m.falsePositives())
+          .append(" | ")
+          .append(m.trueNegatives())
+          .append(" | ")
+          .append(percent(m.precision()))
+          .append(" | ")
+          .append(percent(m.recall()))
+          .append(" | ")
+          .append(percent(m.f1()))
+          .append(" | ")
+          .append(percent(m.classificationAccuracy()))
+          .append(" | ")
+          .append(r.recipientScenarios())
+          .append(" | ")
+          .append(r.newRecipientDetected())
+          .append("/")
+          .append(r.newRecipientScenarios())
+          .append(" | ")
+          .append(r.knownRecipientFalseNew())
+          .append("/")
+          .append(r.knownRecipientScenarios())
+          .append(" | ")
+          .append(r.amountAnomalyDetected())
+          .append("/")
+          .append(r.amountAnomalyScenarios())
+          .append(" | ")
+          .append(r.repeatedRecipientAttemptDetected())
+          .append("/")
+          .append(r.repeatedRecipientAttemptScenarios())
+          .append(" | ")
+          .append(percent(r.historyCoverageRate()))
+          .append(" |\n");
+    }
   }
 
   private static void appendCategorySection(
@@ -346,6 +503,12 @@ public final class BenchmarkReportWriter {
     }
 
     out.append("\nBest by metric:\n\n");
+    if (analysis.best().isEmpty()) {
+      out.append(
+          "Not computed. Held-out evaluation uses a fixed policy and does not rank "
+              + "alternative thresholds.\n");
+      return;
+    }
     for (Map.Entry<String, String> entry : analysis.best().entrySet()) {
       out.append("- `").append(entry.getKey()).append("`: `").append(entry.getValue()).append("`\n");
     }

@@ -22,6 +22,7 @@ public record BenchmarkScenario(
       BigDecimal amount,
       String currency,
       List<BigDecimal> historyAmounts,
+      List<BigDecimal> recipientHistoryAmounts,
       Integer recentAttempts,
       CounterpartyState recipient,
       CounterpartyState merchant,

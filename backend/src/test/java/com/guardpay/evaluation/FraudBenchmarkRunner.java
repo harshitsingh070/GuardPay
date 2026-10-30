@@ -26,11 +26,27 @@ import java.util.TreeMap;
 public final class FraudBenchmarkRunner {
 
   public BenchmarkReport run(Path datasetPath, Path outputDirectory) throws IOException {
-    return run(datasetPath, outputDirectory, BenchmarkFilter.none());
+    return run(datasetPath, outputDirectory, BenchmarkFilter.none(), BenchmarkDatasetRole.DEV);
+  }
+
+  public BenchmarkReport run(
+      Path datasetPath, Path outputDirectory, BenchmarkDatasetRole datasetRole)
+      throws IOException {
+    return run(datasetPath, outputDirectory, BenchmarkFilter.none(), datasetRole);
   }
 
   public BenchmarkReport run(
       Path datasetPath, Path outputDirectory, BenchmarkFilter benchmarkFilter) throws IOException {
+    return run(datasetPath, outputDirectory, benchmarkFilter, BenchmarkDatasetRole.DEV);
+  }
+
+  public BenchmarkReport run(
+      Path datasetPath,
+      Path outputDirectory,
+      BenchmarkFilter benchmarkFilter,
+      BenchmarkDatasetRole datasetRole)
+      throws IOException {
+    BenchmarkDatasetRole role = datasetRole == null ? BenchmarkDatasetRole.DEV : datasetRole;
     List<BenchmarkScenario> allScenarios = new BenchmarkDatasetLoader().load(datasetPath);
     BenchmarkFilter filter = benchmarkFilter == null ? BenchmarkFilter.none() : benchmarkFilter;
     List<BenchmarkScenario> scenarios =
@@ -44,6 +60,7 @@ public final class FraudBenchmarkRunner {
     Map<String, BenchmarkMetrics> metrics = new LinkedHashMap<>();
     Map<String, Map<String, CategoryMetrics>> categories = new LinkedHashMap<>();
     Map<String, Map<String, CategoryMetrics>> signalDimensions = new LinkedHashMap<>();
+    Map<String, RecipientComparison> recipientComparison = new LinkedHashMap<>();
     Map<String, ThresholdAnalysis> thresholdAnalysis = new LinkedHashMap<>();
     Map<String, List<String>> recommendations = new LinkedHashMap<>();
     Map<String, List<BenchmarkResult>> results = new LinkedHashMap<>();
@@ -51,11 +68,29 @@ public final class FraudBenchmarkRunner {
     List<ThresholdConfiguration> thresholdConfigurations = ThresholdConfiguration.defaults();
 
     for (BenchmarkMode mode : BenchmarkMode.values()) {
-      List<BenchmarkResult> modeResults = runMode(scenarios, mode, failures);
+      List<BenchmarkResult> modeResults = runMode(scenarios, mode, true, failures);
       results.put(mode.name(), List.copyOf(modeResults));
 
       BenchmarkMetrics modeMetrics = BenchmarkMetrics.from(modeResults);
       metrics.put(mode.name(), modeMetrics);
+
+      List<BenchmarkResult> baselineResults = runMode(scenarios, mode, false, failures);
+      recipientComparison.put(
+          mode.name() + "_BASELINE",
+          new RecipientComparison(
+              mode.name() + "_BASELINE",
+              mode,
+              false,
+              BenchmarkMetrics.from(baselineResults),
+              RecipientMetrics.from(scenarios, baselineResults)));
+      recipientComparison.put(
+          mode.name() + "_RECIPIENT",
+          new RecipientComparison(
+              mode.name() + "_RECIPIENT",
+              mode,
+              true,
+              modeMetrics,
+              RecipientMetrics.from(scenarios, modeResults)));
 
       Map<String, CategoryMetrics> modeCategories = categoryMetrics(modeResults);
       categories.put(mode.name(), modeCategories);
@@ -65,13 +100,20 @@ public final class FraudBenchmarkRunner {
       signalDimensions.put(mode.name(), modeSignalDimensions);
 
       ThresholdAnalysis modeThresholds =
-          ThresholdAnalysis.from(mode, modeResults, thresholdConfigurations);
+          role.thresholdOptimizationAllowed()
+              ? ThresholdAnalysis.from(mode, modeResults, thresholdConfigurations)
+              : ThresholdAnalysis.fixed(
+                  mode, modeResults, ThresholdConfiguration.production());
       thresholdAnalysis.put(mode.name(), modeThresholds);
 
       recommendations.put(
           mode.name(),
-          BenchmarkRecommendations.generate(
-              mode, modeMetrics, modeCategories, modeThresholds));
+          role.thresholdOptimizationAllowed()
+              ? BenchmarkRecommendations.generate(
+                  mode, modeMetrics, modeCategories, modeThresholds)
+              : List.of(
+                  "Held-out evaluation uses only the fixed production baseline; "
+                      + "threshold optimization and best-metric selection are disabled."));
     }
 
     BenchmarkReport report =
@@ -79,10 +121,12 @@ public final class FraudBenchmarkRunner {
             OffsetDateTime.now(ZoneOffset.UTC).toString(),
             datasetPath.toString(),
             datasetSha256,
+            role,
             scenarios.size(),
             immutable(metrics),
             immutable(categories),
             immutable(signalDimensions),
+            immutable(recipientComparison),
             immutable(thresholdAnalysis),
             immutable(recommendations),
             immutable(results),
@@ -145,12 +189,16 @@ public final class FraudBenchmarkRunner {
   }
 
   private static List<BenchmarkResult> runMode(
-      List<BenchmarkScenario> scenarios, BenchmarkMode mode, List<String> failures) {
+      List<BenchmarkScenario> scenarios,
+      BenchmarkMode mode,
+      boolean recipientIntelligence,
+      List<String> failures) {
     List<BenchmarkResult> results = new ArrayList<>();
     for (BenchmarkScenario scenario : scenarios) {
       Expected expected = expectedFor(scenario, mode);
       try {
-        BenchmarkHarness.Result harnessResult = new BenchmarkHarness().evaluate(scenario, mode);
+        BenchmarkHarness.Result harnessResult =
+            new BenchmarkHarness().evaluate(scenario, mode, recipientIntelligence);
         AutomaticEvaluationResponseDto response = harnessResult.response();
         List<String> actualSignals =
             response.findings().stream()
@@ -187,7 +235,8 @@ public final class FraudBenchmarkRunner {
                 null));
       } catch (RuntimeException ex) {
         String error = ex.getClass().getSimpleName() + ": " + safeMessage(ex);
-        failures.add(mode.name() + ":" + scenario.id() + ":" + error);
+        String configuration = mode.name() + (recipientIntelligence ? "" : "_BASELINE");
+        failures.add(configuration + ":" + scenario.id() + ":" + error);
         results.add(
             new BenchmarkResult(
                 scenario.id(),

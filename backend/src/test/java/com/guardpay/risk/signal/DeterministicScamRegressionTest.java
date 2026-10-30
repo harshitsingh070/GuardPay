@@ -1,6 +1,7 @@
 package com.guardpay.risk.signal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -21,6 +22,8 @@ import com.guardpay.transaction.TransactionStatus;
 import com.guardpay.user.User;
 import com.guardpay.user.UserRepository;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -112,18 +115,16 @@ class DeterministicScamRegressionTest {
 
   @Test
   void normalInvoiceToKnownCounterpartyDoesNotStop() {
-    Transaction prior = new Transaction();
-    prior.setAmount(new BigDecimal("45"));
-    prior.setCurrency("USD");
-    prior.setStatus(TransactionStatus.COMPLETED);
-    when(transactions.findByUserAndRecipientAndStatus(
-            user, recipient, TransactionStatus.COMPLETED))
-        .thenReturn(List.of(prior));
+    List<Transaction> priorPayments =
+        List.of(completed("45"), completed("45"), completed("45"));
+    when(transactions.findRecipientCompletedHistory(
+            any(), any(), any(), any(), any(), any()))
+        .thenReturn(priorPayments);
     when(transactions.findByUserAndMerchantAndStatus(
             user, merchant, TransactionStatus.COMPLETED))
-        .thenReturn(List.of(prior));
+        .thenReturn(List.of(priorPayments.get(0)));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
-        .thenReturn(List.of(prior));
+        .thenReturn(priorPayments);
 
     RiskEvaluationResult result =
         evaluate(
@@ -134,5 +135,21 @@ class DeterministicScamRegressionTest {
     assertNotEquals(RecommendedAction.STOP, result.recommendedAction());
     assertEquals(RiskLevel.LOW, result.riskLevel());
     assertEquals(RecommendedAction.ALLOW, result.recommendedAction());
+    // The account-wide LARGE_AMOUNT signal already covers this amount, so the
+    // recipient-specific signal is deliberately suppressed (no double count).
+    assertFalse(
+        result.findings().stream()
+            .anyMatch(
+                f -> f.code().equals("RECIPIENT_AMOUNT_ANOMALY") && f.triggered()));
+  }
+
+  private static Transaction completed(String amount) {
+    Transaction transaction = new Transaction();
+    ReflectionTestUtils.setField(transaction, "id", UUID.randomUUID());
+    transaction.setAmount(new BigDecimal(amount));
+    transaction.setCurrency("USD");
+    transaction.setStatus(TransactionStatus.COMPLETED);
+    transaction.setTransactionTimestamp(OffsetDateTime.now(ZoneOffset.UTC).minusDays(2));
+    return transaction;
   }
 }

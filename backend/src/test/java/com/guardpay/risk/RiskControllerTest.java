@@ -45,7 +45,7 @@ class RiskControllerTest {
         .andExpect(jsonPath("$.riskLevel").value("LOW"))
         .andExpect(jsonPath("$.recommendedAction").value("ALLOW"))
         .andExpect(jsonPath("$.explanation").isNotEmpty())
-        .andExpect(jsonPath("$.findings.length()").value(10));
+        .andExpect(jsonPath("$.findings.length()").value(11));
   }
 
   @Test
@@ -66,10 +66,10 @@ class RiskControllerTest {
         .andExpect(jsonPath("$.score").value(100))
         .andExpect(jsonPath("$.riskLevel").value("CRITICAL"))
         .andExpect(jsonPath("$.recommendedAction").value("STOP"))
-        .andExpect(jsonPath("$.findings.length()").value(10))
+        .andExpect(jsonPath("$.findings.length()").value(11))
         .andExpect(jsonPath("$.findings[0].code").value("ACTIVE_CALL"))
-        .andExpect(jsonPath("$.findings[9].code").value("MISSING_CONTEXT"))
-        .andExpect(jsonPath("$.findings[9].triggered").value(false));
+        .andExpect(jsonPath("$.findings[10].code").value("MISSING_CONTEXT"))
+        .andExpect(jsonPath("$.findings[10].triggered").value(false));
   }
 
   @Test

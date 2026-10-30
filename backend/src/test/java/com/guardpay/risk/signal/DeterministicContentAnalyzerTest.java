@@ -56,6 +56,16 @@ class DeterministicContentAnalyzerTest {
   }
 
   @Test
+  void officialDomainsAndSubdomainsAreNotFlaggedEvenWhenBrandsOverlap() {
+    assertFalse(analyzer.analyze("Pay here", "https://paypal.com/checkout").suspiciousUrl());
+    assertFalse(analyzer.analyze("Pay here", "https://www.paypal.com/help").suspiciousUrl());
+    assertFalse(analyzer.analyze("Pay here", "https://paypal.me/example").suspiciousUrl());
+    assertFalse(analyzer.analyze("Pay here", "https://www.paypal.me/example").suspiciousUrl());
+    assertFalse(
+        analyzer.analyze("Pay here", "https://sandbox.paypal.com/approve").suspiciousUrl());
+  }
+
+  @Test
   void missingContentProducesNoFalsePositives() {
     DeterministicContentAnalyzer.ContentAnalysis result = analyzer.analyze(null, null);
 

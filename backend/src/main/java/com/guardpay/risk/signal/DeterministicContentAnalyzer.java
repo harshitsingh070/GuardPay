@@ -207,14 +207,15 @@ public class DeterministicContentAnalyzer {
 
   private String brandLookalike(String host) {
     for (String official : OFFICIAL_BRANDS) {
-      String brand = official.substring(0, official.indexOf('.'));
-      if (!host.contains(brand)) {
-        continue;
-      }
       if (host.equals(official) || host.endsWith("." + official)) {
-        continue;
+        return null;
       }
-      return "host imitates \"" + brand + "\" but is not its official domain";
+    }
+    for (String official : OFFICIAL_BRANDS) {
+      String brand = official.substring(0, official.indexOf('.'));
+      if (host.contains(brand)) {
+        return "host imitates \"" + brand + "\" but is not its official domain";
+      }
     }
     return null;
   }

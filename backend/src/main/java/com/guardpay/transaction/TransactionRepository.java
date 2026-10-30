@@ -4,6 +4,7 @@ import com.guardpay.merchant.Merchant;
 import com.guardpay.recipient.Recipient;
 import com.guardpay.user.User;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -52,4 +53,45 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
   List<Transaction> findByUserAndMerchantAndStatus(
       User user, Merchant merchant, TransactionStatus status);
+
+  /** Bounded successful history for one recipient, scoped to the owning user. */
+  @Query(
+      """
+      select t from Transaction t
+      where t.user.id = :userId
+        and t.recipient.id = :recipientId
+        and t.status = com.guardpay.transaction.TransactionStatus.COMPLETED
+        and (:currency is null or upper(t.currency) = upper(:currency))
+        and t.transactionTimestamp < :asOf
+        and t.id <> :excludeTransactionId
+      order by t.transactionTimestamp desc
+      """)
+  List<Transaction> findRecipientCompletedHistory(
+      @Param("userId") UUID userId,
+      @Param("recipientId") UUID recipientId,
+      @Param("currency") String currency,
+      @Param("asOf") OffsetDateTime asOf,
+      @Param("excludeTransactionId") UUID excludeTransactionId,
+      Pageable pageable);
+
+  /** Counts failed/cancelled attempts for one recipient without future rows. */
+  @Query(
+      """
+      select count(t) from Transaction t
+      where t.user.id = :userId
+        and t.recipient.id = :recipientId
+        and t.status in :statuses
+        and t.transactionTimestamp < :asOf
+        and t.id <> :excludeTransactionId
+      """)
+  long countRecipientUnsuccessfulAttempts(
+      @Param("userId") UUID userId,
+      @Param("recipientId") UUID recipientId,
+      @Param("statuses") Collection<TransactionStatus> statuses,
+      @Param("asOf") OffsetDateTime asOf,
+      @Param("excludeTransactionId") UUID excludeTransactionId);
+
+  /** Bounded recent attempts (any status) for one recipient, scoped to the owner. */
+  List<Transaction> findByUserIdAndRecipientIdAndTransactionTimestampAfter(
+      UUID userId, UUID recipientId, OffsetDateTime transactionTimestamp, Pageable pageable);
 }
