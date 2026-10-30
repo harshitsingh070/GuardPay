@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /** Writes machine-readable JSON and a human-readable Markdown benchmark report. */
@@ -30,7 +31,11 @@ public final class BenchmarkReportWriter {
     out.append("# GuardPay Fraud Benchmark Report\n\n");
     out.append("- Generated at: `").append(report.generatedAt()).append("`\n");
     out.append("- Dataset: `").append(report.dataset()).append("`\n");
-    out.append("- Scenarios: ").append(report.scenarioCount()).append("\n\n");
+    out.append("- Dataset SHA-256: `").append(report.datasetSha256()).append("`\n");
+    out.append("- Scenarios: ").append(report.scenarioCount()).append("\n");
+    out.append(
+        "- Friction definition: legitimate `VERIFY` + legitimate `STOP`. "
+            + "`VERIFY` and `STOP` are reported separately.\n\n");
 
     out.append("## Mode summary\n\n");
     out.append(
@@ -126,7 +131,45 @@ public final class BenchmarkReportWriter {
           .append(" |\n");
     }
 
-    out.append("\n## Failures\n\n");
+    for (BenchmarkMode mode : BenchmarkMode.values()) {
+      appendCategorySection(
+          out,
+          "Category metrics — " + mode.name(),
+          report.categories() == null ? null : report.categories().get(mode.name()),
+          false);
+      appendCategorySection(
+          out,
+          "Signal-dimension metrics — " + mode.name(),
+          report.signalDimensions() == null
+              ? null
+              : report.signalDimensions().get(mode.name()),
+          true);
+      appendThresholdSection(
+          out,
+          mode,
+          report.thresholdAnalysis() == null
+              ? null
+              : report.thresholdAnalysis().get(mode.name()));
+    }
+
+    out.append("\n## Recommendations\n\n");
+    if (report.recommendations() == null || report.recommendations().isEmpty()) {
+      out.append("None.\n");
+    } else {
+      for (BenchmarkMode mode : BenchmarkMode.values()) {
+        List<String> recommendations = report.recommendations().get(mode.name());
+        if (recommendations == null || recommendations.isEmpty()) {
+          continue;
+        }
+        out.append("### ").append(mode.name()).append("\n\n");
+        for (String recommendation : recommendations) {
+          out.append("- ").append(escape(recommendation)).append("\n");
+        }
+        out.append('\n');
+      }
+    }
+
+    out.append("## Failures\n\n");
     if (report.failures().isEmpty()) {
       out.append("None.\n");
     } else {
@@ -137,8 +180,8 @@ public final class BenchmarkReportWriter {
 
     out.append("\n## Scenario results\n\n");
     out.append(
-        "| Mode | Scenario | Label | Expected | Actual | Expected action | Actual action | Match |\n");
-    out.append("|---|---|---|---|---|---|---|---|\n");
+        "| Mode | Scenario | Category | Label | Expected | Actual | Expected action | Actual action | Match |\n");
+    out.append("|---|---|---|---|---|---|---|---|---|\n");
     for (BenchmarkMode mode : BenchmarkMode.values()) {
       List<BenchmarkResult> results = report.results().get(mode.name());
       if (results == null) {
@@ -154,6 +197,8 @@ public final class BenchmarkReportWriter {
             .append(mode.name())
             .append(" | ")
             .append(escape(result.scenarioId()))
+            .append(" | ")
+            .append(escape(result.category()))
             .append(" | ")
             .append(result.label())
             .append(" | ")
@@ -173,6 +218,137 @@ public final class BenchmarkReportWriter {
     }
 
     return out.toString();
+  }
+
+  private static void appendCategorySection(
+      StringBuilder out,
+      String title,
+      Map<String, CategoryMetrics> categories,
+      boolean crossCuttingNote) {
+    out.append("\n## ").append(title).append("\n\n");
+    if (categories == null || categories.isEmpty()) {
+      out.append("None.\n");
+      return;
+    }
+    out.append(
+        "| Category | Total | Fraud | Legit | TP | FN | FP | TN | Precision | Recall | F1 | Accuracy | FNR | FPR | Fraud ALLOW | Fraud VERIFY | Fraud STOP | Legit ALLOW | Legit VERIFY | Legit STOP | Legit friction |\n");
+    out.append(
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    for (CategoryMetrics m : categories.values()) {
+      out.append("| ")
+          .append(escape(m.category()))
+          .append(" | ")
+          .append(m.totalScenarios())
+          .append(" | ")
+          .append(m.fraudScenarios())
+          .append(" | ")
+          .append(m.legitimateScenarios())
+          .append(" | ")
+          .append(m.truePositives())
+          .append(" | ")
+          .append(m.falseNegatives())
+          .append(" | ")
+          .append(m.falsePositives())
+          .append(" | ")
+          .append(m.trueNegatives())
+          .append(" | ")
+          .append(percent(m.precision()))
+          .append(" | ")
+          .append(percent(m.recall()))
+          .append(" | ")
+          .append(percent(m.f1()))
+          .append(" | ")
+          .append(percent(m.accuracy()))
+          .append(" | ")
+          .append(percent(m.falseNegativeRate()))
+          .append(" | ")
+          .append(percent(m.falsePositiveRate()))
+          .append(" | ")
+          .append(m.fraudAllowed())
+          .append(" | ")
+          .append(m.fraudVerified())
+          .append(" | ")
+          .append(m.fraudStopped())
+          .append(" | ")
+          .append(m.legitimateAllowed())
+          .append(" | ")
+          .append(m.legitimateVerified())
+          .append(" | ")
+          .append(m.legitimateStopped())
+          .append(" | ")
+          .append(m.legitimatePaymentFriction())
+          .append(" |\n");
+    }
+    if (crossCuttingNote) {
+      out.append(
+          "\nSignal dimensions are cross-cutting and may overlap the primary categories; "
+              + "they are diagnostic views, not additive partitions.\n");
+    }
+  }
+
+  private static void appendThresholdSection(
+      StringBuilder out, BenchmarkMode mode, ThresholdAnalysis analysis) {
+    out.append("\n## Threshold analysis — ").append(mode.name()).append("\n\n");
+    if (analysis == null || analysis.comparisons().isEmpty()) {
+      out.append("None.\n");
+      return;
+    }
+    out.append(
+        "| Configuration | Baseline | LOW max | MEDIUM max | HIGH max | TP | FN | FP | TN | Precision | Recall | F1 | Accuracy | FNR | FPR | Fraud ALLOW | Fraud VERIFY | Fraud STOP | Legit ALLOW | Legit VERIFY | Legit STOP | Legit friction |\n");
+    out.append(
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    for (ThresholdComparison c : analysis.comparisons()) {
+      out.append("| ")
+          .append(escape(c.configuration()))
+          .append(" | ")
+          .append(c.baseline() ? "yes" : "no")
+          .append(" | ")
+          .append(c.lowMax())
+          .append(" | ")
+          .append(c.mediumMax())
+          .append(" | ")
+          .append(c.highMax())
+          .append(" | ")
+          .append(c.truePositives())
+          .append(" | ")
+          .append(c.falseNegatives())
+          .append(" | ")
+          .append(c.falsePositives())
+          .append(" | ")
+          .append(c.trueNegatives())
+          .append(" | ")
+          .append(percent(c.precision()))
+          .append(" | ")
+          .append(percent(c.recall()))
+          .append(" | ")
+          .append(percent(c.f1()))
+          .append(" | ")
+          .append(percent(c.accuracy()))
+          .append(" | ")
+          .append(percent(c.falseNegativeRate()))
+          .append(" | ")
+          .append(percent(c.falsePositiveRate()))
+          .append(" | ")
+          .append(c.fraudAllowed())
+          .append(" | ")
+          .append(c.fraudVerified())
+          .append(" | ")
+          .append(c.fraudStopped())
+          .append(" | ")
+          .append(c.legitimateAllowed())
+          .append(" | ")
+          .append(c.legitimateVerified())
+          .append(" | ")
+          .append(c.legitimateStopped())
+          .append(" | ")
+          .append(c.legitimatePaymentFriction())
+          .append(" |\n");
+    }
+
+    out.append("\nBest by metric:\n\n");
+    for (Map.Entry<String, String> entry : analysis.best().entrySet()) {
+      out.append("- `").append(entry.getKey()).append("`: `").append(entry.getValue()).append("`\n");
+    }
   }
 
   private static String decision(

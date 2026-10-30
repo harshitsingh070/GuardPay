@@ -1,6 +1,7 @@
 package com.guardpay.evaluation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -85,6 +86,53 @@ class FraudBenchmarkTest {
     assertEquals(36.0 / 49.0, validatedAi.classificationAccuracy(), DELTA);
     assertEquals(0, validatedAi.legitimateStopped());
 
+    assertEquals(64, report.datasetSha256().length());
+    assertFalse(report.categories().get(BenchmarkMode.DETERMINISTIC_ONLY.name()).isEmpty());
+    assertTrue(
+        report
+            .signalDimensions()
+            .get(BenchmarkMode.DETERMINISTIC_ONLY.name())
+            .containsKey("SOCIAL_ENGINEERING"));
+
+    CategoryMetrics boundary =
+        report.categories().get(BenchmarkMode.DETERMINISTIC_ONLY.name()).get("boundary");
+    assertNotNull(boundary);
+    assertEquals(2, boundary.fraudScenarios());
+    assertEquals(2, boundary.falseNegatives());
+    assertEquals(1.0, boundary.falseNegativeRate(), DELTA);
+
+    ThresholdAnalysis thresholds =
+        report.thresholdAnalysis().get(BenchmarkMode.DETERMINISTIC_ONLY.name());
+    assertNotNull(thresholds);
+    ThresholdComparison baseline = comparison(thresholds, "production-baseline");
+    assertEquals(39, baseline.lowMax());
+    assertEquals(69, baseline.mediumMax());
+    assertEquals(84, baseline.highMax());
+    assertEquals(19, baseline.truePositives());
+    assertEquals(6, baseline.falseNegatives());
+    assertEquals(8, baseline.falsePositives());
+    assertEquals(16, baseline.trueNegatives());
+    assertTrue(baseline.baseline());
+    assertFalse("n/a".equals(thresholds.best().get("recall")));
+    assertFalse("n/a".equals(thresholds.best().get("f1")));
+    assertFalse("n/a".equals(thresholds.best().get("legitimatePaymentFriction")));
+
+    List<String> recommendations =
+        report.recommendations().get(BenchmarkMode.DETERMINISTIC_ONLY.name());
+    assertNotNull(recommendations);
+    assertTrue(recommendations.stream().anyMatch(item -> item.contains("Highest recall")));
+    assertTrue(recommendations.stream().anyMatch(item -> item.contains("false-negative rate")));
+
+    String json = Files.readString(output.resolve("report.json"));
+    assertTrue(json.contains("\"datasetSha256\""));
+    assertTrue(json.contains("\"categories\""));
+    assertTrue(json.contains("\"thresholdAnalysis\""));
+    assertTrue(json.contains("\"recommendations\""));
+    String markdown = Files.readString(output.resolve("report.md"));
+    assertTrue(markdown.contains("## Threshold analysis"));
+    assertTrue(markdown.contains("Best by metric"));
+    assertTrue(markdown.contains("Signal dimensions are cross-cutting"));
+
     BenchmarkResult canonicalFraud = result(report, BenchmarkMode.DETERMINISTIC_ONLY, "F25-canonical-regression");
     assertEquals(85, canonicalFraud.actualScore());
     assertEquals(RiskLevel.CRITICAL, canonicalFraud.actualLevel());
@@ -112,6 +160,43 @@ class FraudBenchmarkTest {
     assertEquals(1, report.scenarioCount());
     assertEquals(1, report.results().get(BenchmarkMode.DETERMINISTIC_ONLY.name()).size());
     assertEquals(1, report.results().get(BenchmarkMode.VALIDATED_AI.name()).size());
+  }
+
+  @Test
+  void analysisIsReproducibleAcrossRuns() throws IOException {
+    Path dataset = Path.of("src", "test", "resources", "fraud-benchmark", "dataset", "scenarios.jsonl");
+
+    BenchmarkReport first =
+        new FraudBenchmarkRunner().run(dataset, Path.of("target", "fraud-benchmark-repro-a"));
+    BenchmarkReport second =
+        new FraudBenchmarkRunner().run(dataset, Path.of("target", "fraud-benchmark-repro-b"));
+
+    assertEquals(first.datasetSha256(), second.datasetSha256());
+    assertEquals(first.categories(), second.categories());
+    assertEquals(first.signalDimensions(), second.signalDimensions());
+    assertEquals(first.thresholdAnalysis(), second.thresholdAnalysis());
+    assertEquals(first.recommendations(), second.recommendations());
+    assertEquals(first.failures(), second.failures());
+
+    for (BenchmarkMode mode : BenchmarkMode.values()) {
+      BenchmarkMetrics firstMetrics = first.metrics().get(mode.name());
+      BenchmarkMetrics secondMetrics = second.metrics().get(mode.name());
+      assertEquals(firstMetrics.truePositives(), secondMetrics.truePositives());
+      assertEquals(firstMetrics.falseNegatives(), secondMetrics.falseNegatives());
+      assertEquals(firstMetrics.falsePositives(), secondMetrics.falsePositives());
+      assertEquals(firstMetrics.trueNegatives(), secondMetrics.trueNegatives());
+      assertEquals(firstMetrics.precision(), secondMetrics.precision());
+      assertEquals(firstMetrics.recall(), secondMetrics.recall());
+      assertEquals(firstMetrics.f1(), secondMetrics.f1());
+    }
+  }
+
+  private static ThresholdComparison comparison(
+      ThresholdAnalysis analysis, String configuration) {
+    return analysis.comparisons().stream()
+        .filter(comparison -> comparison.configuration().equals(configuration))
+        .findFirst()
+        .orElseThrow();
   }
 
   private static BenchmarkResult result(

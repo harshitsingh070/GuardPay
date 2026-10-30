@@ -2,17 +2,25 @@ package com.guardpay.evaluation;
 
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
+import com.guardpay.risk.RiskSignal;
 import com.guardpay.risk.dto.RiskFindingDto;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 /** Executes every scenario in both modes and writes JSON/Markdown reports. */
 public final class FraudBenchmarkRunner {
@@ -31,27 +39,109 @@ public final class FraudBenchmarkRunner {
       throw new IllegalArgumentException(
           "Benchmark filter selected no scenarios from " + datasetPath);
     }
+
+    String datasetSha256 = sha256(datasetPath);
     Map<String, BenchmarkMetrics> metrics = new LinkedHashMap<>();
+    Map<String, Map<String, CategoryMetrics>> categories = new LinkedHashMap<>();
+    Map<String, Map<String, CategoryMetrics>> signalDimensions = new LinkedHashMap<>();
+    Map<String, ThresholdAnalysis> thresholdAnalysis = new LinkedHashMap<>();
+    Map<String, List<String>> recommendations = new LinkedHashMap<>();
     Map<String, List<BenchmarkResult>> results = new LinkedHashMap<>();
     List<String> failures = new ArrayList<>();
+    List<ThresholdConfiguration> thresholdConfigurations = ThresholdConfiguration.defaults();
 
     for (BenchmarkMode mode : BenchmarkMode.values()) {
       List<BenchmarkResult> modeResults = runMode(scenarios, mode, failures);
       results.put(mode.name(), List.copyOf(modeResults));
-      metrics.put(mode.name(), BenchmarkMetrics.from(modeResults));
+
+      BenchmarkMetrics modeMetrics = BenchmarkMetrics.from(modeResults);
+      metrics.put(mode.name(), modeMetrics);
+
+      Map<String, CategoryMetrics> modeCategories = categoryMetrics(modeResults);
+      categories.put(mode.name(), modeCategories);
+
+      Map<String, CategoryMetrics> modeSignalDimensions =
+          signalDimensionMetrics(scenarios, modeResults, mode);
+      signalDimensions.put(mode.name(), modeSignalDimensions);
+
+      ThresholdAnalysis modeThresholds =
+          ThresholdAnalysis.from(mode, modeResults, thresholdConfigurations);
+      thresholdAnalysis.put(mode.name(), modeThresholds);
+
+      recommendations.put(
+          mode.name(),
+          BenchmarkRecommendations.generate(
+              mode, modeMetrics, modeCategories, modeThresholds));
     }
 
     BenchmarkReport report =
         new BenchmarkReport(
             OffsetDateTime.now(ZoneOffset.UTC).toString(),
             datasetPath.toString(),
+            datasetSha256,
             scenarios.size(),
-            java.util.Collections.unmodifiableMap(new LinkedHashMap<>(metrics)),
-            java.util.Collections.unmodifiableMap(new LinkedHashMap<>(results)),
+            immutable(metrics),
+            immutable(categories),
+            immutable(signalDimensions),
+            immutable(thresholdAnalysis),
+            immutable(recommendations),
+            immutable(results),
             List.copyOf(failures));
 
     new BenchmarkReportWriter().write(report, outputDirectory);
     return report;
+  }
+
+  private static Map<String, CategoryMetrics> categoryMetrics(List<BenchmarkResult> results) {
+    Map<String, List<BenchmarkResult>> groupedResults = new TreeMap<>();
+    for (BenchmarkResult result : results) {
+      groupedResults
+          .computeIfAbsent(result.category(), category -> new ArrayList<>())
+          .add(result);
+    }
+
+    Map<String, CategoryMetrics> categoryMetrics = new LinkedHashMap<>();
+    for (Map.Entry<String, List<BenchmarkResult>> entry : groupedResults.entrySet()) {
+      categoryMetrics.put(
+          entry.getKey(), CategoryMetrics.from(entry.getKey(), entry.getValue()));
+    }
+    return immutable(categoryMetrics);
+  }
+
+  private static Map<String, CategoryMetrics> signalDimensionMetrics(
+      List<BenchmarkScenario> scenarios,
+      List<BenchmarkResult> results,
+      BenchmarkMode mode) {
+    Map<String, Set<String>> scenarioIdsBySignal = new LinkedHashMap<>();
+    for (RiskSignal signal : RiskSignal.values()) {
+      scenarioIdsBySignal.put(signal.name(), new HashSet<>());
+    }
+    for (BenchmarkScenario scenario : scenarios) {
+      for (String signal : expectedFor(scenario, mode).signals()) {
+        Set<String> scenarioIds = scenarioIdsBySignal.get(signal);
+        if (scenarioIds != null) {
+          scenarioIds.add(scenario.id());
+        }
+      }
+    }
+
+    Map<String, List<BenchmarkResult>> groupedResults = new LinkedHashMap<>();
+    for (String signal : scenarioIdsBySignal.keySet()) {
+      groupedResults.put(signal, new ArrayList<>());
+    }
+    for (BenchmarkResult result : results) {
+      for (Map.Entry<String, Set<String>> entry : scenarioIdsBySignal.entrySet()) {
+        if (entry.getValue().contains(result.scenarioId())) {
+          groupedResults.get(entry.getKey()).add(result);
+        }
+      }
+    }
+
+    Map<String, CategoryMetrics> dimensions = new LinkedHashMap<>();
+    for (Map.Entry<String, List<BenchmarkResult>> entry : groupedResults.entrySet()) {
+      dimensions.put(entry.getKey(), CategoryMetrics.from(entry.getKey(), entry.getValue()));
+    }
+    return immutable(dimensions);
   }
 
   private static List<BenchmarkResult> runMode(
@@ -134,6 +224,20 @@ public final class FraudBenchmarkRunner {
         scenario.expectedRiskLevel(),
         scenario.expectedAction(),
         scenario.expectedSignals());
+  }
+
+  private static String sha256(Path path) throws IOException {
+    try {
+      byte[] digest =
+          MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path));
+      return HexFormat.of().formatHex(digest);
+    } catch (NoSuchAlgorithmException ex) {
+      throw new IllegalStateException("SHA-256 is unavailable", ex);
+    }
+  }
+
+  private static <K, V> Map<K, V> immutable(Map<K, V> source) {
+    return Collections.unmodifiableMap(new LinkedHashMap<>(source));
   }
 
   private static String safeMessage(RuntimeException ex) {

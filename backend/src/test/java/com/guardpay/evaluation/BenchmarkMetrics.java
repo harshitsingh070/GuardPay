@@ -130,10 +130,10 @@ public record BenchmarkMetrics(
     }
 
     int evaluated = results.size();
-    Double precision = ratio(tp, tp + fp);
-    Double recall = ratio(tp, tp + fn);
-    Double signalPrecision = ratio(signalTp, signalTp + signalFp);
-    Double signalRecall = ratio(signalTp, signalTp + signalFn);
+    Double precision = MetricMath.ratio(tp, tp + fp);
+    Double recall = MetricMath.ratio(tp, tp + fn);
+    Double signalPrecision = MetricMath.ratio(signalTp, signalTp + signalFp);
+    Double signalRecall = MetricMath.ratio(signalTp, signalTp + signalFn);
 
     latencies.sort(Double::compareTo);
 
@@ -157,39 +157,20 @@ public record BenchmarkMetrics(
         stopCount,
         precision,
         recall,
-        f1(precision, recall),
-        ratio(fp, fp + tn),
-        ratio(tp + tn, evaluated),
-        ratio(exactScore, evaluated),
-        ratio(exactLevel, evaluated),
-        ratio(exactAction, evaluated),
+        MetricMath.f1(precision, recall),
+        MetricMath.ratio(fp, fp + tn),
+        MetricMath.ratio(tp + tn, evaluated),
+        MetricMath.ratio(exactScore, evaluated),
+        MetricMath.ratio(exactLevel, evaluated),
+        MetricMath.ratio(exactAction, evaluated),
         signalTp,
         signalFp,
         signalFn,
         signalPrecision,
         signalRecall,
-        f1(signalPrecision, signalRecall),
+        MetricMath.f1(signalPrecision, signalRecall),
         latencies.stream().mapToDouble(Double::doubleValue).average().orElse(0.0),
-        percentile(latencies, 50),
-        percentile(latencies, 95));
-  }
-
-  private static Double ratio(int numerator, int denominator) {
-    return denominator == 0 ? null : (double) numerator / denominator;
-  }
-
-  private static Double f1(Double precision, Double recall) {
-    if (precision == null || recall == null || precision + recall == 0.0) {
-      return null;
-    }
-    return 2 * precision * recall / (precision + recall);
-  }
-
-  private static double percentile(List<Double> values, double percentile) {
-    if (values.isEmpty()) {
-      return 0.0;
-    }
-    int index = (int) Math.ceil(percentile / 100.0 * values.size()) - 1;
-    return values.get(Math.max(0, Math.min(index, values.size() - 1)));
+        MetricMath.percentile(latencies, 50),
+        MetricMath.percentile(latencies, 95));
   }
 }
