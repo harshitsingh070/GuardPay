@@ -1,14 +1,18 @@
 package com.guardpay.risk.signal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.guardpay.ai.AiAnalysisClient;
 import com.guardpay.ai.AiUnavailableException;
+import com.guardpay.ai.dto.AiAnalysisRequest;
 import com.guardpay.ai.dto.AiAnalysisResponse;
 import com.guardpay.ai.dto.AiFindingDto;
 import com.guardpay.device.DeviceCallStateRepository;
@@ -34,6 +38,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -123,7 +128,7 @@ class AutomaticRiskAiServiceTest {
     Recipient fresh = new Recipient();
     ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
     fresh.setUser(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(fresh));
     when(aiClient.analyze(any())).thenThrow(new AiUnavailableException("down"));
 
     AutomaticEvaluationRequestDto dto = request("2499");
@@ -188,7 +193,7 @@ class AutomaticRiskAiServiceTest {
     Recipient fresh = new Recipient();
     ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
     fresh.setUser(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(fresh));
     Merchant unknown = new Merchant();
     ReflectionTestUtils.setField(unknown, "id", MERCHANT_ID);
     when(merchants.findById(MERCHANT_ID)).thenReturn(Optional.of(unknown));
@@ -226,6 +231,25 @@ class AutomaticRiskAiServiceTest {
     // One HIGH-severity AI finding is +10 evidence, still LOW/ALLOW by engine math.
     assertEquals(10, response.score());
     assertEquals(RecommendedAction.ALLOW, response.recommendedAction());
+  }
+
+  @Test
+  void foreignRecipientNameIsNotSentToAiAndIsNotTreatedAsNew() {
+    when(users.findById(USER_ID)).thenReturn(Optional.of(user));
+    when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
+        .thenReturn(List.of());
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.empty());
+    when(aiClient.analyze(any())).thenReturn(aiResponse());
+
+    AutomaticEvaluationRequestDto dto = benignRequest("45");
+    dto.setRecipientId(RECIPIENT_ID);
+    AutomaticEvaluationResponseDto response = service.evaluate(dto);
+
+    ArgumentCaptor<AiAnalysisRequest> aiRequest = ArgumentCaptor.forClass(AiAnalysisRequest.class);
+    verify(aiClient).analyze(aiRequest.capture());
+    assertNull(aiRequest.getValue().transaction().recipientName());
+    assertFalse(aiRequest.getValue().transaction().isNewRecipient());
+    assertEquals(0, response.score());
   }
 
   @Test

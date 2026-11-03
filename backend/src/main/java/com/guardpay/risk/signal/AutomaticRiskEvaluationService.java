@@ -70,11 +70,12 @@ public class AutomaticRiskEvaluationService {
   }
 
   public AutomaticEvaluationResponseDto evaluate(AutomaticEvaluationRequestDto dto) {
+    UUID currentUserId = demoUser.currentUser().getId();
     SignalCollectionRequest collectionRequest =
         new SignalCollectionRequest(
             dto.getAmount(),
             dto.getCurrency(),
-            demoUser.currentUser().getId(),
+            currentUserId,
             dto.getRecipientId(),
             dto.getMerchantId(),
             dto.getTransactionId(),
@@ -91,7 +92,8 @@ public class AutomaticRiskEvaluationService {
     String aiStatus;
     if (hasContent(dto)) {
       try {
-        AiAnalysisResponse analysis = aiClient.analyze(buildAiRequest(dto, deterministic, deviceSignal));
+        AiAnalysisResponse analysis =
+            aiClient.analyze(buildAiRequest(dto, deterministic, deviceSignal, currentUserId));
         aiSignals = AiFindingAdapter.toPaymentSignals(analysis.findings());
         aiStatus = "AVAILABLE";
       } catch (AiUnavailableException unavailable) {
@@ -195,11 +197,15 @@ public class AutomaticRiskEvaluationService {
   private AiAnalysisRequest buildAiRequest(
       AutomaticEvaluationRequestDto dto,
       AutomaticSignalCollectionResult deterministic,
-      DeviceCallSignal device) {
+      DeviceCallSignal device,
+      UUID currentUserId) {
     String recipientName =
         dto.getRecipientId() == null
             ? null
-            : recipients.findById(dto.getRecipientId()).map(r -> r.getName()).orElse(null);
+            : recipients
+                .findByIdAndUserId(dto.getRecipientId(), currentUserId)
+                .map(r -> r.getName())
+                .orElse(null);
     String merchantName =
         dto.getMerchantId() == null
             ? null

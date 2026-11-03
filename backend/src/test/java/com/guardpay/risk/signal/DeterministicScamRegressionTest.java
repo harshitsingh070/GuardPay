@@ -75,7 +75,7 @@ class DeterministicScamRegressionTest {
     merchant.setName("Merchant");
 
     lenient().when(users.findById(USER_ID)).thenReturn(Optional.of(user));
-    lenient().when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(recipient));
+    lenient().when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(recipient));
     lenient().when(merchants.findById(MERCHANT_ID)).thenReturn(Optional.of(merchant));
     lenient()
         .when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
@@ -153,3 +153,4 @@ class DeterministicScamRegressionTest {
     return transaction;
   }
 }
+

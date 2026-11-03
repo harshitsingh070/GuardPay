@@ -11,6 +11,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
  */
 public interface RecipientRepository extends JpaRepository<Recipient, UUID> {
 
+  /** Owner-scoped lookup for explicit recipient IDs; never expose another user's row. */
+  Optional<Recipient> findByIdAndUserId(UUID id, UUID userId);
+
   Optional<Recipient> findByUserIdAndNameIgnoreCase(UUID userId, String name);
 
   Optional<Recipient> findByUserIdAndEmailIgnoreCase(UUID userId, String email);

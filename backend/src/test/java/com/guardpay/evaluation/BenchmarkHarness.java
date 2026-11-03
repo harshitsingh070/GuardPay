@@ -92,7 +92,7 @@ final class BenchmarkHarness {
       ReflectionTestUtils.setField(recipient, "id", RECIPIENT_ID);
       recipient.setUser(user);
       recipient.setName("Benchmark recipient");
-      when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(recipient));
+      when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(recipient));
 
       if (recipientIntelligence) {
         when(transactions.findRecipientCompletedHistory(
@@ -103,14 +103,14 @@ final class BenchmarkHarness {
                 any(),
                 any(Pageable.class)))
             .thenReturn(recipientHistory(input));
-        when(transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
-                eq(USER_ID), eq(RECIPIENT_ID), any(), any(Pageable.class)))
-            .thenReturn(recentRecipientAttempts(input));
+        when(transactions.countRecipientAttemptsInWindow(
+                eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any()))
+            .thenReturn((long) input.recentAttempts());
         when(transactions.countRecipientUnsuccessfulAttempts(
                 eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any()))
             .thenReturn(0L);
       } else {
-        when(recipientHistory.load(any(), any(), any(), any()))
+        when(recipientHistory.load(any(), any(), any(), any(), any()))
             .thenReturn(baselineContext(input));
       }
       dto.setRecipientId(RECIPIENT_ID);
@@ -203,17 +203,6 @@ final class BenchmarkHarness {
     return List.copyOf(attempts);
   }
 
-  private static List<Transaction> recentRecipientAttempts(BenchmarkScenario.Input input) {
-    List<Transaction> attempts = new ArrayList<>();
-    for (int i = 0; i < input.recentAttempts(); i++) {
-      Transaction attempt = transaction(input.currency(), new BigDecimal("1.00"));
-      attempt.setStatus(TransactionStatus.FAILED);
-      attempt.setTransactionTimestamp(OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
-      attempts.add(attempt);
-    }
-    return List.copyOf(attempts);
-  }
-
   private static RecipientRiskContext baselineContext(BenchmarkScenario.Input input) {
     boolean hasHistory = !recipientHistory(input).isEmpty();
     return new RecipientRiskContext(
@@ -253,3 +242,4 @@ final class BenchmarkHarness {
 
   record Result(AutomaticEvaluationResponseDto response, long latencyNanos) {}
 }
+

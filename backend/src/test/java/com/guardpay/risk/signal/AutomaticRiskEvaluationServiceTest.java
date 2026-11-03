@@ -105,7 +105,7 @@ class AutomaticRiskEvaluationServiceTest {
     Recipient fresh = new Recipient();
     ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
     fresh.setUser(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(fresh));
 
     AutomaticEvaluationResponseDto response = service.evaluate(request("2499", RECIPIENT_ID));
 
@@ -118,3 +118,4 @@ class AutomaticRiskEvaluationServiceTest {
   }
 
 }
+

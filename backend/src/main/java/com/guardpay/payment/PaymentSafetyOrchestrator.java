@@ -135,7 +135,7 @@ public class PaymentSafetyOrchestrator {
     if (recipientId != null) {
       Recipient existing =
           recipients
-              .findById(recipientId)
+              .findByIdAndUserId(recipientId, user.getId())
               .orElseThrow(
                   () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown recipient"));
       if (email != null) {

@@ -124,19 +124,16 @@ class RecipientHistoryServiceTest {
 
   @Test
   void countsRecentRecipientAttemptsWithinProviderWindow() {
-    when(transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
-            eq(USER_ID), eq(RECIPIENT_ID), any(), any(Pageable.class)))
-        .thenReturn(
-            List.of(
-                transaction("10", "USD", TransactionStatus.FAILED, 0),
-                transaction("10", "USD", TransactionStatus.CANCELLED, 0)));
+    when(transactions.countRecipientAttemptsInWindow(
+            eq(USER_ID), eq(RECIPIENT_ID), eq("USD"), any(), any(), any()))
+        .thenReturn(3L);
     when(transactions.countRecipientUnsuccessfulAttempts(
             eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any()))
         .thenReturn(2L);
 
     RecipientRiskContext context = service.load(user, recipient, null, "USD");
 
-    assertEquals(2, context.priorAttemptsInWindow());
+    assertEquals(3, context.priorAttemptsInWindow());
     assertEquals(2, context.unsuccessfulAttemptCount());
     verify(transactions)
         .countRecipientUnsuccessfulAttempts(
@@ -145,6 +142,52 @@ class RecipientHistoryServiceTest {
             eq(List.of(TransactionStatus.FAILED, TransactionStatus.CANCELLED)),
             any(),
             any());
+  }
+
+  @Test
+  void attemptWindowUsesExplicitInclusiveBoundsAndCurrentTransactionExclusion() {
+    OffsetDateTime evaluationTime =
+        OffsetDateTime.of(2026, 1, 1, 12, 0, 0, 0, ZoneOffset.UTC);
+    UUID currentTransactionId = UUID.randomUUID();
+    when(transactions.countRecipientAttemptsInWindow(
+            eq(USER_ID),
+            eq(RECIPIENT_ID),
+            eq("USD"),
+            eq(evaluationTime.minusMinutes(10)),
+            eq(evaluationTime),
+            eq(currentTransactionId)))
+        .thenReturn(4L);
+
+    RecipientRiskContext context =
+        service.load(user, recipient, currentTransactionId, "USD", evaluationTime);
+
+    assertEquals(4, context.priorAttemptsInWindow());
+    verify(transactions)
+        .countRecipientAttemptsInWindow(
+            eq(USER_ID),
+            eq(RECIPIENT_ID),
+            eq("USD"),
+            eq(evaluationTime.minusMinutes(10)),
+            eq(evaluationTime),
+            eq(currentTransactionId));
+    verify(transactions)
+        .countRecipientUnsuccessfulAttempts(
+            eq(USER_ID),
+            eq(RECIPIENT_ID),
+            eq(List.of(TransactionStatus.FAILED, TransactionStatus.CANCELLED)),
+            eq(evaluationTime),
+            eq(currentTransactionId));
+  }
+
+  @Test
+  void moreThanFiftyRecipientAttemptsAreNotTruncated() {
+    when(transactions.countRecipientAttemptsInWindow(
+            eq(USER_ID), eq(RECIPIENT_ID), eq("USD"), any(), any(), any()))
+        .thenReturn(75L);
+
+    RecipientRiskContext context = service.load(user, recipient, null, "USD");
+
+    assertEquals(75, context.priorAttemptsInWindow());
   }
 
   @Test
@@ -213,24 +256,15 @@ class RecipientHistoryServiceTest {
   }
 
   @Test
-  void recentAttemptsAreWindowedDeduplicatedAndExcluded() {
-    Transaction within = transaction("10", "USD", TransactionStatus.FAILED, 0);
-    ReflectionTestUtils.setField(within, "id", UUID.randomUUID());
-    Transaction outOfWindow =
-        transaction("10", "USD", TransactionStatus.COMPLETED, 1);
-    Transaction future = transaction("10", "USD", TransactionStatus.FAILED, -1);
-    Transaction wrongCurrency = transaction("10", "EUR", TransactionStatus.FAILED, 0);
-    Transaction excluded = transaction("10", "USD", TransactionStatus.FAILED, 0);
-    ReflectionTestUtils.setField(excluded, "id", UUID.randomUUID());
+  void nullExclusionUsesSentinelInsteadOfCountingTheCurrentTransaction() {
+    UUID sentinel = new UUID(0L, 0L);
+    when(transactions.countRecipientAttemptsInWindow(
+            eq(USER_ID), eq(RECIPIENT_ID), eq("USD"), any(), any(), eq(sentinel)))
+        .thenReturn(2L);
 
-    when(transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
-            eq(USER_ID), eq(RECIPIENT_ID), any(), any(Pageable.class)))
-        .thenReturn(
-            List.of(within, within, outOfWindow, future, wrongCurrency, excluded));
+    RecipientRiskContext context = service.load(user, recipient, null, "USD");
 
-    RecipientRiskContext context = service.load(user, recipient, excluded.getId(), "USD");
-
-    assertEquals(1, context.priorAttemptsInWindow());
+    assertEquals(2, context.priorAttemptsInWindow());
   }
 
   @Test

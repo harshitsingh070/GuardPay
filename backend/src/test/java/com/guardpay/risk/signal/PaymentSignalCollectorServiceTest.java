@@ -36,7 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Collector behavior with mocked repositories — no database. Every
+ * Collector behavior with mocked repositories â€” no database. Every
  * unavailable case must report a reason instead of guessing.
  */
 @ExtendWith(MockitoExtension.class)
@@ -80,9 +80,9 @@ class PaymentSignalCollectorServiceTest {
         .thenReturn(List.of());
     lenient()
         .when(
-            transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
-                any(), any(), any(), any(Pageable.class)))
-        .thenReturn(List.of());
+            transactions.countRecipientAttemptsInWindow(
+                any(), any(), any(), any(), any(), any()))
+        .thenReturn(0L);
     lenient()
         .when(
             transactions.countRecipientUnsuccessfulAttempts(
@@ -213,7 +213,7 @@ class PaymentSignalCollectorServiceTest {
   @Test
   void newRecipientWhenNoPriorHistory() {
     Recipient fresh = recipientOf(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(fresh));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(fresh));
     when(transactions.findRecipientCompletedHistory(
             eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any(Pageable.class)))
         .thenReturn(List.of());
@@ -228,7 +228,7 @@ class PaymentSignalCollectorServiceTest {
   @Test
   void knownRecipientWhenPriorHistoryExists() {
     Recipient known = recipientOf(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(known));
     when(transactions.findRecipientCompletedHistory(
             eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any(Pageable.class)))
         .thenReturn(List.of(completed("45")));
@@ -243,7 +243,7 @@ class PaymentSignalCollectorServiceTest {
   @Test
   void recipientAmountAnomalyUsesRecipientMedian() {
     Recipient known = recipientOf(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(known));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of(completed("500"), completed("500"), completed("500")));
     when(transactions.findRecipientCompletedHistory(
@@ -266,7 +266,7 @@ class PaymentSignalCollectorServiceTest {
   @Test
   void insufficientRecipientHistoryDoesNotJudgeAmount() {
     Recipient known = recipientOf(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(known));
     when(transactions.findRecipientCompletedHistory(
             eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any(Pageable.class)))
         .thenReturn(List.of(completed("40"), completed("45")));
@@ -285,12 +285,12 @@ class PaymentSignalCollectorServiceTest {
   @Test
   void repeatedAttemptsIncludeRecipientSpecificEvidence() {
     Recipient known = recipientOf(user);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(known));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(known));
     when(transactions.findByUserAndTransactionTimestampAfter(any(), any()))
         .thenReturn(List.of(recent("20"), recent("20")));
-    when(transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
-            eq(USER_ID), eq(RECIPIENT_ID), any(), any(Pageable.class)))
-        .thenReturn(List.of(recent("20"), recent("20")));
+    when(transactions.countRecipientAttemptsInWindow(
+            eq(USER_ID), eq(RECIPIENT_ID), any(), any(), any(), any()))
+        .thenReturn(2L);
 
     SignalCollectionRequest withRecipient =
         new SignalCollectionRequest(new BigDecimal("45"), null, USER_ID, RECIPIENT_ID, null, null);
@@ -320,7 +320,7 @@ class PaymentSignalCollectorServiceTest {
   void foreignRecipientIdentityIsUnavailable() {
     User stranger = new User();
     ReflectionTestUtils.setField(stranger, "id", OTHER_USER_ID);
-    when(recipients.findById(RECIPIENT_ID)).thenReturn(Optional.of(recipientOf(stranger)));
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(recipientOf(stranger)));
 
     SignalCollectionRequest withRecipient =
         new SignalCollectionRequest(new BigDecimal("45"), null, USER_ID, RECIPIENT_ID, null, null);
@@ -410,3 +410,4 @@ class PaymentSignalCollectorServiceTest {
     assertFalse(anyBoolean);
   }
 }
+

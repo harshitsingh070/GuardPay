@@ -91,7 +91,26 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
       @Param("asOf") OffsetDateTime asOf,
       @Param("excludeTransactionId") UUID excludeTransactionId);
 
-  /** Bounded recent attempts (any status) for one recipient, scoped to the owner. */
-  List<Transaction> findByUserIdAndRecipientIdAndTransactionTimestampAfter(
-      UUID userId, UUID recipientId, OffsetDateTime transactionTimestamp, Pageable pageable);
+  /**
+   * Exact count of attempts (any status) for one recipient inside an explicit
+   * inclusive window. Counting in the database avoids fetching an arbitrary
+   * page and missing recent rows when older attempts fill that page.
+   */
+  @Query(
+      """
+      select count(t) from Transaction t
+      where t.user.id = :userId
+        and t.recipient.id = :recipientId
+        and (:currency is null or upper(t.currency) = upper(:currency))
+        and t.transactionTimestamp >= :windowStart
+        and t.transactionTimestamp <= :evaluationTime
+        and t.id <> :excludeTransactionId
+      """)
+  long countRecipientAttemptsInWindow(
+      @Param("userId") UUID userId,
+      @Param("recipientId") UUID recipientId,
+      @Param("currency") String currency,
+      @Param("windowStart") OffsetDateTime windowStart,
+      @Param("evaluationTime") OffsetDateTime evaluationTime,
+      @Param("excludeTransactionId") UUID excludeTransactionId);
 }

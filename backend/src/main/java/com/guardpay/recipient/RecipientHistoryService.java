@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -24,7 +25,6 @@ public class RecipientHistoryService {
 
   static final int MAX_AMOUNT_SAMPLES = 20;
   static final int MIN_AMOUNT_SAMPLES = 3;
-  private static final int MAX_RECENT_ATTEMPTS = 50;
   private static final UUID NEVER_EXCLUDED = new UUID(0L, 0L);
 
   private final TransactionRepository transactions;
@@ -36,6 +36,21 @@ public class RecipientHistoryService {
   @Transactional(readOnly = true)
   public RecipientRiskContext load(
       User user, Recipient recipient, UUID excludeTransactionId, String currency) {
+    return load(
+        user,
+        recipient,
+        excludeTransactionId,
+        currency,
+        OffsetDateTime.now(ZoneOffset.UTC));
+  }
+
+  @Transactional(readOnly = true)
+  public RecipientRiskContext load(
+      User user,
+      Recipient recipient,
+      UUID excludeTransactionId,
+      String currency,
+      OffsetDateTime evaluationTime) {
     if (user == null
         || user.getId() == null
         || recipient == null
@@ -44,8 +59,8 @@ public class RecipientHistoryService {
         || !user.getId().equals(recipient.getUser().getId())) {
       return RecipientRiskContext.unavailable("RECIPIENT_IDENTITY_UNAVAILABLE");
     }
+    Objects.requireNonNull(evaluationTime, "evaluationTime must not be null");
 
-    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     UUID exclude = excludeTransactionId == null ? NEVER_EXCLUDED : excludeTransactionId;
 
     List<Transaction> completed =
@@ -53,7 +68,7 @@ public class RecipientHistoryService {
             user.getId(),
             recipient.getId(),
             currency,
-            now,
+            evaluationTime,
             exclude,
             PageRequest.of(0, MAX_AMOUNT_SAMPLES + 1));
     if (completed == null) {
@@ -67,7 +82,9 @@ public class RecipientHistoryService {
             .filter(transaction -> matchesCurrency(transaction, currency))
             .filter(RecipientHistoryService::hasValidAmount)
             .filter(transaction -> transaction.getTransactionTimestamp() != null)
-            .filter(transaction -> transaction.getTransactionTimestamp().isBefore(now))
+            .filter(
+                transaction ->
+                    transaction.getTransactionTimestamp().isBefore(evaluationTime))
             .sorted(
                 Comparator.comparing(Transaction::getTransactionTimestamp).reversed())
             .toList();
@@ -85,27 +102,19 @@ public class RecipientHistoryService {
                     user.getId(),
                     recipient.getId(),
                     List.of(TransactionStatus.FAILED, TransactionStatus.CANCELLED),
-                    now,
+                    evaluationTime,
                     exclude));
 
-    OffsetDateTime cutoff =
-        now.minusMinutes(DeterministicRiskEngine.REPEATED_ATTEMPT_WINDOW_MINUTES);
-    List<Transaction> recentAttempts =
-        transactions.findByUserIdAndRecipientIdAndTransactionTimestampAfter(
+    OffsetDateTime windowStart =
+        evaluationTime.minusMinutes(DeterministicRiskEngine.REPEATED_ATTEMPT_WINDOW_MINUTES);
+    long recentRecipientAttempts =
+        transactions.countRecipientAttemptsInWindow(
             user.getId(),
             recipient.getId(),
-            cutoff,
-            PageRequest.of(0, MAX_RECENT_ATTEMPTS));
-    List<Transaction> validRecentAttempts =
-        (recentAttempts == null ? List.<Transaction>of() : recentAttempts)
-            .stream()
-            .filter(transaction -> !isExcluded(transaction, exclude))
-            .filter(transaction -> matchesCurrency(transaction, currency))
-            .filter(transaction -> transaction.getTransactionTimestamp() != null)
-            .filter(transaction -> !transaction.getTransactionTimestamp().isBefore(cutoff))
-            .filter(transaction -> !transaction.getTransactionTimestamp().isAfter(now))
-            .toList();
-    long recentRecipientAttempts = deduplicate(validRecentAttempts).size();
+            currency,
+            windowStart,
+            evaluationTime,
+            exclude);
 
     return new RecipientRiskContext(
         true,

@@ -58,6 +58,7 @@ import org.springframework.web.server.ResponseStatusException;
 class PaymentSafetyOrchestratorTest {
 
   private static final UUID USER_ID = UUID.randomUUID();
+  private static final UUID RECIPIENT_ID = UUID.randomUUID();
 
   @Mock private AutomaticRiskEvaluationService automaticRisk;
   @Mock private PayPalOrderService orderService;
@@ -241,6 +242,59 @@ class PaymentSafetyOrchestratorTest {
     ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
     verify(transactions, times(2)).save(saved.capture());
     assertEquals("Known Person", saved.getAllValues().get(1).getRecipient().getName());
+  }
+
+  @Test
+  void explicitOwnedRecipientIsUsedAndUpdated() {
+    stubEchoSaves();
+    when(automaticRisk.evaluate(any()))
+        .thenReturn(risk(10, RiskLevel.LOW, RecommendedAction.ALLOW));
+    Recipient owned = new Recipient();
+    ReflectionTestUtils.setField(owned, "id", RECIPIENT_ID);
+    owned.setUser(user);
+    owned.setName("Owned Recipient");
+    owned.setEmail("old@example.com");
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(owned));
+    when(recipients.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+    when(orderService.createPaypalOrder(any(), any(), any(), any()))
+        .thenReturn(new CreatedPaypalOrder("O-OWN", "CREATED", "https://sandbox.paypal.com/approve"));
+
+    GuardedPaymentRequestDto dto = request();
+    dto.setRecipientId(RECIPIENT_ID);
+    dto.setRecipientEmail("New@Example.com");
+    dto.setRecipientPaypalAccountId("PAYPAL-OWN");
+    GuardedPaymentResponseDto response = orchestrator.initiate(dto, null);
+
+    assertEquals(GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED, response.paymentStatus());
+    ArgumentCaptor<Recipient> saved = ArgumentCaptor.forClass(Recipient.class);
+    verify(recipients).save(saved.capture());
+    Recipient stored = saved.getValue();
+    assertEquals(USER_ID, stored.getUser().getId());
+    assertEquals("Owned Recipient", stored.getName());
+    assertEquals("new@example.com", stored.getEmail());
+    assertEquals("PAYPAL-OWN", stored.getPaypalAccountId());
+    verify(orderService).createPaypalOrder(any(), any(), any(), any());
+  }
+
+  @Test
+  void explicitForeignRecipientIsRejectedWithoutMutationOrPayPal() {
+    UUID foreignId = UUID.randomUUID();
+    when(recipients.findByIdAndUserId(foreignId, USER_ID)).thenReturn(Optional.empty());
+
+    GuardedPaymentRequestDto dto = request();
+    dto.setRecipientId(foreignId);
+    dto.setRecipientEmail("attacker-updated@example.com");
+    dto.setRecipientPaypalAccountId("ATTACKER-PAYPAL");
+
+    ResponseStatusException failure =
+        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto, null));
+
+    assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
+    verify(recipients, never()).findById(any());
+    verify(recipients, never()).save(any());
+    verify(automaticRisk, never()).evaluate(any());
+    verify(transactions, never()).save(any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
   }
 
   @Test

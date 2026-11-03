@@ -106,6 +106,7 @@ public class PaymentSignalCollectorService {
   public AutomaticSignalCollectionResult collect(
       SignalCollectionRequest request, DeviceCallSignal deviceSignal) {
     User user = request.userId() == null ? null : users.findById(request.userId()).orElse(null);
+    OffsetDateTime evaluationTime = OffsetDateTime.now(ZoneOffset.UTC);
 
     List<Transaction> history = historyFor(user, request);
     BigDecimal average = averageOf(history);
@@ -119,7 +120,8 @@ public class PaymentSignalCollectorService {
                         user,
                         identified,
                         request.excludeTransactionId(),
-                        request.currency()))
+                        request.currency(),
+                        evaluationTime))
             .orElseGet(
                 () -> RecipientRiskContext.unavailable("RECIPIENT_IDENTITY_UNAVAILABLE"));
 
@@ -230,14 +232,15 @@ public class PaymentSignalCollectorService {
   }
 
   private Optional<Recipient> identifiedRecipient(SignalCollectionRequest request, User user) {
-    if (user == null || request.recipientId() == null) {
+    if (user == null || user.getId() == null || request.recipientId() == null) {
       return Optional.empty();
     }
     return recipients
-        .findById(request.recipientId())
-        .filter(recipient -> recipient.getUser() != null
-            && user.getId() != null
-            && user.getId().equals(recipient.getUser().getId()));
+        .findByIdAndUserId(request.recipientId(), user.getId())
+        .filter(
+            recipient ->
+                recipient.getUser() != null
+                    && user.getId().equals(recipient.getUser().getId()));
   }
 
   private PaymentSignal unknownMerchant(SignalCollectionRequest request, User user) {

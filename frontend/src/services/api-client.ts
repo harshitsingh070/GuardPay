@@ -13,8 +13,20 @@ import type { TransactionDetail, TransactionPage } from '@/types/transaction';
 
 function resolveApiBaseUrl(): string {
   const nativeUrl = readNative((bridge) => bridge.getApiBaseUrl().trim(), '');
-  const base = nativeUrl !== '' ? nativeUrl : (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080');
-  return base.replace(/\/+$/, '');
+  if (nativeUrl !== '') return nativeUrl.replace(/\/+$/, '');
+
+  const configured = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
+  if (configured !== '') return configured.replace(/\/+$/, '');
+
+  // Blank config means "same host the page was opened from" (localhost or a
+  // LAN IP), with the backend on its default port. Empty strings are not
+  // nullish, so they must be handled explicitly or requests would be sent to
+  // the frontend dev server and 404.
+  if (typeof window !== 'undefined' && window.location.hostname !== '') {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:8080`;
+  }
+  return 'http://localhost:8080';
 }
 
 export const apiBaseUrl: string = resolveApiBaseUrl();

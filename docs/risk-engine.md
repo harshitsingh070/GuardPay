@@ -46,7 +46,10 @@ storage or gateway.
 
 - Recipient identity is the persisted `recipients` row scoped to the owning
   `user_id`. Display name, email text, and PayPal account strings are never used
-  as identity, and no fuzzy matching or cross-account lookup occurs.
+  as identity, and no fuzzy matching or cross-account lookup occurs. An explicit
+  `recipientId` is resolved with both the ID and the current user ID; an ID that
+  belongs to another account is rejected as unknown rather than used or
+  re-created.
 - `RecipientHistoryService` loads at most 20 most recent `COMPLETED` payments
   for the current user and recipient, optionally filtered to the payment
   currency. The query is owner-scoped (`user_id`) and bounded to 21 rows, so it
@@ -71,9 +74,11 @@ storage or gateway.
 - `REPEATED_ATTEMPTS` still uses the account-wide 10-minute velocity window. Its
   evidence is strengthened to mention how many of those attempts targeted the
   same recipient, but the signal and weight do not change. Recipient attempts
-  are bounded to 50 rows, exclude the current transaction and future rows, and
-  collapse duplicate transaction IDs; no separate recipient-velocity signal is
-  created.
+  are counted directly in the database for the current user and recipient,
+  within the inclusive `[evaluationTime - 10 minutes, evaluationTime]` window,
+  excluding the current transaction. The same single evaluation timestamp is
+  used for completed history, unsuccessful attempts, and this count. No
+  arbitrary recent-row page or separate recipient-velocity signal is used.
 - `RecipientRiskContext` also tracks `FAILED` and `CANCELLED` attempts as
   unsuccessful attempts for diagnostics and future work. `PENDING`, `APPROVED`,
   and unknown outcomes are never classified as confirmed failures. The current
