@@ -147,12 +147,18 @@ server-authoritative: risk is always derived, never accepted from the client.
 ```text
 GET  /api/health                                  - liveness probe
 
-# Guarded flow (primary path; fixed server-side demo workspace)
+# Auth (public; sets/clears an HttpOnly session cookie)
+POST /api/auth/register                            - body: { email, password, displayName? }
+POST /api/auth/login                               - body: { email, password }
+POST /api/auth/logout                              - clears the session cookie
+GET  /api/auth/me                                  - { authenticated, user | null }
+
+# Guarded flow (authenticated, owner-scoped)
 POST /api/payments/guarded                         - body: payment/business context only, including recipientEmail
-       optional header Idempotency-Key             - repeats replay the stored result
+       optional header Idempotency-Key             - repeats replay the stored result per owner
 POST /api/payments/{paymentId}/verification/confirm - body: { code } (controlled VERIFY)
 
-# Transaction history (read-only; fixed demo workspace)
+# Transaction history (authenticated, owner-scoped)
 GET  /api/transactions?page=&size=                 - paged summaries incl. decision
 GET  /api/transactions/{id}                        - detail: references, decision + findings
 

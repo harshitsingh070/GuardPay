@@ -15,6 +15,7 @@ import com.guardpay.ai.AiUnavailableException;
 import com.guardpay.ai.dto.AiAnalysisRequest;
 import com.guardpay.ai.dto.AiAnalysisResponse;
 import com.guardpay.merchant.MerchantRepository;
+import com.guardpay.metrics.DecisionMetrics;
 import com.guardpay.recipient.RecipientRepository;
 import com.guardpay.user.DemoUserService;
 import java.time.Duration;
@@ -51,7 +52,9 @@ public class AutomaticRiskEvaluationService {
   private final RecipientRepository recipients;
   private final MerchantRepository merchants;
   private final AiAnalysisClient aiClient;
+  private final DecisionMetrics metrics;
 
+  /** Legacy/test constructor: decision metrics are not recorded. */
   public AutomaticRiskEvaluationService(
       PaymentSignalCollectorService collector,
       DeterministicRiskEngine engine,
@@ -60,6 +63,27 @@ public class AutomaticRiskEvaluationService {
       RecipientRepository recipients,
       MerchantRepository merchants,
       AiAnalysisClient aiClient) {
+    this(
+        collector,
+        engine,
+        demoUser,
+        deviceStates,
+        recipients,
+        merchants,
+        aiClient,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public AutomaticRiskEvaluationService(
+      PaymentSignalCollectorService collector,
+      DeterministicRiskEngine engine,
+      DemoUserService demoUser,
+      DeviceCallStateRepository deviceStates,
+      RecipientRepository recipients,
+      MerchantRepository merchants,
+      AiAnalysisClient aiClient,
+      DecisionMetrics metrics) {
     this.collector = collector;
     this.engine = engine;
     this.demoUser = demoUser;
@@ -67,9 +91,11 @@ public class AutomaticRiskEvaluationService {
     this.recipients = recipients;
     this.merchants = merchants;
     this.aiClient = aiClient;
+    this.metrics = metrics;
   }
 
   public AutomaticEvaluationResponseDto evaluate(AutomaticEvaluationRequestDto dto) {
+    long startedAt = System.nanoTime();
     UUID currentUserId = demoUser.currentUser().getId();
     SignalCollectionRequest collectionRequest =
         new SignalCollectionRequest(
@@ -80,7 +106,14 @@ public class AutomaticRiskEvaluationService {
             dto.getMerchantId(),
             dto.getTransactionId(),
             dto.getContentText(),
-            dto.getContentUrl());
+            dto.getContentUrl(),
+            dto.getDeviceId(),
+            dto.getDeviceFingerprint(),
+            dto.getClientIp(),
+            dto.getGeoCountry(),
+            dto.getGeoCity(),
+            dto.getAsn(),
+            dto.getVpnOrProxy());
 
     DeviceCallSignal deviceSignal = resolveDeviceSignal(dto.getDeviceId());
     AutomaticSignalCollectionResult deterministic =
@@ -149,6 +182,13 @@ public class AutomaticRiskEvaluationService {
                         finding.points(),
                         finding.triggered()))
             .toList();
+
+    if (metrics != null) {
+      metrics.record(
+          (System.nanoTime() - startedAt) / 1_000_000L,
+          aiStatus,
+          result.recommendedAction());
+    }
 
     return new AutomaticEvaluationResponseDto(
         result.score(),

@@ -11,16 +11,20 @@ import com.guardpay.risk.RiskAssessmentRepository;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
+import com.guardpay.user.MfaService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -47,6 +51,8 @@ public class PaymentVerificationService {
   private static final Logger log = LoggerFactory.getLogger(PaymentVerificationService.class);
 
   static final String SIMULATED_CHANNEL = "SIMULATED";
+  static final String EMAIL_CHANNEL = "EMAIL";
+  static final String TOTP_CHANNEL = "TOTP";
   private static final SecureRandom RANDOM = new SecureRandom();
 
   private final PaymentVerificationRepository verifications;
@@ -54,6 +60,9 @@ public class PaymentVerificationService {
   private final RiskAssessmentRepository assessments;
   private final PayPalOrderService orderService;
   private final VerificationChannel channel;
+  private final MfaService mfa;
+  private final TotpService totp;
+  private final EmailVerificationChannel emailChannel;
 
   @Value("${guardpay.verification.ttl-minutes:10}")
   private long ttlMinutes;
@@ -61,17 +70,34 @@ public class PaymentVerificationService {
   @Value("${guardpay.verification.max-attempts:3}")
   private int maxAttempts;
 
+  /** Legacy/test constructor: no TOTP or email channel configured. */
   public PaymentVerificationService(
       PaymentVerificationRepository verifications,
       TransactionRepository transactions,
       RiskAssessmentRepository assessments,
       PayPalOrderService orderService,
       VerificationChannel channel) {
+    this(verifications, transactions, assessments, orderService, channel, null, null, null);
+  }
+
+  @Autowired
+  public PaymentVerificationService(
+      PaymentVerificationRepository verifications,
+      TransactionRepository transactions,
+      RiskAssessmentRepository assessments,
+      PayPalOrderService orderService,
+      VerificationChannel channel,
+      MfaService mfa,
+      TotpService totp,
+      EmailVerificationChannel emailChannel) {
     this.verifications = verifications;
     this.transactions = transactions;
     this.assessments = assessments;
     this.orderService = orderService;
     this.channel = channel;
+    this.mfa = mfa;
+    this.totp = totp;
+    this.emailChannel = emailChannel;
   }
 
   /**
@@ -79,9 +105,12 @@ public class PaymentVerificationService {
    * the completion transaction when the engine returned VERIFY.
    */
   GuardedVerificationDto startChallenge(Transaction transaction) {
+    String desiredChannel = resolveChannel();
     PaymentVerification existing = verifications.findByTransaction(transaction).orElse(null);
     if (existing != null) {
+      existing.setChannel(desiredChannel);
       if (existing.getStatus() == VerificationStatus.PENDING
+          && SIMULATED_CHANNEL.equals(desiredChannel)
           && !channel.has(transaction.getId())) {
         // The in-memory channel can lose its copy across a restart. Rotate the
         // hash and deliver again rather than stranding a pending challenge.
@@ -92,6 +121,7 @@ public class PaymentVerificationService {
     PaymentVerification verification = new PaymentVerification();
     verification.setTransaction(transaction);
     verification.setStatus(VerificationStatus.PENDING);
+    verification.setChannel(desiredChannel);
     verification.setAttempts(0);
     verification.setMaxAttempts(maxAttempts);
     verification.setExpiresAt(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(ttlMinutes));
@@ -99,10 +129,34 @@ public class PaymentVerificationService {
     return toDto(verification);
   }
 
+  private String resolveChannel() {
+    if (mfa != null && mfa.status().enrolled()) {
+      return TOTP_CHANNEL;
+    }
+    if (emailChannel != null && emailChannel.isConfigured()) {
+      return EMAIL_CHANNEL;
+    }
+    return SIMULATED_CHANNEL;
+  }
+
   private void issueCode(PaymentVerification verification, Transaction transaction) {
     String code = randomCode();
     verification.setChallengeCodeHash(hash(code, transaction.getId()));
     verifications.save(verification);
+    if (TOTP_CHANNEL.equals(verification.getChannel())) {
+      log.info("Controlled verification challenge issued over TOTP");
+      return;
+    }
+    if (EMAIL_CHANNEL.equals(verification.getChannel())) {
+      try {
+        emailChannel.deliver(transaction.getUser().getEmail(), code, ttlMinutes);
+      } catch (RuntimeException unavailable) {
+        throw new ResponseStatusException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "Email verification delivery failed; no challenge was exposed");
+      }
+      return;
+    }
     try {
       channel.deliver(transaction.getId(), code);
     } catch (IllegalStateException unavailable) {
@@ -115,9 +169,25 @@ public class PaymentVerificationService {
 
   @Transactional
   public VerificationConfirmResponseDto confirm(UUID paymentId, String code) {
+    return confirm(paymentId, code, null);
+  }
+
+  @Transactional
+  public VerificationConfirmResponseDto confirmForUser(
+      UUID paymentId, String code, UUID userId) {
+    return confirm(paymentId, code, userId);
+  }
+
+  private VerificationConfirmResponseDto confirm(
+      UUID paymentId, String code, UUID expectedUserId) {
     Transaction transaction =
         transactions
             .findByIdForUpdate(paymentId)
+            .filter(
+                candidate ->
+                    expectedUserId == null
+                        || (candidate.getUser() != null
+                            && expectedUserId.equals(candidate.getUser().getId())))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown payment"));
     PaymentVerification verification =
         verifications
@@ -236,20 +306,35 @@ public class PaymentVerificationService {
   }
 
   private GuardedVerificationDto toDto(PaymentVerification verification) {
-    boolean simulated = true;
+    String channel = verification.getChannel();
+    boolean simulated = channel == null || SIMULATED_CHANNEL.equals(channel);
+    String hint =
+        switch (channel == null ? SIMULATED_CHANNEL : channel) {
+          case TOTP_CHANNEL -> "Enter the 6-digit code from your authenticator app.";
+          case EMAIL_CHANNEL -> "Enter the 6-digit code sent to the account email.";
+          default ->
+              "Ask the developer to read the code from the server-side dev outbox; "
+                  + "it is never returned to the browser.";
+        };
     return new GuardedVerificationDto(
         verification.getId(),
         verification.getStatus(),
         verification.getExpiresAt(),
         Math.max(0, verification.getMaxAttempts() - verification.getAttempts()),
         simulated,
-        "Ask the developer to read the code from the server-side dev outbox; "
-            + "it is never returned to the browser.");
+        hint);
   }
 
   private boolean codeMatches(PaymentVerification verification, Transaction transaction, String code) {
     if (code == null) {
       return false;
+    }
+    if (TOTP_CHANNEL.equals(verification.getChannel())) {
+      if (mfa == null || totp == null) {
+        return false;
+      }
+      Optional<String> secret = mfa.activeSecret();
+      return secret.isPresent() && totp.verify(secret.get(), code, Instant.now());
     }
     return MessageDigest.isEqual(
         verification.getChallengeCodeHash().getBytes(StandardCharsets.UTF_8),

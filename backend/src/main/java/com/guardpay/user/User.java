@@ -30,6 +30,14 @@ public class User extends BaseEntity {
   @Column(name = "currency", length = 3, nullable = false)
   private String currency;
 
+  /** BCrypt hash; never serialized by APIs. */
+  @Column(name = "password_hash", length = 100)
+  private String passwordHash;
+
+  /** Base32 TOTP secret; never serialized by payment APIs. */
+  @Column(name = "totp_secret", length = 64)
+  private String totpSecret;
+
   @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
   private List<Transaction> transactions = new ArrayList<>();
 
@@ -66,6 +74,22 @@ public class User extends BaseEntity {
 
   public void setCurrency(String currency) {
     this.currency = currency;
+  }
+
+  public String getPasswordHash() {
+    return passwordHash;
+  }
+
+  public void setPasswordHash(String passwordHash) {
+    this.passwordHash = passwordHash;
+  }
+
+  public String getTotpSecret() {
+    return totpSecret;
+  }
+
+  public void setTotpSecret(String totpSecret) {
+    this.totpSecret = totpSecret;
   }
 
   public List<Transaction> getTransactions() {

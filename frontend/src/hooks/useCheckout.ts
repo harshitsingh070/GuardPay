@@ -91,6 +91,7 @@ export function useCheckout(service: CheckoutService = getCheckoutService()) {
       const signature = JSON.stringify({
         draft,
         deviceId: context.deviceId ?? null,
+        deviceFingerprint: context.deviceFingerprint ?? null,
         deviceStateKey: context.deviceStateKey ?? null,
       });
       if (signature !== draftSignatureRef.current || keyRef.current === null) {
@@ -107,7 +108,7 @@ export function useCheckout(service: CheckoutService = getCheckoutService()) {
 
       try {
         const result = await service.createPayment(
-          toGuardedPaymentRequest(draft, context.deviceId),
+          toGuardedPaymentRequest(draft, context.deviceId, context.deviceFingerprint),
           keyRef.current,
         );
         const phase = phaseFor(result);

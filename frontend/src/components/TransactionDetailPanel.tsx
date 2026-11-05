@@ -1,6 +1,7 @@
 import { Loader2, ReceiptText, ShieldAlert } from 'lucide-react';
 import RiskBadge from '@/components/RiskBadge';
 import type { TransactionDetail } from '@/types/transaction';
+import { classifyFraudPattern } from '@/utils/fraud-pattern';
 import { getRiskTheme } from '@/utils/risk-styles';
 
 function money(amount: number, currency: string): string {
@@ -24,6 +25,13 @@ export default function TransactionDetailPanel({
   error: string | null;
 }) {
   const theme = detail?.assessment ? getRiskTheme(detail.assessment.riskLevel) : null;
+  const fraudPattern = detail?.assessment
+    ? classifyFraudPattern({
+        findings: detail.assessment.findings,
+        action: detail.assessment.recommendedAction,
+        level: detail.assessment.riskLevel,
+      })
+    : null;
 
   return (
     <section
@@ -116,6 +124,17 @@ export default function TransactionDetailPanel({
               </p>
               {detail.assessment.explanation !== null && (
                 <p className="mt-2 text-sm">{detail.assessment.explanation}</p>
+              )}
+              {fraudPattern !== null && (
+                <div className="mt-3 rounded-lg border border-white/70 bg-white/70 p-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-guardpay-muted">
+                    Likely fraud type
+                  </p>
+                  <p className="mt-0.5 font-semibold">{fraudPattern.label}</p>
+                  <p className="mt-0.5 text-xs text-guardpay-muted">
+                    {fraudPattern.description}
+                  </p>
+                </div>
               )}
               {detail.assessment.findings.filter((finding) => finding.triggered).length > 0 && (
                 <ul className="mt-3 space-y-1.5">

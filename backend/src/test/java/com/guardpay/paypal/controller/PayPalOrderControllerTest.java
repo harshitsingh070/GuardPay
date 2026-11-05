@@ -12,13 +12,17 @@ import com.guardpay.paypal.exception.CaptureBlockedException;
 import com.guardpay.paypal.service.PayPalOrderService;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
+import com.guardpay.user.DemoUserService;
+import com.guardpay.user.User;
 import java.math.BigDecimal;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -32,6 +36,13 @@ class PayPalOrderControllerTest {
   @Autowired private MockMvc mockMvc;
 
   @MockBean private PayPalOrderService service;
+  @MockBean private DemoUserService demoUser;
+
+  private static User userWithId() {
+    User user = new User();
+    ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
+    return user;
+  }
 
   @Test
   void legacyPublicOrderCreationIsNotExposed() throws Exception {
@@ -48,7 +59,9 @@ class PayPalOrderControllerTest {
 
   @Test
   void captureReturnsCaptureShape() throws Exception {
-    when(service.captureOrder("ORDER-1"))
+    User user = userWithId();
+    when(demoUser.currentUser()).thenReturn(user);
+    when(service.captureOrderForUser("ORDER-1", user.getId()))
         .thenReturn(
             new CaptureOrderResponseDto(
                 "ORDER-1", "COMPLETED", "CAP-1", new BigDecimal("45.00"), "USD",
@@ -65,7 +78,9 @@ class PayPalOrderControllerTest {
 
   @Test
   void blockedCaptureReturnsGateShape() throws Exception {
-    when(service.captureOrder("ORDER-9"))
+    User user = userWithId();
+    when(demoUser.currentUser()).thenReturn(user);
+    when(service.captureOrderForUser("ORDER-9", user.getId()))
         .thenThrow(
             new CaptureBlockedException(
                 "GuardPay stopped this payment before capture.",

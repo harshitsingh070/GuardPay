@@ -50,14 +50,23 @@ export default function VerificationPanel({
         been created and no money can move until this check succeeds.
       </p>
 
-      {verification.simulated && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <p className="font-medium">Simulated verification channel</p>
-          <p className="mt-0.5 text-xs">
-            {verification.channelHint} This is a prototype stand-in, not real identity verification.
-          </p>
-        </div>
-      )}
+      <div
+        className={`mt-3 rounded-lg border p-3 text-sm ${
+          verification.simulated
+            ? 'border-amber-200 bg-amber-50 text-amber-900'
+            : 'border-[#cfe4ff] bg-[#eaf2ff] text-guardpay-navy'
+        }`}
+      >
+        <p className="font-medium">
+          {verification.simulated ? 'Simulated verification channel' : 'Out-of-band verification'}
+        </p>
+        <p className="mt-0.5 text-xs">
+          {verification.channelHint}
+          {verification.simulated
+            ? ' This is a prototype stand-in, not real identity verification.'
+            : ''}
+        </p>
+      </div>
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-3">
         <label htmlFor="verification-code" className="block text-sm font-medium">
@@ -73,7 +82,7 @@ export default function VerificationPanel({
           onChange={(event) => setCode(event.target.value)}
           disabled={submitting}
           className={inputClass}
-          placeholder="Enter the code"
+          placeholder={verification.simulated ? 'Enter the code' : 'Enter the 6-digit code'}
         />
 
         {error !== null && (

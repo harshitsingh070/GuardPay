@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Automatic risk evaluation (development stage — no authentication yet).
+ * Automatic risk evaluation (authenticated).
  * Accepts payment context only; signals are backend-derived. The manual
  * {@code POST /api/risk/evaluate} contract is untouched.
  */
@@ -30,3 +30,5 @@ public class AutomaticRiskController {
     return ResponseEntity.ok(service.evaluate(request));
   }
 }
+
+

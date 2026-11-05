@@ -38,6 +38,13 @@ public class DeterministicContentAnalyzer {
               + "verification\\s+code)\\b",
           Pattern.CASE_INSENSITIVE);
 
+  private static final Pattern EXPLICIT_PAYMENT_REQUEST =
+      Pattern.compile(
+          "\\b(send|make|complete|authorize|approve|release)\\s+(me\\s+|us\\s+)?(the\\s+)?"
+              + "(payment|money|funds?|amount|invoice|fee)\\b|"
+              + "\\bpay\\s+(now|immediately|right away|today|asap)\\b",
+          Pattern.CASE_INSENSITIVE);
+
   private static final Pattern INVOICE =
       Pattern.compile(
           "\\b(invoice|billing|payment request|final notice|overdue|unpaid|you owe|"
@@ -76,6 +83,7 @@ public class DeterministicContentAnalyzer {
   public record ContentAnalysis(
       boolean urgent,
       boolean paymentInstruction,
+      boolean explicitPaymentRequest,
       boolean unexpectedInvoice,
       boolean suspiciousUrl,
       boolean scamPattern,
@@ -87,7 +95,7 @@ public class DeterministicContentAnalyzer {
 
     public static ContentAnalysis empty() {
       return new ContentAnalysis(
-          false, false, false, false, false, null, null, null, null, null);
+          false, false, false, false, false, false, null, null, null, null, null);
     }
   }
 
@@ -100,6 +108,7 @@ public class DeterministicContentAnalyzer {
 
     boolean paymentInstruction = PAYMENT_INSTRUCTION.matcher(message).find();
     String paymentMatch = firstMatch(PAYMENT_INSTRUCTION, message);
+    boolean explicitPaymentRequest = EXPLICIT_PAYMENT_REQUEST.matcher(message).find();
 
     boolean invoice = INVOICE.matcher(message).find();
     boolean unexpected = UNEXPECTED.matcher(message).find();
@@ -135,6 +144,7 @@ public class DeterministicContentAnalyzer {
     return new ContentAnalysis(
         urgent,
         paymentInstruction,
+        explicitPaymentRequest,
         unexpectedInvoice,
         urlCheck.suspicious(),
         scamPattern,

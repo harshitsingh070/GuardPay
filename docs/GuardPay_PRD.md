@@ -7,7 +7,7 @@
 **Primary Platform:** Web application with PayPal sandbox integration  
 **Target Users:** PayPal consumers and online payment users
 
-> **Implementation note (current prototype):** Account registration/login and JWT/session authentication are not implemented. The demo runs as a single fixed server-side workspace (`guardpay-demo`); API clients do not supply identity. Authentication sections below describe the original product plan and are superseded for this prototype.
+> **Implementation note (current prototype):** Account registration/login is implemented with BCrypt password hashes and opaque `HttpOnly` session cookies (no OAuth/JWT). Identity always comes from the session, never from client-supplied fields, and account data is owner-scoped. The authentication sections below describe the original product plan; password reset, email verification, OAuth, and MFA-at-login remain future work.
 
 ---
 

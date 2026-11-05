@@ -18,6 +18,8 @@ describe('TransactionDetailPanel', () => {
 
     expect(screen.getByText('$45.00')).toBeInTheDocument();
     expect(screen.getByText('VERIFY')).toBeInTheDocument();
+    expect(screen.getByText('Likely fraud type')).toBeInTheDocument();
+    expect(screen.getByText('Unverified new-recipient payment')).toBeInTheDocument();
     expect(screen.getByText('New recipient')).toBeInTheDocument();
     expect(screen.getByText('ORDER-1')).toBeInTheDocument();
     expect(screen.getByText('CAPTURE-1')).toBeInTheDocument();

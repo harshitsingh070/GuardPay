@@ -20,4 +20,13 @@ public interface PaymentVerificationRepository extends JpaRepository<PaymentVeri
   @Query("select v from PaymentVerification v where v.transaction.id = :transactionId")
   Optional<PaymentVerification> findByTransactionIdForUpdate(
       @Param("transactionId") UUID transactionId);
+
+  @Query(
+      """
+      select count(v) from PaymentVerification v
+      where v.transaction.user.id = :userId
+        and v.status = :status
+      """)
+  long countForUserByStatus(
+      @Param("userId") UUID userId, @Param("status") VerificationStatus status);
 }

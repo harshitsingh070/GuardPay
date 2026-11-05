@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.guardpay.merchant.Merchant;
 import com.guardpay.merchant.MerchantRepository;
+import com.guardpay.risk.blocklist.RecipientBlocklistRepository;
 import com.guardpay.recipient.Recipient;
 import com.guardpay.recipient.RecipientHistoryService;
 import com.guardpay.recipient.RecipientRepository;
@@ -51,6 +52,7 @@ class PaymentSignalCollectorServiceTest {
   @Mock private RecipientRepository recipients;
   @Mock private MerchantRepository merchants;
   @Mock private TransactionRepository transactions;
+  @Mock private RecipientBlocklistRepository blocklist;
 
   private PaymentSignalCollectorService collector;
   private User user;
@@ -88,6 +90,24 @@ class PaymentSignalCollectorServiceTest {
             transactions.countRecipientUnsuccessfulAttempts(
                 any(), any(), any(), any(), any()))
         .thenReturn(0L);
+    lenient()
+        .when(transactions.countAttemptsSince(any(), any(), any(), any()))
+        .thenReturn(0L);
+    lenient()
+        .when(blocklist.existsByUserIdAndRecipientId(any(), any()))
+        .thenReturn(false);
+  }
+
+  private PaymentSignalCollectorService collectorWithBlocklist() {
+    return new PaymentSignalCollectorService(
+        users,
+        recipients,
+        merchants,
+        transactions,
+        new DeterministicContentAnalyzer(),
+        new RecipientHistoryService(transactions),
+        new RecipientRiskEvaluator(),
+        blocklist);
   }
 
   private SignalCollectionRequest request(BigDecimal amount) {
@@ -399,6 +419,59 @@ class PaymentSignalCollectorServiceTest {
     assertEquals(
         "INSUFFICIENT_CONTEXT",
         signal(result, PaymentSignalType.SOCIAL_ENGINEERING_DETECTED).reason());
+  }
+
+  @Test
+  void hourlyVelocityFiresAtFifthAttempt() {
+    when(transactions.countAttemptsSince(any(), any(), any(), any())).thenReturn(4L);
+
+    AutomaticSignalCollectionResult result = collector.collect(request(new BigDecimal("45")));
+
+    assertTrue(result.detected(PaymentSignalType.VELOCITY_HOURLY));
+    assertTrue(signal(result, PaymentSignalType.VELOCITY_HOURLY).evidence().contains("5"));
+    assertFalse(result.detected(PaymentSignalType.VELOCITY_DAILY));
+  }
+
+  @Test
+  void velocityIsUnavailableWithoutUserContext() {
+    SignalCollectionRequest anonymous =
+        new SignalCollectionRequest(new BigDecimal("45"), null, null, null, null, null);
+
+    AutomaticSignalCollectionResult result = collector.collect(anonymous);
+
+    assertFalse(result.detected(PaymentSignalType.VELOCITY_HOURLY));
+    assertEquals(
+        "USER_UNAVAILABLE", signal(result, PaymentSignalType.VELOCITY_HOURLY).reason());
+    assertFalse(result.detected(PaymentSignalType.BLOCKLISTED_RECIPIENT));
+  }
+
+  @Test
+  void blocklistedRecipientDetected() {
+    when(blocklist.existsByUserIdAndRecipientId(USER_ID, RECIPIENT_ID)).thenReturn(true);
+
+    SignalCollectionRequest withRecipient =
+        new SignalCollectionRequest(new BigDecimal("45"), null, USER_ID, RECIPIENT_ID, null, null);
+    AutomaticSignalCollectionResult result =
+        collectorWithBlocklist().collect(withRecipient);
+
+    assertTrue(result.detected(PaymentSignalType.BLOCKLISTED_RECIPIENT));
+    assertTrue(
+        signal(result, PaymentSignalType.BLOCKLISTED_RECIPIENT)
+            .evidence()
+            .contains("blocklist"));
+  }
+
+  @Test
+  void blocklistUnavailableWithoutConfiguredRepository() {
+    SignalCollectionRequest withRecipient =
+        new SignalCollectionRequest(new BigDecimal("45"), null, USER_ID, RECIPIENT_ID, null, null);
+
+    AutomaticSignalCollectionResult result = collector.collect(withRecipient);
+
+    assertFalse(result.detected(PaymentSignalType.BLOCKLISTED_RECIPIENT));
+    assertEquals(
+        "BLOCKLIST_UNAVAILABLE",
+        signal(result, PaymentSignalType.BLOCKLISTED_RECIPIENT).reason());
   }
 
   @Test

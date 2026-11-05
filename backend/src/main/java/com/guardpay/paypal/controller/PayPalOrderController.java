@@ -2,6 +2,8 @@ package com.guardpay.paypal.controller;
 
 import com.guardpay.paypal.dto.CaptureOrderResponseDto;
 import com.guardpay.paypal.service.PayPalOrderService;
+import com.guardpay.user.DemoUserService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,13 +21,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class PayPalOrderController {
 
   private final PayPalOrderService service;
+  private final DemoUserService demoUser;
 
   public PayPalOrderController(PayPalOrderService service) {
+    this(service, null);
+  }
+
+  @Autowired
+  public PayPalOrderController(PayPalOrderService service, DemoUserService demoUser) {
     this.service = service;
+    this.demoUser = demoUser;
   }
 
   @PostMapping("/{orderId}/capture")
   public ResponseEntity<CaptureOrderResponseDto> captureOrder(@PathVariable String orderId) {
-    return ResponseEntity.ok(service.captureOrder(orderId));
+    if (demoUser == null) {
+      return ResponseEntity.ok(service.captureOrder(orderId));
+    }
+    return ResponseEntity.ok(
+        service.captureOrderForUser(orderId, demoUser.currentUser().getId()));
   }
 }

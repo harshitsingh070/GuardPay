@@ -48,9 +48,9 @@ python -m pip install -r ai-service/requirements.txt
 
 ## 3. Automated safety-invariant suite
 
-The script drives the real backend over HTTP as the fixed demo workspace and
-checks the invariants that must always hold, independent of any particular
-score:
+The script registers/signs in a demo account, keeps the session cookie, drives
+the real backend over HTTP, and checks the invariants that must always hold,
+independent of any particular score:
 
 - a non-`ALLOW` decision **never** creates a PayPal order;
 - a `VERIFY` decision issues a controlled challenge and creates no order;
@@ -65,7 +65,9 @@ pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail sb-merchant@business.ex
 ```
 
 Pass a real Sandbox payee email; the built-in default is only a placeholder and
-PayPal may reject the order without a valid Sandbox recipient.
+PayPal may reject the order without a valid Sandbox recipient. Set
+`DEMO_EMAIL`/`DEMO_PASSWORD` to reuse an existing account; otherwise the script
+registers `guardpay-demo-runner@guardpay.local` on first run.
 
 Exit code `0` means every checked invariant held. The script deliberately does
 **not** assert specific scores (AI availability varies) and never fakes a
@@ -73,8 +75,9 @@ capture — human Sandbox approval stays manual.
 
 ## 4. Manual walkthrough (UI + Sandbox approval)
 
-1. Open `http://localhost:3000/payment` directly. No account or session is
-   required; the backend resolves the fixed `guardpay-demo` workspace.
+1. Open `http://localhost:3000`, register or sign in, then go to `/payment`.
+   The backend resolves the account from the session cookie; transactions,
+   recipients, alerts, idempotency keys, and PayPal captures are owner-scoped.
 2. **Safe Payment** preset ($45, known names + Sandbox recipient email) ->
    `ALLOW`, PayPal order + approval link appear. Enter your own Sandbox payee
    email instead of the placeholder if PayPal rejects it.
@@ -103,7 +106,7 @@ capture — human Sandbox approval stays manual.
 | Webhooks | Real handler; external delivery needs a public tunnel |
 | Verification challenge | **Simulated** channel (no identity provider configured) — the code is kept in a server-side outbox and readable only from loopback; it is never returned in the payment response or written to logs |
 | Device call-state | Derivable from a paired Android device; unavailable otherwise |
-| Authentication | None in the demo; a single fixed `guardpay-demo` workspace |
+| Authentication | BCrypt password + opaque `HttpOnly` cookie session; per-account data isolation |
 
 ## 6. Honest limitations
 

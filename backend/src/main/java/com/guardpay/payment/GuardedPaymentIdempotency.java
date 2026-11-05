@@ -9,7 +9,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Table;
 import com.guardpay.transaction.Transaction;
-import java.util.UUID;
+import com.guardpay.user.User;
 
 /**
  * Idempotency record for guarded payments: one client key maps to exactly
@@ -26,6 +26,13 @@ public class GuardedPaymentIdempotency extends BaseEntity {
 
   @Column(name = "request_hash", length = 64, nullable = false)
   private String requestHash;
+
+  @ManyToOne(fetch = FetchType.LAZY, optional = false)
+  @JoinColumn(
+      name = "user_id",
+      nullable = false,
+      foreignKey = @ForeignKey(name = "fk_guarded_payment_idempotency_user"))
+  private User user;
 
   @ManyToOne(fetch = FetchType.LAZY, optional = false)
   @JoinColumn(
@@ -51,6 +58,14 @@ public class GuardedPaymentIdempotency extends BaseEntity {
 
   public void setRequestHash(String requestHash) {
     this.requestHash = requestHash;
+  }
+
+  public User getUser() {
+    return user;
+  }
+
+  public void setUser(User user) {
+    this.user = user;
   }
 
   public Transaction getTransaction() {

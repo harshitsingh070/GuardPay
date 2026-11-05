@@ -54,7 +54,7 @@ A critical trust boundary exists: the guarded payment request has **no risk fiel
 
 ### 3.1 Step 1 — Payment context intake
 
-The guarded endpoint accepts business context only. The server resolves the fixed demo user, resolves or creates the recipient and merchant, and prevents a payment with no counterparty. Unknown payee names are learned into the catalog, but “known” status is based on **completed transaction history**, not merely the existence of a name record.
+The guarded endpoint accepts business context only. The server resolves the authenticated user from the session, resolves or creates the recipient and merchant, and prevents a payment with no counterparty. Unknown payee names are learned into the catalog, but “known” status is based on **completed transaction history**, not merely the existence of a name record.
 
 ### 3.2 Step 2 — Automatic signal collection
 
@@ -453,7 +453,7 @@ The deterministic path is fast and predictable. The AI path is time-bounded and 
 
 - **No statistical validation.** There is no precision, recall, ROC, or field-test measurement against real fraud data. The weights are prototype heuristics.
 - **No learning loop.** Chargebacks, confirmed fraud, false positives, and user feedback are not fed back into the model.
-- **Single fixed demo workspace.** No population-level intelligence, no cross-user mule detection, no merchant global reputation.
+- **Per-user workspaces.** No population-level intelligence, no cross-user mule detection, no merchant global reputation.
 - **Known-payee fraud is largely invisible.** If the attacker uses the victim’s normal payee, normal amount, and no suspicious text, the score can be near zero.
 - **Account takeover is not modelled.** There is no login anomaly, device fingerprint, IP reputation, geolocation, or session-risk analysis.
 - **URL analysis is structural only.** The system does not fetch URLs or query Google Safe Browsing or any reputation service. A clean-looking phishing domain can pass.
@@ -496,7 +496,7 @@ Positive controls:
 
 Important demo limitations:
 
-- No authentication; one fixed demo user/workspace.
+- Cookie sessions only; no password reset, email verification, OAuth, or MFA at login.
 - No real identity provider for verification; the channel is simulated.
 - The Android app is a development pairing mechanism, not production attestation.
 - The dev verification outbox must be disabled in production.

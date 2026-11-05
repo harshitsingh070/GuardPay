@@ -49,26 +49,26 @@ class HeldOutBenchmarkTest {
     BenchmarkMetrics deterministic =
         heldOut.metrics().get(BenchmarkMode.DETERMINISTIC_ONLY.name());
     assertNotNull(deterministic);
-    assertEquals(15, deterministic.truePositives());
-    assertEquals(1, deterministic.falseNegatives());
+    assertEquals(16, deterministic.truePositives());
+    assertEquals(0, deterministic.falseNegatives());
     assertEquals(2, deterministic.falsePositives());
     assertEquals(14, deterministic.trueNegatives());
-    assertEquals(15.0 / 16.0, deterministic.recall(), DELTA);
-    assertEquals(15.0 / 17.0, deterministic.precision(), DELTA);
-    assertEquals(30.0 / 33.0, deterministic.f1(), DELTA);
+    assertEquals(1.0, deterministic.recall(), DELTA);
+    assertEquals(16.0 / 18.0, deterministic.precision(), DELTA);
+    assertEquals(32.0 / 34.0, deterministic.f1(), DELTA);
     assertEquals(2.0 / 16.0, deterministic.falsePositiveRate(), DELTA);
-    assertEquals(29.0 / 32.0, deterministic.classificationAccuracy(), DELTA);
+    assertEquals(30.0 / 32.0, deterministic.classificationAccuracy(), DELTA);
     assertEquals(0, deterministic.legitimateStopped());
     assertEquals(2, deterministic.legitimateVerified());
 
     BenchmarkMetrics validatedAi = heldOut.metrics().get(BenchmarkMode.VALIDATED_AI.name());
     assertNotNull(validatedAi);
-    assertEquals(15, validatedAi.truePositives());
-    assertEquals(1, validatedAi.falseNegatives());
+    assertEquals(16, validatedAi.truePositives());
+    assertEquals(0, validatedAi.falseNegatives());
     assertEquals(2, validatedAi.falsePositives());
     assertEquals(14, validatedAi.trueNegatives());
-    assertEquals(15.0 / 16.0, validatedAi.recall(), DELTA);
-    assertEquals(30.0 / 33.0, validatedAi.f1(), DELTA);
+    assertEquals(1.0, validatedAi.recall(), DELTA);
+    assertEquals(32.0 / 34.0, validatedAi.f1(), DELTA);
 
     for (BenchmarkMode mode : BenchmarkMode.values()) {
       ThresholdAnalysis thresholds = heldOut.thresholdAnalysis().get(mode.name());
@@ -87,9 +87,11 @@ class HeldOutBenchmarkTest {
 
     BenchmarkResult hardCase =
         result(heldOut, BenchmarkMode.DETERMINISTIC_ONLY, "HF16-paypal-known-urgent-payment");
-    assertEquals(10, hardCase.actualScore());
-    assertEquals(com.guardpay.risk.RecommendedAction.ALLOW, hardCase.actualAction());
-    assertEquals(List.of("URGENT_LANGUAGE"), hardCase.actualSignals());
+    assertEquals(60, hardCase.actualScore());
+    assertEquals(com.guardpay.risk.RiskLevel.MEDIUM, hardCase.actualLevel());
+    assertEquals(com.guardpay.risk.RecommendedAction.VERIFY, hardCase.actualAction());
+    assertEquals(
+        List.of("URGENT_LANGUAGE", "KNOWN_RECIPIENT_SCAM"), hardCase.actualSignals());
 
     BenchmarkResult officialLink =
         result(heldOut, BenchmarkMode.DETERMINISTIC_ONLY, "HL09-paypal-official-link");
@@ -110,7 +112,7 @@ class HeldOutBenchmarkTest {
     assertEquals(dev.datasetSha256(), comparison.devDatasetSha256());
     assertEquals(heldOut.datasetSha256(), comparison.heldOutDatasetSha256());
     assertEquals(
-        -4.0,
+        -2.0,
         comparison
             .modes()
             .get(BenchmarkMode.DETERMINISTIC_ONLY.name())

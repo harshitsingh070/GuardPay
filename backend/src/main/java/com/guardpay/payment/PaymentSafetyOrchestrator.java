@@ -59,23 +59,23 @@ public class PaymentSafetyOrchestrator {
   }
 
   /**
-   * Guarded initiation for the fixed demo account. A repeated key returns the
+   * Guarded initiation for the authenticated account. A repeated key returns the
    * stored result verbatim; a reused key with different content is rejected.
    * The completion step locks the key before side effects.
    */
   public GuardedPaymentResponseDto initiate(
       GuardedPaymentRequestDto dto, String idempotencyKey) {
     String key = normalizeKey(idempotencyKey);
+    User user = demoUser.currentUser();
     if (key != null) {
       Optional<GuardedPaymentIdempotency> existing =
-          idempotency.findByIdempotencyKey(key);
+          idempotency.findByUserIdAndIdempotencyKey(user.getId(), key);
       if (existing.isPresent()) {
         return GuardedPaymentReplay.replayOrConflict(existing.get(), dto);
       }
     }
 
     BigDecimal amount = dto.getAmount().setScale(2, RoundingMode.HALF_UP);
-    User user = demoUser.currentUser();
     Recipient recipient =
         resolveRecipient(
             user,
@@ -97,6 +97,12 @@ public class PaymentSafetyOrchestrator {
     auto.setRecipientId(recipient != null ? recipient.getId() : null);
     auto.setMerchantId(merchant != null ? merchant.getId() : null);
     auto.setDeviceId(dto.getDeviceId());
+    auto.setDeviceFingerprint(dto.getDeviceFingerprint());
+    auto.setClientIp(dto.getClientIp());
+    auto.setGeoCountry(dto.getGeoCountry());
+    auto.setGeoCity(dto.getGeoCity());
+    auto.setAsn(dto.getAsn());
+    auto.setVpnOrProxy(dto.getVpnOrProxy());
     auto.setContentText(dto.getContentText());
     auto.setContentUrl(dto.getContentUrl());
     AutomaticEvaluationResponseDto risk = automaticRisk.evaluate(auto);
@@ -130,7 +136,7 @@ public class PaymentSafetyOrchestrator {
       String recipientName,
       String recipientEmail,
       String recipientPaypalAccountId) {
-    String email = blankToNull(recipientEmail);
+    String email = normalizeEmail(recipientEmail);
     String paypalAccount = blankToNull(recipientPaypalAccountId);
     if (recipientId != null) {
       Recipient existing =
@@ -138,47 +144,75 @@ public class PaymentSafetyOrchestrator {
               .findByIdAndUserId(recipientId, user.getId())
               .orElseThrow(
                   () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown recipient"));
-      if (email != null) {
-        existing.setEmail(email.toLowerCase(java.util.Locale.ROOT));
-      }
-      if (paypalAccount != null) {
-        existing.setPaypalAccountId(paypalAccount);
-      }
-      return recipients.save(existing);
+      return bindDestination(user, existing, email, paypalAccount);
     }
     String name = blankToNull(recipientName);
-    if (name == null && email == null) {
+    if (name == null && email == null && paypalAccount == null) {
       return null;
     }
-    Optional<Recipient> known =
-        email != null
-            ? recipients.findByUserIdAndEmailIgnoreCase(user.getId(), email)
-            : recipients.findByUserIdAndNameIgnoreCase(user.getId(), name);
+
+    Optional<Recipient> known = Optional.empty();
+    if (email != null) {
+      known = recipients.findByUserIdAndEmailIgnoreCase(user.getId(), email);
+    }
+    if (known.isEmpty() && paypalAccount != null) {
+      known = recipients.findByUserIdAndPaypalAccountId(user.getId(), paypalAccount);
+    }
+    if (known.isEmpty() && email == null && paypalAccount == null) {
+      known = recipients.findByUserIdAndNameIgnoreCase(user.getId(), name);
+    }
     return known
-        .map(
-            recipient -> {
-              boolean changed = false;
-              if (email != null
-                  && !email.equalsIgnoreCase(recipient.getEmail())) {
-                recipient.setEmail(email.toLowerCase(java.util.Locale.ROOT));
-                changed = true;
-              }
-              if (paypalAccount != null
-                  && !paypalAccount.equals(recipient.getPaypalAccountId())) {
-                recipient.setPaypalAccountId(paypalAccount);
-                changed = true;
-              }
-              return changed ? recipients.save(recipient) : recipient;
-            })
+        .map(recipient -> bindDestination(user, recipient, email, paypalAccount))
         .orElseGet(
             () -> {
               Recipient fresh = new Recipient();
               fresh.setUser(user);
               fresh.setName(name != null ? name : email);
-              fresh.setEmail(email == null ? null : email.toLowerCase(java.util.Locale.ROOT));
+              fresh.setEmail(email);
               fresh.setPaypalAccountId(paypalAccount);
               return recipients.save(fresh);
             });
+  }
+
+  /**
+   * A recipient's stored PayPal destination is immutable once set. Rebinding an
+   * existing recipient to a different email/account would inherit its trusted
+   * history while sending money to the attacker-controlled destination.
+   */
+  private Recipient bindDestination(
+      User user, Recipient recipient, String email, String paypalAccount) {
+    String storedEmail = normalizeEmail(recipient.getEmail());
+    String storedPaypal = blankToNull(recipient.getPaypalAccountId());
+    boolean mismatch =
+        (email != null && storedEmail != null && !email.equalsIgnoreCase(storedEmail))
+            || (paypalAccount != null
+                && storedPaypal != null
+                && !paypalAccount.equals(storedPaypal));
+    if (mismatch) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "Payment destination does not match the trusted recipient");
+    }
+
+    boolean changed = false;
+    if (email != null && storedEmail == null) {
+      recipient.setEmail(email);
+      changed = true;
+    }
+    if (paypalAccount != null && storedPaypal == null) {
+      recipient.setPaypalAccountId(paypalAccount);
+      changed = true;
+    }
+    if (recipient.getUser() == null) {
+      recipient.setUser(user);
+      changed = true;
+    }
+    return changed ? recipients.save(recipient) : recipient;
+  }
+
+  private static String normalizeEmail(String value) {
+    String email = blankToNull(value);
+    return email == null ? null : email.toLowerCase(java.util.Locale.ROOT);
   }
 
   private Merchant resolveMerchant(UUID merchantId, String merchantName) {
@@ -205,3 +239,5 @@ public class PaymentSafetyOrchestrator {
     return value == null || value.isBlank() ? null : value.trim();
   }
 }
+
+

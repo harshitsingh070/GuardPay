@@ -25,5 +25,18 @@ public enum PaymentSignalType {
   SUSPICIOUS_URL_STRUCTURE,
   UNEXPECTED_INVOICE_CONTEXT,
   // Deterministic policy: high-value payment with no verifiable context.
-  MISSING_CONTEXT
+  MISSING_CONTEXT,
+  // Account-takeover context derived from trusted history and network data.
+  NEW_DEVICE,
+  NEW_GEO,
+  IMPOSSIBLE_TRAVEL,
+  VPN_PROXY,
+  // Multi-window velocity and counterparty reputation.
+  VELOCITY_HOURLY,
+  VELOCITY_DAILY,
+  BLOCKLISTED_RECIPIENT,
+  // A known payee whose new request matches a compromised-account scam.
+  KNOWN_RECIPIENT_SCAM,
+  // Structuring: many sub-threshold payments to one recipient.
+  SPLIT_PAYMENT
 }

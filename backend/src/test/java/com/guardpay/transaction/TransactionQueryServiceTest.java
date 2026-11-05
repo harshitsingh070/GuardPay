@@ -111,7 +111,7 @@ class TransactionQueryServiceTest {
             + "\"triggered\":true}]");
     PaymentVerification verification = new PaymentVerification();
     verification.setStatus(VerificationStatus.VERIFIED);
-    when(transactions.findById(id)).thenReturn(Optional.of(transaction));
+    when(transactions.findByIdAndUserId(id, owner.getId())).thenReturn(Optional.of(transaction));
     when(assessments.findByTransactionOrderByCreatedAtDesc(transaction)).thenReturn(List.of(risk));
     when(verifications.findByTransactionId(id)).thenReturn(Optional.of(verification));
 
@@ -126,7 +126,7 @@ class TransactionQueryServiceTest {
   @Test
   void unknownTransactionIsNotFound() {
     UUID id = UUID.randomUUID();
-    when(transactions.findById(id)).thenReturn(Optional.empty());
+    when(transactions.findByIdAndUserId(id, owner.getId())).thenReturn(Optional.empty());
 
     ResponseStatusException failure =
         assertThrows(
@@ -134,3 +134,4 @@ class TransactionQueryServiceTest {
     assertEquals(HttpStatus.NOT_FOUND, failure.getStatusCode());
   }
 }
+

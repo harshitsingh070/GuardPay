@@ -31,6 +31,26 @@ public class AutomaticEvaluationRequestDto {
    */
   private UUID deviceId;
 
+  /** Stable client device fingerprint; a second device identity for history. */
+  @Size(max = 128, message = "deviceFingerprint must be 128 characters or fewer")
+  private String deviceFingerprint;
+
+  /** Server-observed client IP; populated by the controller, never trusted from JSON. */
+  @Size(max = 64, message = "clientIp must be 64 characters or fewer")
+  private String clientIp;
+
+  /** Country resolved from the client network context (ISO-3166 alpha-2). */
+  @Size(max = 2, message = "geoCountry must be a 2-letter country code")
+  private String geoCountry;
+
+  @Size(max = 128, message = "geoCity must be 128 characters or fewer")
+  private String geoCity;
+
+  private Integer asn;
+
+  /** Network reputation result: true when the connection is a VPN/proxy. */
+  private Boolean vpnOrProxy;
+
   /** Optional message/invoice text for AI content analysis (absent = not analyzed). */
   @Size(max = 4000, message = "contentText must be 4000 characters or fewer")
   private String contentText;
@@ -85,6 +105,54 @@ public class AutomaticEvaluationRequestDto {
 
   public void setDeviceId(UUID deviceId) {
     this.deviceId = deviceId;
+  }
+
+  public String getDeviceFingerprint() {
+    return deviceFingerprint;
+  }
+
+  public void setDeviceFingerprint(String deviceFingerprint) {
+    this.deviceFingerprint = deviceFingerprint;
+  }
+
+  public String getClientIp() {
+    return clientIp;
+  }
+
+  public void setClientIp(String clientIp) {
+    this.clientIp = clientIp;
+  }
+
+  public String getGeoCountry() {
+    return geoCountry;
+  }
+
+  public void setGeoCountry(String geoCountry) {
+    this.geoCountry = geoCountry;
+  }
+
+  public String getGeoCity() {
+    return geoCity;
+  }
+
+  public void setGeoCity(String geoCity) {
+    this.geoCity = geoCity;
+  }
+
+  public Integer getAsn() {
+    return asn;
+  }
+
+  public void setAsn(Integer asn) {
+    this.asn = asn;
+  }
+
+  public Boolean getVpnOrProxy() {
+    return vpnOrProxy;
+  }
+
+  public void setVpnOrProxy(Boolean vpnOrProxy) {
+    this.vpnOrProxy = vpnOrProxy;
   }
 
   public String getContentText() {

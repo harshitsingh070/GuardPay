@@ -44,15 +44,69 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
   /** Paged transaction history for one user (owner-scoped access). */
   Page<Transaction> findByUserId(UUID userId, Pageable pageable);
 
+  Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
+
   /** Attempts (any status) created after a cutoff, used for velocity analysis. */
   List<Transaction> findByUserAndTransactionTimestampAfter(
       User user, OffsetDateTime transactionTimestamp);
+
+  /**
+   * Exact count of attempts in one velocity window. Counting in the database
+   * keeps multi-window checks cheap even when the 24-hour window is busy.
+   */
+  @Query(
+      """
+      select count(t) from Transaction t
+      where t.user = :user
+        and (:currency is null or upper(t.currency) = upper(:currency))
+        and t.transactionTimestamp >= :after
+        and t.id <> :excludeTransactionId
+      """)
+  long countAttemptsSince(
+      @Param("user") User user,
+      @Param("currency") String currency,
+      @Param("after") OffsetDateTime after,
+      @Param("excludeTransactionId") UUID excludeTransactionId);
 
   List<Transaction> findByUserAndRecipientAndStatus(
       User user, Recipient recipient, TransactionStatus status);
 
   List<Transaction> findByUserAndMerchantAndStatus(
       User user, Merchant merchant, TransactionStatus status);
+
+  /** Prior transactions that carried any device identity (fingerprint or id). */
+  @Query(
+      """
+      select count(t) from Transaction t
+      where t.user = :user
+        and t.transactionTimestamp < :asOf
+        and (t.deviceId is not null or t.deviceFingerprint is not null)
+      """)
+  long countDeviceObservations(@Param("user") User user, @Param("asOf") OffsetDateTime asOf);
+
+  /** Prior transactions that carried a resolved country. */
+  @Query(
+      """
+      select count(t) from Transaction t
+      where t.user = :user
+        and t.transactionTimestamp < :asOf
+        and t.geoCountry is not null
+      """)
+  long countGeoObservations(@Param("user") User user, @Param("asOf") OffsetDateTime asOf);
+
+  Optional<Transaction> findTopByUserAndDeviceIdOrderByTransactionTimestampDesc(
+      User user, UUID deviceId);
+
+  Optional<Transaction> findTopByUserAndDeviceFingerprintOrderByTransactionTimestampDesc(
+      User user, String deviceFingerprint);
+
+  Optional<Transaction>
+      findTopByUserAndGeoCountryIgnoreCaseAndTransactionTimestampBeforeOrderByTransactionTimestampDesc(
+          User user, String geoCountry, OffsetDateTime asOf);
+
+  Optional<Transaction>
+      findTopByUserAndGeoCountryIsNotNullAndTransactionTimestampBeforeOrderByTransactionTimestampDesc(
+          User user, OffsetDateTime asOf);
 
   /** Bounded successful history for one recipient, scoped to the owning user. */
   @Query(

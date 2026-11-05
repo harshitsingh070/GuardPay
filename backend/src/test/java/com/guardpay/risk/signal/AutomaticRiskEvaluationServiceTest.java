@@ -113,9 +113,10 @@ class AutomaticRiskEvaluationServiceTest {
     assertEquals(60, response.score());
     assertEquals(RiskLevel.MEDIUM, response.riskLevel());
     assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
-    assertEquals(11, response.automaticSignals().size());
-    assertEquals(11, response.findings().size());
+    assertEquals(20, response.automaticSignals().size());
+    assertEquals(20, response.findings().size());
   }
 
 }
+
 

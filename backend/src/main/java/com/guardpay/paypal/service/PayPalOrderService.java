@@ -3,6 +3,7 @@ package com.guardpay.paypal.service;
 import com.guardpay.payment.GuardedPaymentStatus;
 import com.guardpay.payment.PaymentVerificationRepository;
 import com.guardpay.payment.VerificationStatus;
+import com.guardpay.alert.AlertService;
 import com.guardpay.paypal.client.PayPalClient;
 import com.guardpay.paypal.dto.CaptureOrderResponseDto;
 import com.guardpay.paypal.dto.CreatedPaypalOrder;
@@ -51,16 +52,29 @@ public class PayPalOrderService {
   private final TransactionRepository transactions;
   private final RiskAssessmentRepository assessments;
   private final PaymentVerificationRepository verifications;
+  private final AlertService alertService;
 
+  /** Legacy/test constructor: large-capture alerts are not recorded. */
   public PayPalOrderService(
       PayPalClient payPalClient,
       TransactionRepository transactions,
       RiskAssessmentRepository assessments,
       PaymentVerificationRepository verifications) {
+    this(payPalClient, transactions, assessments, verifications, null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public PayPalOrderService(
+      PayPalClient payPalClient,
+      TransactionRepository transactions,
+      RiskAssessmentRepository assessments,
+      PaymentVerificationRepository verifications,
+      AlertService alertService) {
     this.payPalClient = payPalClient;
     this.transactions = transactions;
     this.assessments = assessments;
     this.verifications = verifications;
+    this.alertService = alertService;
   }
 
   /**
@@ -107,12 +121,26 @@ public class PayPalOrderService {
 
   @Transactional
   public CaptureOrderResponseDto captureOrder(String orderId) {
+    return captureOrder(orderId, null);
+  }
+
+  @Transactional
+  public CaptureOrderResponseDto captureOrderForUser(String orderId, java.util.UUID userId) {
+    return captureOrder(orderId, userId);
+  }
+
+  private CaptureOrderResponseDto captureOrder(String orderId, java.util.UUID expectedUserId) {
     if (orderId == null || !orderId.matches("[A-Za-z0-9-]+")) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown PayPal order");
     }
     Transaction transaction =
         transactions
             .findByPaypalOrderIdForUpdate(orderId)
+            .filter(
+                candidate ->
+                    expectedUserId == null
+                        || (candidate.getUser() != null
+                            && expectedUserId.equals(candidate.getUser().getId())))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown PayPal order"));
 
     // Idempotent replay: a previous capture already terminally settled this
@@ -166,6 +194,9 @@ public class PayPalOrderService {
             ? TransactionStatus.COMPLETED
             : TransactionStatus.FAILED);
     transactions.save(transaction);
+    if (alertService != null) {
+      alertService.recordLargeCapture(transaction);
+    }
     log.info("PayPal Sandbox order captured (order linked to GuardPay transaction)");
 
     return new CaptureOrderResponseDto(

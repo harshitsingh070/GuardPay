@@ -49,15 +49,25 @@ public class DeterministicRiskEngine {
     findings.add(
         finding(RiskSignal.RECIPIENT_AMOUNT_ANOMALY, request.recipientAmountAnomaly()));
     findings.add(finding(RiskSignal.REPEATED_ATTEMPTS, request.repeatedAttempts()));
+    findings.add(finding(RiskSignal.VELOCITY_HOURLY, request.hourlyVelocity()));
+    findings.add(finding(RiskSignal.VELOCITY_DAILY, request.dailyVelocity()));
+    findings.add(finding(RiskSignal.BLOCKLISTED_RECIPIENT, request.blocklistedRecipient()));
     findings.add(finding(RiskSignal.UNKNOWN_MERCHANT, request.unknownMerchant()));
     findings.add(finding(RiskSignal.UNEXPECTED_INVOICE, request.unexpectedInvoice()));
     findings.add(finding(RiskSignal.URGENT_LANGUAGE, request.urgentLanguage()));
     findings.add(finding(RiskSignal.SUSPICIOUS_URL, request.suspiciousUrl()));
     findings.add(finding(RiskSignal.SOCIAL_ENGINEERING, request.socialEngineeringDetected()));
+    findings.add(finding(RiskSignal.KNOWN_RECIPIENT_SCAM, request.knownRecipientScam()));
+    findings.add(finding(RiskSignal.SPLIT_PAYMENT, request.splitPayment()));
     findings.add(finding(RiskSignal.MISSING_CONTEXT, request.missingContext()));
+    findings.add(finding(RiskSignal.NEW_DEVICE, request.newDevice()));
+    findings.add(finding(RiskSignal.NEW_GEO, request.newGeo()));
+    findings.add(finding(RiskSignal.IMPOSSIBLE_TRAVEL, request.impossibleTravel()));
+    findings.add(finding(RiskSignal.VPN_PROXY, request.vpnProxy()));
 
     int total = findings.stream().filter(RiskFinding::triggered).mapToInt(RiskFinding::points).sum();
-    int score = Math.min(total, RiskLevels.MAX_SCORE);
+    boolean hardBlocked = request.blocklistedRecipient();
+    int score = hardBlocked ? RiskLevels.MAX_SCORE : Math.min(total, RiskLevels.MAX_SCORE);
     RiskLevel riskLevel = RiskLevels.levelFor(score);
 
     return new RiskEvaluationResult(
@@ -65,7 +75,7 @@ public class DeterministicRiskEngine {
         riskLevel,
         RiskLevels.actionFor(riskLevel),
         List.copyOf(findings),
-        buildExplanation(findings));
+        buildExplanation(findings, hardBlocked));
   }
 
   private boolean isLargeAmount(RiskEvaluationRequest request) {
@@ -81,9 +91,12 @@ public class DeterministicRiskEngine {
     return new RiskFinding(signal.code(), signal.title(), signal.description(), signal.points(), triggered);
   }
 
-  private String buildExplanation(List<RiskFinding> findings) {
+  private String buildExplanation(List<RiskFinding> findings, boolean hardBlocked) {
     List<String> reasons =
         findings.stream().filter(RiskFinding::triggered).map(RiskFinding::description).toList();
+    if (hardBlocked) {
+      return "GuardPay blocked this payment because the recipient is on your fraud blocklist.";
+    }
     if (reasons.isEmpty()) {
       return "No unusual risk signals were detected for this payment.";
     }

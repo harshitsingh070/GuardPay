@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Read-only transaction history for the fixed demo account.
+ * Read-only transaction history for the authenticated account.
  *
  * <p>The account is resolved server-side; callers cannot choose whose
  * transactions they read.
@@ -81,7 +81,7 @@ public class TransactionQueryService {
   public TransactionDetailDto detail(UUID transactionId) {
     Transaction transaction =
         transactions
-            .findById(transactionId)
+            .findByIdAndUserId(transactionId, demoUser.currentUser().getId())
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown transaction"));
     return toDetail(transaction);
@@ -153,3 +153,4 @@ public class TransactionQueryService {
     }
   }
 }
+

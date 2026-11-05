@@ -70,9 +70,10 @@ Kubernetes, or extra microservices) — a deliberate hackathon scope decision.
 
 ### 3.1 React + Vite (frontend/)
 
-- Payment interface (amount, currency, recipient, recipient PayPal email, merchant, invoice/message, URL) with no account gate.
+- Sign-in/registration gate with cookie-backed sessions and sign-out.
+- Payment interface (amount, currency, recipient, recipient PayPal email, merchant, invoice/message, URL).
 - Risk-warning interface (score, severity, evidence, explanation, STOP / VERIFY / CONTINUE).
-- Client-side routing with React Router (`/` home, `/payment`, `/dashboard`, `/transactions`).
+- Client-side routing with React Router (`/login`, `/`, `/payment`, `/dashboard`, `/transactions`).
 - Security dashboard + transaction history via AG Grid (sorting, filtering, search, pagination, detail view).
 - Real-time risk updates (consumes Spring Boot WebSocket/SSE events).
 - Talks to Spring Boot exclusively through REST APIs (`VITE_API_BASE_URL`) plus the real-time channel.
@@ -80,8 +81,8 @@ Kubernetes, or extra microservices) — a deliberate hackathon scope decision.
 
 ### 3.2 Spring Boot (backend/) — the trusted business layer
 
-- A single fixed server-side demo user (`guardpay-demo`); no account/session authentication.
-- Users, transactions, recipients, merchants, subscriptions, alerts, scam reports.
+- Multi-user accounts: BCrypt password hashes, opaque `HttpOnly` session cookies, and server-side session hashes.
+- Owner-scoped transactions, recipients, alerts, idempotency keys, captures, and SSE streams.
 - Payment processing + PayPal integration (sandbox REST: orders, payments, transaction search, invoicing, subscriptions, disputes where useful).
 - PayPal webhooks receiver (idempotent processing → PostgreSQL → real-time push to UI).
 - Transaction history + user behavioral profile (averages, known recipients, merchant frequency).

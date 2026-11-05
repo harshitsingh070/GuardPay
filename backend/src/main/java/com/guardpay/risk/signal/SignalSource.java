@@ -7,6 +7,7 @@ public enum SignalSource {
   PAYMENT_CONTEXT,
   URL_REPUTATION,
   DEVICE,
+  NETWORK,
   AI,
   NOT_AVAILABLE
 }

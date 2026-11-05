@@ -1,0 +1,3 @@
+guardpay:
+  auth:
+    enabled: false

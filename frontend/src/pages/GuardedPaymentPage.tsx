@@ -79,6 +79,7 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
   function submitPayment() {
     void checkout.submit(draft, {
       deviceId: device.deviceId,
+      deviceFingerprint: device.fingerprint,
       deviceStateKey: device.stateKey,
     });
   }

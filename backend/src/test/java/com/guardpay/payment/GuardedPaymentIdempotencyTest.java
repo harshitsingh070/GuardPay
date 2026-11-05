@@ -109,14 +109,14 @@ class GuardedPaymentIdempotencyTest {
   @Test
   void repeatedKeyReturnsStoredResultWithoutReprocessing() throws Exception {
     stubHappyAllow();
-    when(idempotency.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+    when(idempotency.findByUserIdAndIdempotencyKey(USER_ID, "key-1")).thenReturn(Optional.empty());
 
     GuardedPaymentResponseDto first = orchestrator.initiate(request(), "key-1");
 
     ArgumentCaptor<GuardedPaymentIdempotency> rows =
         ArgumentCaptor.forClass(GuardedPaymentIdempotency.class);
     verify(idempotency).save(rows.capture());
-    when(idempotency.findByIdempotencyKey("key-1")).thenReturn(Optional.of(rows.getValue()));
+    when(idempotency.findByUserIdAndIdempotencyKey(USER_ID, "key-1")).thenReturn(Optional.of(rows.getValue()));
 
     GuardedPaymentResponseDto second = orchestrator.initiate(request(), "key-1");
 
@@ -128,11 +128,12 @@ class GuardedPaymentIdempotencyTest {
 
   @Test
   void reusedKeyWithDifferentPaymentIsRejected() {
+    when(demoUser.currentUser()).thenReturn(user);
     GuardedPaymentIdempotency row = new GuardedPaymentIdempotency();
     row.setIdempotencyKey("key-1");
     row.setRequestHash("different-hash");
     row.setResponseBody("{}");
-    when(idempotency.findByIdempotencyKey("key-1")).thenReturn(Optional.of(row));
+    when(idempotency.findByUserIdAndIdempotencyKey(USER_ID, "key-1")).thenReturn(Optional.of(row));
 
     GuardedPaymentRequestDto other = request();
     other.setAmount(new BigDecimal("99.00"));
@@ -161,7 +162,7 @@ class GuardedPaymentIdempotencyTest {
     winner.setIdempotencyKey("key-1");
     winner.setRequestHash(GuardedPaymentReplay.requestHash(dto));
     winner.setResponseBody(JSON.writeValueAsString(winnerBody));
-    when(idempotency.findByIdempotencyKey("key-1"))
+    when(idempotency.findByUserIdAndIdempotencyKey(USER_ID, "key-1"))
         .thenReturn(Optional.empty())
         .thenReturn(Optional.of(winner));
 
@@ -180,8 +181,9 @@ class GuardedPaymentIdempotencyTest {
     // Blank keys behave like absent keys: normal processing, zero idempotency traffic.
     orchestrator.initiate(request(), "   ");
 
-    verify(idempotency, never()).findByIdempotencyKey(any());
+    verify(idempotency, never()).findByUserIdAndIdempotencyKey(eq(USER_ID), any());
     verify(idempotency, never()).save(any());
     verify(lock, never()).acquire(any());
   }
 }
+

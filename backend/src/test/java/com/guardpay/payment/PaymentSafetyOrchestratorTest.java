@@ -245,7 +245,33 @@ class PaymentSafetyOrchestratorTest {
   }
 
   @Test
-  void explicitOwnedRecipientIsUsedAndUpdated() {
+  void explicitOwnedRecipientWithDifferentDestinationIsRejected() {
+    Recipient owned = new Recipient();
+    ReflectionTestUtils.setField(owned, "id", RECIPIENT_ID);
+    owned.setUser(user);
+    owned.setName("Owned Recipient");
+    owned.setEmail("old@example.com");
+    owned.setPaypalAccountId("OLD-PAYPAL");
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(owned));
+
+    GuardedPaymentRequestDto dto = request();
+    dto.setRecipientId(RECIPIENT_ID);
+    dto.setRecipientEmail("New@Example.com");
+    dto.setRecipientPaypalAccountId("PAYPAL-OWN");
+
+    ResponseStatusException failure =
+        assertThrows(ResponseStatusException.class, () -> orchestrator.initiate(dto, null));
+
+    assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
+    assertEquals("old@example.com", owned.getEmail());
+    assertEquals("OLD-PAYPAL", owned.getPaypalAccountId());
+    verify(recipients, never()).save(any());
+    verify(automaticRisk, never()).evaluate(any());
+    verify(orderService, never()).createPaypalOrder(any(), any(), any(), any());
+  }
+
+  @Test
+  void explicitOwnedRecipientWithUnsetDestinationBindsItOnce() {
     stubEchoSaves();
     when(automaticRisk.evaluate(any()))
         .thenReturn(risk(10, RiskLevel.LOW, RecommendedAction.ALLOW));
@@ -253,7 +279,6 @@ class PaymentSafetyOrchestratorTest {
     ReflectionTestUtils.setField(owned, "id", RECIPIENT_ID);
     owned.setUser(user);
     owned.setName("Owned Recipient");
-    owned.setEmail("old@example.com");
     when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(owned));
     when(recipients.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     when(orderService.createPaypalOrder(any(), any(), any(), any()))

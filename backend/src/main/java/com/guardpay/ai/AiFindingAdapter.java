@@ -35,6 +35,20 @@ public final class AiFindingAdapter {
           PaymentSignalType.SUSPICIOUS_PAYMENT_INSTRUCTION,
           PaymentSignalType.SCAM_PATTERN);
 
+  /**
+   * AI may only contribute observations it is competent to make. Deterministic
+   * facts (recipient history, blocklists, velocity, device/geo, amount) must
+   * never be asserted or overridden by model output.
+   */
+  public static final Set<PaymentSignalType> AI_ALLOWED =
+      EnumSet.copyOf(SOCIAL_GROUP);
+
+  static {
+    AI_ALLOWED.add(PaymentSignalType.URGENT_LANGUAGE);
+    AI_ALLOWED.add(PaymentSignalType.SUSPICIOUS_URL_STRUCTURE);
+    AI_ALLOWED.add(PaymentSignalType.UNEXPECTED_INVOICE_CONTEXT);
+  }
+
   private AiFindingAdapter() {}
 
   public static List<PaymentSignal> toPaymentSignals(List<AiFindingDto> findings) {
@@ -66,7 +80,7 @@ public final class AiFindingAdapter {
     }
     try {
       PaymentSignalType type = PaymentSignalType.valueOf(code);
-      return type == PaymentSignalType.ACTIVE_CALL ? null : type;
+      return AI_ALLOWED.contains(type) ? type : null;
     } catch (IllegalArgumentException unknown) {
       return null;
     }

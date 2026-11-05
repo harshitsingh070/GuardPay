@@ -15,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 /**
  * A GuardPay-tracked payment. Money uses {@link BigDecimal} only —
@@ -53,6 +54,33 @@ public class Transaction extends BaseEntity {
 
   @Column(name = "paypal_approval_url", length = 2048)
   private String paypalApprovalUrl;
+
+  /** Paired-device identity supplied by the client; used for account-takeover history. */
+  @Column(name = "device_id")
+  private UUID deviceId;
+
+  /** Stable browser/device fingerprint; a secondary device identity for history. */
+  @Column(name = "device_fingerprint", length = 128)
+  private String deviceFingerprint;
+
+  /** Server-observed client IP at payment time. */
+  @Column(name = "client_ip", length = 64)
+  private String clientIp;
+
+  /** Country resolved from the client network context, ISO-3166 alpha-2. */
+  @Column(name = "geo_country", length = 2)
+  private String geoCountry;
+
+  @Column(name = "geo_city", length = 128)
+  private String geoCity;
+
+  /** Autonomous system number of the client network, when resolved. */
+  @Column(name = "asn")
+  private Integer asn;
+
+  /** True when the network reputation provider flags the connection as VPN/proxy. */
+  @Column(name = "vpn_or_proxy")
+  private Boolean vpnOrProxy;
 
   @Column(name = "amount", precision = 19, scale = 4, nullable = false)
   private BigDecimal amount;
@@ -128,6 +156,62 @@ public class Transaction extends BaseEntity {
 
   public void setPaypalApprovalUrl(String paypalApprovalUrl) {
     this.paypalApprovalUrl = paypalApprovalUrl;
+  }
+
+  public UUID getDeviceId() {
+    return deviceId;
+  }
+
+  public void setDeviceId(UUID deviceId) {
+    this.deviceId = deviceId;
+  }
+
+  public String getDeviceFingerprint() {
+    return deviceFingerprint;
+  }
+
+  public void setDeviceFingerprint(String deviceFingerprint) {
+    this.deviceFingerprint = deviceFingerprint;
+  }
+
+  public String getClientIp() {
+    return clientIp;
+  }
+
+  public void setClientIp(String clientIp) {
+    this.clientIp = clientIp;
+  }
+
+  public String getGeoCountry() {
+    return geoCountry;
+  }
+
+  public void setGeoCountry(String geoCountry) {
+    this.geoCountry = geoCountry;
+  }
+
+  public String getGeoCity() {
+    return geoCity;
+  }
+
+  public void setGeoCity(String geoCity) {
+    this.geoCity = geoCity;
+  }
+
+  public Integer getAsn() {
+    return asn;
+  }
+
+  public void setAsn(Integer asn) {
+    this.asn = asn;
+  }
+
+  public Boolean getVpnOrProxy() {
+    return vpnOrProxy;
+  }
+
+  public void setVpnOrProxy(Boolean vpnOrProxy) {
+    this.vpnOrProxy = vpnOrProxy;
   }
 
   public BigDecimal getAmount() {

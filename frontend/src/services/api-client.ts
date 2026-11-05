@@ -3,12 +3,15 @@
 // backend URL through the native bridge so the bundled UI stays portable.
 
 import { readNative } from '@/services/native-bridge';
+import type { Alert } from '@/types/alerts';
+import type { DashboardSummary } from '@/types/dashboard';
 import type { PayPalCaptureResponse, PayPalGateResponse } from '@/types/paypal';
 import type {
   GuardedPaymentRequest,
   GuardedPaymentResponse,
   VerificationConfirmResponse,
 } from '@/types/payment';
+import type { TotpEnrollment, TotpStatus } from '@/types/mfa';
 import type { TransactionDetail, TransactionPage } from '@/types/transaction';
 
 function resolveApiBaseUrl(): string {
@@ -30,6 +33,17 @@ function resolveApiBaseUrl(): string {
 }
 
 export const apiBaseUrl: string = resolveApiBaseUrl();
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
+export interface AuthSession {
+  authenticated: boolean;
+  user: AuthUser | null;
+}
 
 /** Payment evaluation can include two LLM calls, so allow up to 90 seconds. */
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -86,6 +100,7 @@ export async function apiFetch<T>(
   try {
     const res = await fetch(`${apiBaseUrl}${path}`, {
       ...rest,
+      credentials: 'include',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
@@ -175,12 +190,78 @@ export function getTransaction(id: string): Promise<TransactionDetail> {
   return apiFetch<TransactionDetail>(`/api/transactions/${encodeURIComponent(id)}`);
 }
 
+/** Recent in-app alerts for the demo workspace. */
+export function listAlerts(limit = 20): Promise<Alert[]> {
+  return apiFetch<Alert[]>(`/api/alerts?limit=${limit}`);
+}
+
+/** Live dashboard aggregates. */
+export function getDashboardSummary(): Promise<DashboardSummary> {
+  return apiFetch<DashboardSummary>('/api/dashboard/summary');
+}
+
+/** Whether the demo account has an authenticator app enrolled. */
+export function getTotpStatus(): Promise<TotpStatus> {
+  return apiFetch<TotpStatus>('/api/mfa/totp');
+}
+
+/** Enrolls (or re-enrolls) the demo account and returns the provisioning secret. */
+export function enrollTotp(): Promise<TotpEnrollment> {
+  return apiFetch<TotpEnrollment>('/api/mfa/totp/enroll', { method: 'POST' });
+}
+
+/** Removes the TOTP secret, falling back to the next configured channel. */
+export function disableTotp(): Promise<TotpStatus> {
+  return apiFetch<TotpStatus>('/api/mfa/totp', { method: 'DELETE' });
+}
+
+/** Current cookie-backed session; never throws for an anonymous visitor. */
+export function getAuthSession(): Promise<AuthSession> {
+  return apiFetch<AuthSession>('/api/auth/me');
+}
+
+export function login(email: string, password: string): Promise<AuthSession> {
+  return apiFetch<AuthSession>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function register(
+  email: string,
+  password: string,
+  displayName: string,
+): Promise<AuthSession> {
+  return apiFetch<AuthSession>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, displayName }),
+  });
+}
+
+export function logout(): Promise<AuthSession> {
+  return apiFetch<AuthSession>('/api/auth/logout', { method: 'POST' });
+}
+
+/** Loopback-only demo switch; the backend rejects remote callers. */
+export function getAiEnabled(): Promise<{ enabled: boolean }> {
+  return apiFetch<{ enabled: boolean }>('/api/dev/ai');
+}
+
+/** Loopback-only demo switch; the backend rejects remote callers. */
+export function setAiEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  return apiFetch<{ enabled: boolean }>('/api/dev/ai', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 /** Captures an approved order. Allowed only by the stored server-side decision. */
 export async function capturePayPalOrder(orderId: string): Promise<PayPalCaptureResponse> {
   const res = await fetch(
     `${apiBaseUrl}/api/paypal/orders/${encodeURIComponent(orderId)}/capture`,
     {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },

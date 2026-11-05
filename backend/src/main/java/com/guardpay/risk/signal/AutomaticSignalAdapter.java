@@ -35,6 +35,15 @@ public final class AutomaticSignalAdapter {
         collection.detected(PaymentSignalType.SOCIAL_ENGINEERING_DETECTED)
             || AiFindingAdapter.SOCIAL_GROUP.stream().anyMatch(collection::detected),
         collection.detected(PaymentSignalType.MISSING_CONTEXT),
-        collection.detected(PaymentSignalType.RECIPIENT_AMOUNT_ANOMALY));
+        collection.detected(PaymentSignalType.RECIPIENT_AMOUNT_ANOMALY),
+        collection.detected(PaymentSignalType.NEW_DEVICE),
+        collection.detected(PaymentSignalType.NEW_GEO),
+        collection.detected(PaymentSignalType.IMPOSSIBLE_TRAVEL),
+        collection.detected(PaymentSignalType.VPN_PROXY),
+        collection.detected(PaymentSignalType.VELOCITY_HOURLY),
+        collection.detected(PaymentSignalType.VELOCITY_DAILY),
+        collection.detected(PaymentSignalType.BLOCKLISTED_RECIPIENT),
+        collection.detected(PaymentSignalType.KNOWN_RECIPIENT_SCAM),
+        collection.detected(PaymentSignalType.SPLIT_PAYMENT));
   }
 }

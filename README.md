@@ -7,10 +7,11 @@ GuardPay detects when a user may be getting manipulated into making a fraudulent
 > **Status:** the guarded payment flow is implemented end to end — automatic
 > signals + AI evidence → deterministic risk engine → `ALLOW`/`VERIFY`/`STOP`,
 > controlled verification, recipient-bound PayPal Sandbox orders + server-side
-> capture, signature-verified webhooks, and transaction history. The demo runs
-> as a single fixed server-side workspace (`guardpay-demo`); no account or
-> session authentication is required. See `docs/demo.md` to run the demo and
-> `docs/` for design.
+> capture, signature-verified webhooks, and transaction history. Accounts are
+> protected by BCrypt password hashes and an opaque `HttpOnly` session cookie;
+> transactions, recipients, alerts, idempotency keys, and the SSE feed are
+> scoped to the signed-in user. See `docs/demo.md` to run the demo and `docs/`
+> for design.
 
 ## Architecture overview
 
@@ -146,25 +147,32 @@ mvn -f backend clean test
 # 4. Start the backend
 mvn -f backend spring-boot:run
 
-# 5. Verify (no auth needed for the probe)
+# 5. Verify (health and /api/auth/* are public)
 curl http://localhost:8080/api/health
-# → {"status":"UP","service":"guardpay-backend"}
+# �+' {"status":"UP","service":"guardpay-backend"}
 ```
+
+Open the frontend, create an account, and sign in. The browser stores only the
+opaque session cookie; API calls and the alert stream send it automatically.
 
 Layering rule: `Controller → Service → Repository → Database`.
 Controllers return DTOs (`common/dto/ApiResponse`) — never JPA entities.
 CORS default-allows the Vite dev server (`http://localhost:3000`,
-override via `CORS_ALLOWED_ORIGINS`). There is no account/session
-authentication in the demo. PayPal webhooks are trusted through signature
-verification, device-signal intake through the device token, and the
-verification outbox is loopback-only.
+override via `CORS_ALLOWED_ORIGINS`) with credentials enabled. Authentication
+uses BCrypt password hashes and an opaque `HttpOnly`, `SameSite=Lax` session
+cookie; only the SHA-256 token hash is stored server-side. `/api/auth/*`,
+`/api/health`, signed PayPal webhooks, device-signal intake, and the loopback
+verification outbox are public; all other API routes require a session.
+Set `GUARDPAY_AUTH_COOKIE_SECURE=true` behind HTTPS and
+`GUARDPAY_AUTH_ENABLED=false` only for fixture/unit-test tooling.
 
-Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1�?"V16`,
+Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1���?"V21`,
 applied automatically at startup); Hibernate stays on `ddl-auto=validate`.
-Tables: `users, merchants, recipients, transactions, payment_context, risk_assessments,
-paypal_webhook_events, device_call_states, guarded_payment_idempotency,
-payment_verifications`. V16 removes the auth tables and consolidates existing
-data onto the fixed demo user.
+Tables include `users, auth_sessions, merchants, recipients, transactions,
+payment_context, risk_assessments, paypal_webhook_events, device_call_states,
+guarded_payment_idempotency, payment_verifications, recipient_blocklist,
+alerts, notification_outbox`. V21 restores auth and makes idempotency keys
+unique per owner.
 Note: if a local PostgreSQL already occupies host port 5432, either stop it
 or point the backend at the compose DB via `DB_PORT`.
 
@@ -193,7 +201,7 @@ never logs tokens/secrets and never returns them from any API.
 ## Guarded PayPal flow (the only order-creation path)
 
 Flow: `POST /api/payments/guarded` accepts business/payment context only and
-runs in the fixed demo workspace. The backend derives risk, stores the
+runs in the authenticated user's workspace. The backend derives risk, stores the
 transaction and decision once, and creates the PayPal order **only for ALLOW**
 (status `PAYPAL_AUTHORIZATION_REQUIRED` + Sandbox approval URL). STOP creates
 nothing; VERIFY creates nothing until the controlled challenge is confirmed.
@@ -230,8 +238,9 @@ order — no second order), a reused key with different content is rejected
 stored result without re-calling PayPal (row-locked check-then-capture), so
 double-clicks cannot double-charge. The primary `/payment` UI is toggle-free
 (amount, recipient, recipient PayPal email, merchant, message, URL) and runs in
-the fixed demo workspace. Global idempotency-key and capture uniqueness are
-enforced in the database. Webhook, engine, and threshold behavior are unchanged.
+the signed-in user's workspace. Idempotency keys are unique per owner, and
+capture uniqueness is enforced in the database. Webhook, engine, and threshold
+behavior are unchanged.
 
 Real-LLM status: no `OPENAI_API_KEY` is available in this environment, so the
 live hero runs deterministically (STOP via the guarded endpoint additionally
@@ -288,7 +297,7 @@ unreachable).
   (`V13__add_risk_assessment_findings.sql`) so decisions stay explainable.
   `GET /api/transactions` (paged) and `GET /api/transactions/{id}` return the
   stored decision, findings, PayPal references and verification outcome for the
-  fixed demo workspace. The `/transactions` UI lists history in AG Grid with
+  signed-in account only. The `/transactions` UI lists history in AG Grid with
   a detail panel; the checkout receipt closes the loop.
 - **Run it:** `pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail <sandbox-payee>` (checks the safety
   invariants against a running backend) — see `docs/demo.md`.
@@ -324,8 +333,8 @@ live webhook.
 
 `POST /api/risk/evaluate-automatic` accepts payment context only (`amount`,
 optional `recipientId`/`merchantId`/`transactionId`). The workspace is resolved
-server-side as the fixed demo user, and there are no risk booleans on this path,
-so forged flags are ignored.
+server-side from the authenticated session, and there are no risk booleans on
+this path, so forged flags are ignored.
 
 CURRENT (backend-derived): `UNUSUAL_AMOUNT` (same ≥5× definition as the
 engine, shared constant), `NEW_RECIPIENT` / `UNKNOWN_MERCHANT` (prior
@@ -386,7 +395,7 @@ accepted). Replays return the stored capture without re-calling PayPal
 (COMPLETED/FAILED). Transaction rows reuse `PENDING`/`CANCELLED`/
 `COMPLETED`/`FAILED`. The primary UI (`/payment`) is toggle-free (amount,
 recipient, recipient PayPal email, merchant, message, URL -> Pay securely) and
-runs without an account; the public manual-risk UI was removed.
+requires sign-in; the public manual-risk UI was removed.
 
 ### Android call-state integration (Milestone 11 — device signal only)
 
@@ -453,7 +462,7 @@ own authorized mobile/payment environment.
 Full instructions: `docs/demo.md`. Automated safety-invariant suite:
 `pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail <sandbox-payee>`.
 
-1. Open `/payment` directly; the demo uses a fixed server-side workspace.
+1. Register or sign in, then open `/payment`; the workspace is private to the account.
 2. Select **Safe Payment** (preset fills $45, known names, normal message).
 3. Show automatic risk analysis → **LOW / ALLOW** and the contributing signals.
 4. Show the real PayPal Sandbox order + approval link.
@@ -498,8 +507,9 @@ of the official PayPal app, and not endorsed by PayPal.
 - External webhook delivery needs a public tunnel (not configured; never faked).
 - Device call-state is foreground-only with Android lifecycle limits.
 - Free-tier AI models vary run to run; strict schema + confidence gates absorb it.
-- Single fixed demo user/workspace; not multi-user. Dev verification outbox is
-  temporary and loopback-only.
+- Sessions are server-side cookie sessions (no OAuth, password reset, email
+  verification, or MFA on login yet). Dev verification outbox is temporary and
+  loopback-only.
 - Host port 5432 may clash with a local PostgreSQL — use `DB_PORT` or stop it.
 
 ## Current step — what is / isn't done
@@ -513,10 +523,11 @@ Done:
 - [x] Full lifecycle status + controlled VERIFY (order-free until verified)
 - [x] Receipt + transaction history with persisted, explainable findings
 - [x] End-to-end Sandbox demo suite (`scripts/demo-guarded-flow.ps1`) + docs
+- [x] Multi-user authentication with owner-scoped data, idempotency, and SSE
 
 Explicitly NOT done (honest):
 
-- [ ] Multi-user authentication (demo intentionally uses one fixed workspace)
+- [ ] Password reset, email verification, OAuth, and MFA-at-login
 - [ ] Real identity provider for verification (currently a simulated channel)
 - [ ] External webhook delivery (needs a public tunnel/deploy)
 - [ ] Persisted dashboard aggregates / real-time (WS/SSE) updates

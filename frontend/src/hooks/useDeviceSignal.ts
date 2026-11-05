@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiRequestError } from '@/services/api-client';
 import { reportCallState } from '@/services/device-service';
+import { getDeviceFingerprint } from '@/services/device-fingerprint';
 import { getNativeBridge, readNative } from '@/services/native-bridge';
 
 const DEVICE_ID_KEY = 'guardpay.device-id';
@@ -82,6 +83,7 @@ function initialToken(): string {
 
 export interface DeviceSignal {
   deviceId: string;
+  fingerprint: string;
   token: string;
   activeCall: boolean | null;
   observedAt: string | null;
@@ -104,6 +106,7 @@ export interface DeviceSignal {
 export function useDeviceSignal(): DeviceSignal {
   const [native] = useState(() => getNativeBridge());
   const [deviceId, setDeviceId] = useState<string>(initialDeviceId);
+  const [fingerprint] = useState<string>(getDeviceFingerprint);
   const [token, setTokenState] = useState<string>(initialToken);
   const [activeCall, setActiveCall] = useState<boolean | null>(null);
   const [observedAt, setObservedAt] = useState<string | null>(null);
@@ -179,6 +182,7 @@ export function useDeviceSignal(): DeviceSignal {
 
   return {
     deviceId,
+    fingerprint,
     token,
     activeCall,
     observedAt,

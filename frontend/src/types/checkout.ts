@@ -55,6 +55,7 @@ export const EMPTY_DRAFT: CheckoutDraft = {
 /** Non-form context that is still part of the attempt's identity. */
 export interface CheckoutContext {
   deviceId?: string;
+  deviceFingerprint?: string;
   /** Changes when a new call-state observation is stored. */
   deviceStateKey?: string | null;
 }
@@ -62,6 +63,7 @@ export interface CheckoutContext {
 export function toGuardedPaymentRequest(
   draft: CheckoutDraft,
   deviceId?: string,
+  deviceFingerprint?: string,
 ): GuardedPaymentRequest {
   return {
     amount: Number(draft.amount),
@@ -72,6 +74,10 @@ export function toGuardedPaymentRequest(
       draft.recipientEmail.trim() === '' ? undefined : draft.recipientEmail.trim(),
     merchantName: draft.merchant.trim() === '' ? undefined : draft.merchant.trim(),
     deviceId: deviceId === undefined || deviceId.trim() === '' ? undefined : deviceId.trim(),
+    deviceFingerprint:
+      deviceFingerprint === undefined || deviceFingerprint.trim() === ''
+        ? undefined
+        : deviceFingerprint.trim(),
     contentText: draft.description.trim() === '' ? undefined : draft.description.trim(),
     contentUrl: draft.url.trim() === '' ? undefined : draft.url.trim(),
   };

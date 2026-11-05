@@ -18,6 +18,8 @@ import com.guardpay.payment.dto.GuardedVerificationDto;
 import com.guardpay.payment.dto.VerificationConfirmResponseDto;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
+import com.guardpay.user.DemoUserService;
+import com.guardpay.user.User;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -30,6 +32,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** Guarded endpoint with a mocked orchestrator: validation and shapes only. */
@@ -41,6 +44,7 @@ class GuardedPaymentControllerTest {
 
   @MockBean private PaymentSafetyOrchestrator orchestrator;
   @MockBean private PaymentVerificationService verificationService;
+  @MockBean private DemoUserService demoUser;
 
   private static String body(String amount) {
     return "{\"amount\": "
@@ -114,7 +118,11 @@ class GuardedPaymentControllerTest {
   @Test
   void confirmVerificationReturnsOrderOnSuccess() throws Exception {
     UUID paymentId = UUID.randomUUID();
-    when(verificationService.confirm(eq(paymentId), eq("123456")))
+    UUID userId = UUID.randomUUID();
+    User user = new User();
+    ReflectionTestUtils.setField(user, "id", userId);
+    when(demoUser.currentUser()).thenReturn(user);
+    when(verificationService.confirmForUser(eq(paymentId), eq("123456"), eq(userId)))
         .thenReturn(
             new VerificationConfirmResponseDto(
                 paymentId,

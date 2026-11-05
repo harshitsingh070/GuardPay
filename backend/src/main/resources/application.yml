@@ -40,6 +40,9 @@ app:
 # PayPal Sandbox. Credentials come from the environment only â€” never commit them.
 # The backend boots without them; PayPal calls fail clearly at use time.
 guardpay:
+  auth:
+    enabled: ${GUARDPAY_AUTH_ENABLED:true}
+    cookie-secure: ${GUARDPAY_AUTH_COOKIE_SECURE:false}
   paypal:
     base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
     client-id: ${PAYPAL_CLIENT_ID:}
@@ -67,6 +70,15 @@ guardpay:
     ttl-minutes: ${GUARDPAY_VERIFICATION_TTL_MINUTES:10}
     max-attempts: ${GUARDPAY_VERIFICATION_MAX_ATTEMPTS:3}
     dev-outbox-enabled: ${GUARDPAY_DEV_VERIFICATION_OUTBOX:true}
+    # Real email OTP is used only when enabled AND spring.mail.host is set.
+    email-enabled: ${GUARDPAY_VERIFICATION_EMAIL_ENABLED:false}
+    email-from: ${GUARDPAY_VERIFICATION_EMAIL_FROM:no-reply@guardpay.local}
+  # Alert delivery: SSE is always on; email/SMS adapters activate only when
+  # configured. The outbox guarantees a CRITICAL alert is not lost on a crash.
+  alerts:
+    dispatch-interval-ms: ${GUARDPAY_ALERT_DISPATCH_INTERVAL_MS:2000}
+    email-enabled: ${GUARDPAY_ALERTS_EMAIL_ENABLED:true}
+    email-from: ${GUARDPAY_ALERTS_EMAIL_FROM:no-reply@guardpay.local}
   # Development HTTP tracing: inbound request/response bodies and outbound
   # PayPal/AI calls. Tokens, secrets, signatures, verification codes, and
   # challenge codes are masked. Set the body or header switches to false to

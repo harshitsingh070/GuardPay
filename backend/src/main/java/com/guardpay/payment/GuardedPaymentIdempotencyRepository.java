@@ -8,5 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface GuardedPaymentIdempotencyRepository
     extends JpaRepository<GuardedPaymentIdempotency, UUID> {
 
-  Optional<GuardedPaymentIdempotency> findByIdempotencyKey(String idempotencyKey);
+  Optional<GuardedPaymentIdempotency> findByUserIdAndIdempotencyKey(
+      UUID userId, String idempotencyKey);
 }

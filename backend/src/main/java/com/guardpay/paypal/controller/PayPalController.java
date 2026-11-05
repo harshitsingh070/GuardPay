@@ -9,8 +9,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Development-stage PayPal probe (no authentication yet — the auth milestone
- * will protect it). Thin by design: delegates and maps, nothing else.
+ * Authenticated PayPal connectivity probe. Thin by design: delegates and maps,
+ * nothing else.
  */
 @RestController
 @RequestMapping("/api/paypal")
@@ -28,3 +28,5 @@ public class PayPalController {
     return ResponseEntity.ok(new PayPalHealthResponse(status.status(), "PAYPAL", status.environment()));
   }
 }
+
+

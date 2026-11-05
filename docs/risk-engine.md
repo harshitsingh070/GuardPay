@@ -40,9 +40,9 @@ without touching agents or UI.
 ### 3.1 Recipient intelligence (implemented)
 
 Recipient intelligence is derived from the current GuardPay account's own
-transaction history (the existing user ownership model; a single demo account in
-the current configuration); it is never shared across accounts and adds no new
-storage or gateway.
+transaction history (the existing user ownership model; each authenticated
+account has its own workspace); it is never shared across accounts and adds no
+new storage or gateway.
 
 - Recipient identity is the persisted `recipients` row scoped to the owning
   `user_id`. Display name, email text, and PayPal account strings are never used

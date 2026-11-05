@@ -12,6 +12,7 @@ export interface GuardedPaymentRequest {
   recipientPaypalAccountId?: string;
   merchantName?: string;
   deviceId?: string;
+  deviceFingerprint?: string;
   contentText?: string;
   contentUrl?: string;
 }

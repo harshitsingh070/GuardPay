@@ -1,6 +1,7 @@
 import { AlertOctagon, AlertTriangle, ShieldCheck } from 'lucide-react';
 import RiskBadge from '@/components/RiskBadge';
 import type { GuardedPaymentResponse } from '@/types/payment';
+import { classifyFraudPattern } from '@/utils/fraud-pattern';
 import { getRiskTheme } from '@/utils/risk-styles';
 
 const COPY = {
@@ -28,6 +29,11 @@ export default function DecisionPanel({ result }: { result: GuardedPaymentRespon
   const theme = getRiskTheme(result.risk.riskLevel);
   const triggered = result.risk.findings.filter((finding) => finding.triggered);
   const top = triggered.slice(0, 3);
+  const fraudPattern = classifyFraudPattern({
+    findings: result.risk.findings,
+    action,
+    level: result.risk.riskLevel,
+  });
 
   return (
     <section
@@ -43,6 +49,18 @@ export default function DecisionPanel({ result }: { result: GuardedPaymentRespon
 
       <p className="mt-2 text-sm">{copy.body}</p>
       <p className="mt-2 text-sm text-muted-foreground">{result.risk.explanation}</p>
+
+      {fraudPattern !== null && (
+        <div className="mt-4 rounded-xl border border-current/15 bg-background/70 p-3.5">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Likely fraud type
+          </p>
+          <p className="mt-1 text-base font-bold">{fraudPattern.label}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {fraudPattern.description}
+          </p>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <span>

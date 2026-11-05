@@ -10,8 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Risk evaluation endpoint (development stage — no authentication yet; the
- * auth milestone will protect it).
+ * Risk evaluation endpoint (authenticated).
  *
  * <p>Thin by design: validates, delegates to {@link RiskEvaluationService},
  * and returns HTTP 200. No risk calculations live here.
@@ -32,3 +31,6 @@ public class RiskController {
     return ResponseEntity.ok(service.evaluate(request));
   }
 }
+
+
+

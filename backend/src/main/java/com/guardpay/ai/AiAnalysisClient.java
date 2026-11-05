@@ -22,24 +22,36 @@ public class AiAnalysisClient {
 
   private final AiServiceProperties properties;
   private final RestClient restClient;
+  private final AiRuntimeControl runtimeControl;
   private final Object breakerLock = new Object();
   private int consecutiveFailures;
   private long openUntilMillis;
 
   @Autowired
-  public AiAnalysisClient(AiServiceProperties properties) {
-    this(properties, buildRestClient(properties));
+  public AiAnalysisClient(AiServiceProperties properties, AiRuntimeControl runtimeControl) {
+    this(properties, buildRestClient(properties), runtimeControl);
   }
 
   /** Test hook: inject mock-server client. */
   AiAnalysisClient(AiServiceProperties properties, RestClient restClient) {
+    this(properties, restClient, new AiRuntimeControl());
+  }
+
+  AiAnalysisClient(
+      AiServiceProperties properties,
+      RestClient restClient,
+      AiRuntimeControl runtimeControl) {
     this.properties = properties;
     this.restClient = restClient;
+    this.runtimeControl = runtimeControl;
   }
 
   public AiAnalysisResponse analyze(AiAnalysisRequest request) {
     if (!properties.isEnabled()) {
       throw new AiUnavailableException("AI analysis is disabled");
+    }
+    if (runtimeControl != null && runtimeControl.isDisabled()) {
+      throw new AiUnavailableException("AI analysis disabled by demo toggle");
     }
     if (circuitOpen()) {
       throw new AiUnavailableException("AI circuit is open");

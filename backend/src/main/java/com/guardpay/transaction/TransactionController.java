@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Read-only transaction history for the fixed demo account.
+ * Read-only transaction history for the authenticated account.
  *
  * <p>Clients cannot select or widen the history scope.
  */
@@ -37,3 +37,4 @@ public class TransactionController {
     return ResponseEntity.ok(service.detail(id));
   }
 }
+

@@ -36,6 +36,10 @@ public class PaymentVerification extends BaseEntity {
   @Column(name = "challenge_code_hash", length = 128, nullable = false)
   private String challengeCodeHash;
 
+  /** Delivery/verification channel: TOTP, EMAIL, or SIMULATED. */
+  @Column(name = "channel", length = 16, nullable = false)
+  private String channel = "SIMULATED";
+
   @Column(name = "attempts", nullable = false)
   private int attempts;
 
@@ -70,6 +74,14 @@ public class PaymentVerification extends BaseEntity {
 
   public void setChallengeCodeHash(String challengeCodeHash) {
     this.challengeCodeHash = challengeCodeHash;
+  }
+
+  public String getChannel() {
+    return channel;
+  }
+
+  public void setChannel(String channel) {
+    this.channel = channel;
   }
 
   public int getAttempts() {

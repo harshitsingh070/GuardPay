@@ -2,6 +2,7 @@ package com.guardpay.payment;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.guardpay.alert.AlertService;
 import com.guardpay.merchant.Merchant;
 import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
@@ -53,7 +54,9 @@ public class GuardedPaymentCompletionService {
   private final GuardedPaymentIdempotencyRepository idempotency;
   private final GuardedPaymentLock lock;
   private final PaymentVerificationService verificationService;
+  private final AlertService alertService;
 
+  /** Legacy/test constructor: alerts are not recorded. */
   public GuardedPaymentCompletionService(
       PayPalOrderService orderService,
       TransactionRepository transactions,
@@ -62,6 +65,27 @@ public class GuardedPaymentCompletionService {
       GuardedPaymentIdempotencyRepository idempotency,
       GuardedPaymentLock lock,
       PaymentVerificationService verificationService) {
+    this(
+        orderService,
+        transactions,
+        contexts,
+        assessments,
+        idempotency,
+        lock,
+        verificationService,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public GuardedPaymentCompletionService(
+      PayPalOrderService orderService,
+      TransactionRepository transactions,
+      PaymentContextRepository contexts,
+      RiskAssessmentRepository assessments,
+      GuardedPaymentIdempotencyRepository idempotency,
+      GuardedPaymentLock lock,
+      PaymentVerificationService verificationService,
+      AlertService alertService) {
     this.orderService = orderService;
     this.transactions = transactions;
     this.contexts = contexts;
@@ -69,6 +93,7 @@ public class GuardedPaymentCompletionService {
     this.idempotency = idempotency;
     this.lock = lock;
     this.verificationService = verificationService;
+    this.alertService = alertService;
   }
 
   @Transactional
@@ -83,7 +108,7 @@ public class GuardedPaymentCompletionService {
     if (key != null) {
       lock.acquire(key);
       Optional<GuardedPaymentIdempotency> existing =
-          idempotency.findByIdempotencyKey(key);
+          idempotency.findByUserIdAndIdempotencyKey(user.getId(), key);
       if (existing.isPresent()) {
         return GuardedPaymentReplay.replayOrConflict(existing.get(), dto);
       }
@@ -98,6 +123,7 @@ public class GuardedPaymentCompletionService {
               ? verificationService.startChallenge(transaction)
               : null;
       return finish(
+          user,
           key,
           dto,
           transaction,
@@ -117,6 +143,7 @@ public class GuardedPaymentCompletionService {
     log.info("Guarded payment allowed; PayPal order created (risk={})", risk.riskLevel());
 
     return finish(
+        user,
         key,
         dto,
         transaction,
@@ -129,6 +156,7 @@ public class GuardedPaymentCompletionService {
   }
 
   private GuardedPaymentResponseDto finish(
+      User user,
       String key,
       GuardedPaymentRequestDto dto,
       Transaction transaction,
@@ -137,6 +165,7 @@ public class GuardedPaymentCompletionService {
       return response;
     }
     GuardedPaymentIdempotency row = new GuardedPaymentIdempotency();
+    row.setUser(user);
     row.setIdempotencyKey(key);
     row.setRequestHash(GuardedPaymentReplay.requestHash(dto));
     row.setTransaction(transaction);
@@ -158,6 +187,13 @@ public class GuardedPaymentCompletionService {
     transaction.setMerchant(merchant);
     transaction.setAmount(amount);
     transaction.setCurrency(dto.getCurrency());
+    transaction.setDeviceId(dto.getDeviceId());
+    transaction.setDeviceFingerprint(dto.getDeviceFingerprint());
+    transaction.setClientIp(dto.getClientIp());
+    transaction.setGeoCountry(dto.getGeoCountry());
+    transaction.setGeoCity(dto.getGeoCity());
+    transaction.setAsn(dto.getAsn());
+    transaction.setVpnOrProxy(dto.getVpnOrProxy());
     transaction.setTransactionType(TransactionType.PAYMENT);
     transaction.setDescription(dto.getDescription());
     transaction.setTransactionTimestamp(OffsetDateTime.now(ZoneOffset.UTC));
@@ -190,6 +226,9 @@ public class GuardedPaymentCompletionService {
     assessment.setFindings(serializeFindings(risk));
     assessments.save(assessment);
 
+    if (alertService != null) {
+      alertService.recordPaymentDecision(transaction, risk);
+    }
     return transaction;
   }
 

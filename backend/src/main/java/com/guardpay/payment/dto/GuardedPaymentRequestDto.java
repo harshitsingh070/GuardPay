@@ -1,5 +1,6 @@
 package com.guardpay.payment.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
@@ -52,6 +53,32 @@ public class GuardedPaymentRequestDto {
 
   /** Optional paired-device identity for trusted call-state lookup. */
   private UUID deviceId;
+
+  /** Stable client device fingerprint; treated as a device hint, never a verdict. */
+  @Size(max = 128, message = "deviceFingerprint must be 128 characters or fewer")
+  private String deviceFingerprint;
+
+  /**
+   * Server-observed network context. These fields are populated by the
+   * controller (IP) or a trusted resolver, so JSON cannot forge them.
+   */
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  @Size(max = 64, message = "clientIp must be 64 characters or fewer")
+  private String clientIp;
+
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  @Size(max = 2, message = "geoCountry must be a 2-letter country code")
+  private String geoCountry;
+
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  @Size(max = 128, message = "geoCity must be 128 characters or fewer")
+  private String geoCity;
+
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private Integer asn;
+
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private Boolean vpnOrProxy;
 
   @Size(max = 4000, message = "contentText must be 4000 characters or fewer")
   private String contentText;
@@ -138,6 +165,54 @@ public class GuardedPaymentRequestDto {
 
   public void setDeviceId(UUID deviceId) {
     this.deviceId = deviceId;
+  }
+
+  public String getDeviceFingerprint() {
+    return deviceFingerprint;
+  }
+
+  public void setDeviceFingerprint(String deviceFingerprint) {
+    this.deviceFingerprint = deviceFingerprint;
+  }
+
+  public String getClientIp() {
+    return clientIp;
+  }
+
+  public void setClientIp(String clientIp) {
+    this.clientIp = clientIp;
+  }
+
+  public String getGeoCountry() {
+    return geoCountry;
+  }
+
+  public void setGeoCountry(String geoCountry) {
+    this.geoCountry = geoCountry;
+  }
+
+  public String getGeoCity() {
+    return geoCity;
+  }
+
+  public void setGeoCity(String geoCity) {
+    this.geoCity = geoCity;
+  }
+
+  public Integer getAsn() {
+    return asn;
+  }
+
+  public void setAsn(Integer asn) {
+    this.asn = asn;
+  }
+
+  public Boolean getVpnOrProxy() {
+    return vpnOrProxy;
+  }
+
+  public void setVpnOrProxy(Boolean vpnOrProxy) {
+    this.vpnOrProxy = vpnOrProxy;
   }
 
   public String getContentText() {

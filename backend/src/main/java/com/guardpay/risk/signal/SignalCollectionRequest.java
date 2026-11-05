@@ -17,7 +17,42 @@ public record SignalCollectionRequest(
     UUID merchantId,
     UUID excludeTransactionId,
     String contentText,
-    String contentUrl) {
+    String contentUrl,
+    UUID deviceId,
+    String deviceFingerprint,
+    String clientIp,
+    String geoCountry,
+    String geoCity,
+    Integer asn,
+    Boolean vpnOrProxy) {
+
+  /** Backwards-compatible constructor for callers without account-takeover context. */
+  public SignalCollectionRequest(
+      BigDecimal amount,
+      String currency,
+      UUID userId,
+      UUID recipientId,
+      UUID merchantId,
+      UUID excludeTransactionId,
+      String contentText,
+      String contentUrl) {
+    this(
+        amount,
+        currency,
+        userId,
+        recipientId,
+        merchantId,
+        excludeTransactionId,
+        contentText,
+        contentUrl,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
 
   /** Backwards-compatible constructor for callers without content. */
   public SignalCollectionRequest(

@@ -78,9 +78,15 @@ class AiFindingAdapterTest {
   }
 
   @Test
-  void deviceStateCodeIsNeverAccepted() {
+  void deterministicFactsAreNeverAcceptedFromAi() {
     List<PaymentSignal> signals =
-        AiFindingAdapter.toPaymentSignals(List.of(finding("ACTIVE_CALL", 0.99)));
+        AiFindingAdapter.toPaymentSignals(
+            List.of(
+                finding("ACTIVE_CALL", 0.99),
+                finding("BLOCKLISTED_RECIPIENT", 0.99),
+                finding("NEW_RECIPIENT", 0.99),
+                finding("MISSING_CONTEXT", 0.99),
+                finding("SPLIT_PAYMENT", 0.99)));
 
     assertTrue(signals.isEmpty());
   }

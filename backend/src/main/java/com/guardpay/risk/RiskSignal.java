@@ -28,6 +28,18 @@ public enum RiskSignal {
       "Repeated payment attempts",
       "Several payment attempts were made in a short period of time.",
       15),
+  VELOCITY_HOURLY(
+      "Sustained payment velocity",
+      "Five or more payment attempts were made in the last hour.",
+      15),
+  VELOCITY_DAILY(
+      "High payment velocity",
+      "Ten or more payment attempts were made in the last 24 hours.",
+      20),
+  BLOCKLISTED_RECIPIENT(
+      "Reported recipient",
+      "This recipient is on the user's fraud blocklist.",
+      25),
   UNKNOWN_MERCHANT(
       "Unknown merchant",
       "Merchant is not recognized from the user's transaction history.",
@@ -48,10 +60,34 @@ public enum RiskSignal {
       "Known scam pattern",
       "Behavior is consistent with a known social-engineering payment scam pattern.",
       20),
+  KNOWN_RECIPIENT_SCAM(
+      "Known recipient scam pattern",
+      "A previously known recipient is asking for a payment in a way that matches a compromised-account scam.",
+      50),
+  SPLIT_PAYMENT(
+      "Structured or split payments",
+      "Several small payments to the same recipient add up to a high-value payment in a short period.",
+      40),
   MISSING_CONTEXT(
       "Unverified high-value payment",
       "A high-value payment was requested without message, link, or trusted device context.",
-      20);
+      20),
+  NEW_DEVICE(
+      "New device",
+      "This payment was started from a device that has not been used for this account before.",
+      20),
+  NEW_GEO(
+      "Unfamiliar location",
+      "This payment was started from a country that has not been seen for this account before.",
+      15),
+  IMPOSSIBLE_TRAVEL(
+      "Impossible travel",
+      "This payment appears to come from a different country only a short time after the previous payment.",
+      25),
+  VPN_PROXY(
+      "VPN or proxy",
+      "The payment connection appears to use a VPN, proxy, or hosting provider.",
+      10);
 
   private final String title;
   private final String description;
