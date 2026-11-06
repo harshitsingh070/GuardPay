@@ -59,6 +59,19 @@ contribute points.
 | 18 | `NEW_GEO` | +15 | Transaction history / network | The account has prior geolocated payments and this country has not been seen. Missing geo reports unavailable. |
 | 19 | `IMPOSSIBLE_TRAVEL` | +25 | Transaction history / network | A different country is seen within **6 hours** of the previous geolocated payment. |
 | 20 | `VPN_PROXY` | +10 | Network | Trusted network reputation reports a VPN, proxy, or hosting connection. |
+| 21 | `AMOUNT_DEVIATION` | +15 | Behavioral profile | Payment amount deviates significantly from the user's learned baseline (MAD-based modified Z-score). |
+| 22 | `UNUSUAL_PAYMENT_HOUR` | +10 | Behavioral profile | Payment occurs at a time outside the user's typical activity window. |
+| 23 | `RECIPIENT_BEHAVIOR_DEVIATION` | +15 | Behavioral profile | Payment to a recipient that does not match the user's established counterparty relationships. |
+| 24 | `TRANSACTION_FREQUENCY_ANOMALY` | +10 | Behavioral profile | Payment frequency deviates from the user's learned cadence (sudden burst). |
+| 25 | `GEOGRAPHIC_BEHAVIOR_DEVIATION` | +15 | Behavioral profile | Payment from a location outside the user's established geographic pattern. |
+| 26 | `DEVICE_BEHAVIOR_DEVIATION` | +15 | Behavioral profile | Payment from a device not previously used for the account. |
+| 27 | `OVERALL_BEHAVIOR_DEVIATION` | +20 | Behavioral profile | Multiple behavioral dimensions deviate simultaneously. |
+
+Behavioral signals are computed by `AdaptiveBehavioralAnalyzer` against a
+per-user learned baseline stored in `user_behavior_profiles`. They are evidence
+only — never a payment decision — and the deterministic engine remains the sole
+ALLOW/VERIFY/STOP authority. Profiling uses rolling 7/30/90-day windows and
+robust statistics (median, MAD) to resist outlier distortion.
 
 Weights are fixed prototype heuristics in one enum, not learned probabilities.
 A signal that cannot be derived reliably is reported with a reason code and
@@ -194,7 +207,31 @@ Fallback behavior:
 - A successful call sets `aiStatus=AVAILABLE`.
 - The decision is never hard-dependent on the LLM.
 
-## 9. Explanation output
+## 9. Behavioral profiling evidence
+
+`AdaptiveBehavioralAnalyzer` runs after the existing signal collector and AI
+evidence, comparing the incoming payment against the user's learned behavioral
+baseline. It produces complementary `PaymentSignal`s with
+`SignalSource.BEHAVIORAL_PROFILE`:
+
+- `AMOUNT_DEVIATION` (+15): amount deviates from personalized median/MAD baseline
+- `UNUSUAL_PAYMENT_HOUR` (+10): time outside user's typical activity window
+- `RECIPIENT_BEHAVIOR_DEVIATION` (+15): counterparty not in established relationships
+- `TRANSACTION_FREQUENCY_ANOMALY` (+10): sudden payment burst vs learned cadence
+- `GEOGRAPHIC_BEHAVIOR_DEVIATION` (+15): location outside established pattern
+- `DEVICE_BEHAVIOR_DEVIATION` (+15): previously unseen device
+- `OVERALL_BEHAVIOR_DEVIATION` (+20): multiple dimensions deviate simultaneously
+
+Behavioral signals are evidence only. They never override hard-stop rules, never
+set an action directly, and never bypass `BLOCKLISTED_RECIPIENT`. If profiling is
+unavailable (`INSUFFICIENT_DATA`, `UNAVAILABLE`), no behavioral findings are
+generated and the deterministic engine decides alone.
+
+Cold-start handling: users with fewer than 5 completed transactions are marked
+`INSUFFICIENT_DATA` and receive no artificial risk inflation. Profiles become
+`ESTABLISHED` at 20+ transactions with adequate data coverage.
+
+## 10. Explanation output
 
 Every guarded assessment returns and persists:
 

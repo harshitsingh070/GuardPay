@@ -534,6 +534,7 @@ Done:
 - [x] Monorepo scaffold (`frontend/`, `backend/`, `ai-service/`, `docs/`)
 - [x] Deterministic risk engine + `ALLOW`/`VERIFY`/`STOP` (sole authority)
 - [x] Automatic signals (history, device) + AI evidence (never decisions)
+- [x] **Adaptive behavioral profiling** — per-user learned baselines for amount, time, recipient, device, geo, and frequency (rolling 7/30/90-day windows)
 - [x] Guarded flow with idempotency, server-side capture, webhooks
 - [x] Full lifecycle status + controlled VERIFY (order-free until verified)
 - [x] Receipt + transaction history with persisted, explainable findings

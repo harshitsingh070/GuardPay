@@ -28,7 +28,8 @@ public record GuardedPaymentResponseDto(
       String explanation,
       List<PaymentSignalDto> automaticSignals,
       List<RiskFindingDto> findings,
-      String aiStatus) {}
+      String aiStatus,
+      String behavioralProfileStatus) {}
 
   public record GuardedPaypalOrderDto(String orderId, String approvalUrl) {}
 }

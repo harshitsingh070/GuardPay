@@ -32,7 +32,25 @@ public class RiskEvaluationService {
             dto.isUnexpectedInvoice(),
             dto.isUrgentLanguage(),
             dto.isSuspiciousUrl(),
-            dto.isSocialEngineeringDetected());
+            dto.isSocialEngineeringDetected(),
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false);
 
     RiskEvaluationResult result = engine.evaluate(request);
 

@@ -87,7 +87,35 @@ public enum RiskSignal {
   VPN_PROXY(
       "VPN or proxy",
       "The payment connection appears to use a VPN, proxy, or hosting provider.",
-      10);
+      10),
+  AMOUNT_DEVIATION(
+      "Unusual amount for your pattern",
+      "Payment amount deviates significantly from your learned behavioral baseline.",
+      15),
+  UNUSUAL_PAYMENT_HOUR(
+      "Payment outside usual hours",
+      "Payment is occurring at a time outside your typical activity window.",
+      10),
+  RECIPIENT_BEHAVIOR_DEVIATION(
+      "Unusual recipient pattern",
+      "Payment to a recipient that does not match your established payment relationships.",
+      15),
+  TRANSACTION_FREQUENCY_ANOMALY(
+      "Unusual payment frequency",
+      "Payment frequency deviates from your learned behavioral pattern.",
+      10),
+  GEOGRAPHIC_BEHAVIOR_DEVIATION(
+      "Unusual payment location",
+      "Payment is from a location outside your established geographic pattern.",
+      15),
+  DEVICE_BEHAVIOR_DEVIATION(
+      "Unrecognized device",
+      "Payment is from a device not previously used for your account.",
+      15),
+  OVERALL_BEHAVIOR_DEVIATION(
+      "Multiple behavioral anomalies",
+      "Several behavioral dimensions deviate from your established pattern simultaneously.",
+      20);
 
   private final String title;
   private final String description;

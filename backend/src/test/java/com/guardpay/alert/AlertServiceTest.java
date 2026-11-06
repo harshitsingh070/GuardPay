@@ -70,7 +70,8 @@ class AlertServiceTest {
         "Explainable decision.",
         automatic,
         List.of(new RiskFindingDto("ACTIVE_CALL", "Active call", "desc", 15, true)),
-        "NOT_REQUESTED");
+        "NOT_REQUESTED",
+        null);
   }
 
   @Test

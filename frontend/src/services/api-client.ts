@@ -4,6 +4,7 @@
 
 import { readNative } from '@/services/native-bridge';
 import type { Alert } from '@/types/alerts';
+import type { BehavioralProfile, BehavioralProfileSummary } from '@/types/index';
 import type { DashboardSummary } from '@/types/dashboard';
 import type { PayPalCaptureResponse, PayPalGateResponse } from '@/types/paypal';
 import type {
@@ -345,6 +346,16 @@ export function setAiEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
     method: 'POST',
     body: JSON.stringify({ enabled }),
   });
+}
+
+/** Read-only behavioral profile for the authenticated user. */
+export function getBehavioralProfile(): Promise<BehavioralProfile> {
+  return apiFetch<BehavioralProfile>('/api/behavior/profile');
+}
+
+/** Safe behavioral summary for dashboard display. */
+export function getBehavioralSummary(): Promise<BehavioralProfileSummary> {
+  return apiFetch<BehavioralProfileSummary>('/api/behavior/summary');
 }
 
 /** Captures an approved order. Allowed only by the stored server-side decision. */

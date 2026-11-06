@@ -15,3 +15,79 @@ export interface PaymentAnalysisRequest {
   url?: string;
   activeCall: boolean;
 }
+
+export interface BehavioralProfile {
+  userId: string;
+  profileStatus: string;
+  transactionCount: number | null;
+  profileLastUpdated: string | null;
+  dataQualityScore: string | null;
+  amountBehavior: BehavioralAmountBehavior | null;
+  frequencyBehavior: BehavioralFrequencyBehavior | null;
+  timeBehavior: BehavioralTimeBehavior | null;
+  recipientBehavior: BehavioralRecipientBehavior | null;
+  locationBehavior: BehavioralLocationBehavior | null;
+  deviceBehavior: BehavioralDeviceBehavior | null;
+  behavioralDimensions: BehavioralDimensionStatus[];
+}
+
+export interface BehavioralAmountBehavior {
+  availability: string;
+  medianAmount: number | null;
+  typicalMin: number | null;
+  typicalMax: number | null;
+  p90Amount: number | null;
+  p95Amount: number | null;
+}
+
+export interface BehavioralFrequencyBehavior {
+  availability: string;
+  paymentsPerDay: number | null;
+  paymentsPerWeek: number | null;
+  avgIntervalMinutes: number | null;
+}
+
+export interface BehavioralTimeBehavior {
+  availability: string;
+  peakHour: number | null;
+  weekendPaymentRatio: number | null;
+  nightPaymentRatio: number | null;
+  typicalHours: number[];
+}
+
+export interface BehavioralRecipientBehavior {
+  availability: string;
+  uniqueRecipientCount: number | null;
+  establishedRecipientCount: number | null;
+  newRecipientRatio: number | null;
+  medianRecipientAmount: number | null;
+}
+
+export interface BehavioralLocationBehavior {
+  availability: string;
+  geoCountryCount: number | null;
+  typicalCountries: string[];
+}
+
+export interface BehavioralDeviceBehavior {
+  availability: string;
+  deviceCount: number | null;
+  familiarDeviceFingerprints: string[];
+}
+
+export interface BehavioralDimensionStatus {
+  dimension: string;
+  status: string;
+  reason: string;
+}
+
+export interface BehavioralProfileSummary {
+  profileStatus: string;
+  transactionCount: number | null;
+  profileLastUpdated: string | null;
+  normalAmountRange: string;
+  typicalPaymentHours: string;
+  recipientFamiliarity: string;
+  deviceFamiliarity: string;
+  recentAnomalies: string[];
+}

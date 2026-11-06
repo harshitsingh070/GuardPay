@@ -27,10 +27,13 @@ import {
   disableTotp,
   enrollTotp,
   getAiEnabled,
+  getBehavioralProfile,
+  getBehavioralSummary,
   getDashboardSummary,
   getTotpStatus,
   setAiEnabled,
 } from '@/services/api-client';
+import type { BehavioralProfile } from '@/types/index';
 import type { DashboardSummary } from '@/types/dashboard';
 import type { TotpStatus } from '@/types/mfa';
 
@@ -87,6 +90,8 @@ export default function DashboardPage() {
   const [totp, setTotp] = useState<TotpStatus | null>(null);
   const [mfaBusy, setMfaBusy] = useState(false);
   const [mfaError, setMfaError] = useState<string | null>(null);
+  const [behavioralProfile, setBehavioralProfile] = useState<BehavioralProfile | null>(null);
+  const [behavioralLoading, setBehavioralLoading] = useState(true);
 
   const load = useCallback(() => {
     setReload((current) => current + 1);
@@ -126,14 +131,19 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([getAiEnabled(), getTotpStatus()])
-      .then(([ai, mfa]) => {
+    Promise.all([getAiEnabled(), getTotpStatus(), getBehavioralProfile()])
+      .then(([ai, mfa, profile]) => {
         if (!active) return;
         setAiEnabledState(ai.enabled);
         setTotp(mfa);
+        setBehavioralProfile(profile);
       })
       .catch(() => {
         if (active) setAiEnabledState(null);
+        if (active) setBehavioralProfile(null);
+      })
+      .finally(() => {
+        if (active) setBehavioralLoading(false);
       });
     return () => {
       active = false;
@@ -412,6 +422,115 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {behavioralLoading ? (
+            <div className="gp-card mt-6 flex items-center gap-3 p-6" role="status">
+              <Loader2 className="h-5 w-5 animate-spin text-guardpay-blue" aria-hidden="true" />
+              <span className="text-sm text-guardpay-muted">Loading behavioral profile…</span>
+            </div>
+          ) : behavioralProfile !== null ? (
+            <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div className="gp-card p-5 sm:p-6">
+                <div className="flex items-center gap-2">
+                  <Brain className="h-5 w-5 text-guardpay-blue" aria-hidden="true" />
+                  <h2 className="text-lg font-bold text-guardpay-ink">Behavioral Intelligence</h2>
+                  <span
+                    className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                      behavioralProfile.profileStatus === 'ESTABLISHED'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : behavioralProfile.profileStatus === 'INITIALIZING'
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-guardpay-line text-guardpay-muted'
+                    }`}
+                  >
+                    {behavioralProfile.profileStatus === 'ESTABLISHED'
+                      ? 'Profile established'
+                      : behavioralProfile.profileStatus === 'INITIALIZING'
+                      ? 'Initializing'
+                      : 'Insufficient data'}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-guardpay-muted">
+                  GuardPay learns your normal payment behavior and flags personalized
+                  deviations — amount, time, recipient, device, location, and frequency.
+                </p>
+                <div className="mt-4 space-y-3">
+                  <BehavioralDimensionRow
+                    label="Amount pattern"
+                    status={behavioralProfile.amountBehavior?.availability ?? 'UNAVAILABLE'}
+                    detail={
+                      behavioralProfile.amountBehavior?.medianAmount != null
+                        ? `Median: ${new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: 'USD',
+                          }).format(behavioralProfile.amountBehavior.medianAmount)}`
+                        : 'No history'
+                    }
+                  />
+                  <BehavioralDimensionRow
+                    label="Payment frequency"
+                    status={
+                      behavioralProfile.frequencyBehavior?.availability ?? 'UNAVAILABLE'
+                    }
+                    detail={
+                      behavioralProfile.frequencyBehavior?.paymentsPerDay != null
+                        ? `${behavioralProfile.frequencyBehavior.paymentsPerDay.toFixed(1)} / day`
+                        : 'No history'
+                    }
+                  />
+                  <BehavioralDimensionRow
+                    label="Payment hours"
+                    status={behavioralProfile.timeBehavior?.availability ?? 'UNAVAILABLE'}
+                    detail={
+                      behavioralProfile.timeBehavior?.peakHour != null
+                        ? `Peak: ${String(behavioralProfile.timeBehavior.peakHour).padStart(2, '0')}:00`
+                        : 'No history'
+                    }
+                  />
+                  <BehavioralDimensionRow
+                    label="Recipients"
+                    status={
+                      behavioralProfile.recipientBehavior?.availability ?? 'UNAVAILABLE'
+                    }
+                    detail={
+                      behavioralProfile.recipientBehavior?.uniqueRecipientCount != null
+                        ? `${behavioralProfile.recipientBehavior.uniqueRecipientCount} unique`
+                        : 'No history'
+                    }
+                  />
+                  <BehavioralDimensionRow
+                    label="Devices"
+                    status={behavioralProfile.deviceBehavior?.availability ?? 'UNAVAILABLE'}
+                    detail={
+                      behavioralProfile.deviceBehavior?.deviceCount != null
+                        ? `${behavioralProfile.deviceBehavior.deviceCount} known`
+                        : 'No history'
+                    }
+                  />
+                  <BehavioralDimensionRow
+                    label="Locations"
+                    status={
+                      behavioralProfile.locationBehavior?.availability ?? 'UNAVAILABLE'
+                    }
+                    detail={
+                      behavioralProfile.locationBehavior?.geoCountryCount != null
+                        ? `${behavioralProfile.locationBehavior.geoCountryCount} countries`
+                        : 'No history'
+                    }
+                  />
+                </div>
+                {behavioralProfile.transactionCount != null && behavioralProfile.transactionCount > 0 && (
+                  <p className="mt-3 text-xs text-guardpay-muted">
+                    Based on {behavioralProfile.transactionCount} completed transaction(s).
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="gp-card mt-6 p-6 text-center text-guardpay-muted text-sm">
+              No behavioral profile available yet. Complete payments to build your baseline.
+            </div>
+          )
+
           <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="gp-card p-5 sm:p-6">
               <div className="flex items-center gap-2">
@@ -637,6 +756,37 @@ function SmallStat({
         </p>
         <p className="text-lg font-bold tabular-nums text-guardpay-ink">{value}</p>
       </div>
+    </div>
+  );
+}
+
+function BehavioralDimensionRow({
+  label,
+  status,
+  detail,
+}: {
+  label: string;
+  status: string;
+  detail: string;
+}) {
+  const isAvailable = status === 'AVAILABLE';
+  return (
+    <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-guardpay-line bg-white">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-guardpay-ink">{label}</p>
+        <p className="text-[10px] text-guardpay-muted">{detail}</p>
+      </div>
+      <span
+        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+          isAvailable
+            ? 'bg-emerald-50 text-emerald-700'
+            : status === 'INITIALIZING'
+            ? 'bg-amber-50 text-amber-700'
+            : 'bg-guardpay-line text-guardpay-muted'
+        }`}
+      >
+        {isAvailable ? 'Available' : status === 'INITIALIZING' ? 'Initializing' : 'Unavailable'}
+      </span>
     </div>
   );
 }

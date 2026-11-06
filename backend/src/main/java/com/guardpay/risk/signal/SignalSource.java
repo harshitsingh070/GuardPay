@@ -9,5 +9,6 @@ public enum SignalSource {
   DEVICE,
   NETWORK,
   AI,
+  BEHAVIORAL_PROFILE,
   NOT_AVAILABLE
 }

@@ -276,7 +276,8 @@ public class GuardedPaymentCompletionService {
             risk.explanation(),
             risk.automaticSignals(),
             risk.findings(),
-            risk.aiStatus()),
+            risk.aiStatus(),
+            risk.behavioralProfileStatus()),
         status,
         paypalOrder,
         verification);

@@ -58,7 +58,7 @@ class GuardedPaymentControllerTest {
     return new GuardedPaymentResponseDto(
         UUID.randomUUID(),
         new GuardedRiskDto(10, RiskLevel.LOW, RecommendedAction.ALLOW, "Ok.", List.of(), List.of(),
-            "NOT_REQUESTED"),
+            "NOT_REQUESTED", null),
         GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED,
         new GuardedPaypalOrderDto("O-1", "https://www.sandbox.paypal.com/checkoutnow?token=O-1"),
         null);
@@ -97,7 +97,7 @@ class GuardedPaymentControllerTest {
             new GuardedPaymentResponseDto(
                 UUID.randomUUID(),
                 new GuardedRiskDto(60, RiskLevel.MEDIUM, RecommendedAction.VERIFY, "Verify.", List.of(),
-                    List.of(), "NOT_REQUESTED"),
+                    List.of(), "NOT_REQUESTED", null),
                 GuardedPaymentStatus.VERIFICATION_REQUIRED,
                 null,
                 challenge));

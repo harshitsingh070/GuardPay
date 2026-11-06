@@ -393,3 +393,48 @@ GET /health  { "status": "ok", "service": "guardpay-ai-service", "ai_configured"
 - No password-reset, email-verification, OAuth, or MFA-at-login endpoints.
 - No live Google Safe Browsing or external URL-reputation integration; URL
   analysis is structural and local.
+
+## 13. Behavioral profiling (read-only)
+
+### GET /api/behavior/profile
+
+Returns the authenticated user's learned behavioral profile: status, transaction
+count, last updated, and per-dimension availability (amount, frequency, time,
+recipient, location, device). No raw statistics that could enable profile
+poisoning are exposed. All ownership is enforced server-side through the
+authenticated session.
+
+Response shape:
+
+```json
+{
+  "userId": "...",
+  "profileStatus": "ESTABLISHED",
+  "transactionCount": 85,
+  "profileLastUpdated": "...",
+  "dataQualityScore": "0.90",
+  "amountBehavior": { "availability": "AVAILABLE", "medianAmount": 1000.00, ... },
+  "frequencyBehavior": { "availability": "AVAILABLE", "paymentsPerDay": 3.5, ... },
+  "timeBehavior": { "availability": "AVAILABLE", "peakHour": 14, ... },
+  "recipientBehavior": { "availability": "AVAILABLE", "uniqueRecipientCount": 12, ... },
+  "locationBehavior": { "availability": "AVAILABLE", "geoCountryCount": 3, ... },
+  "deviceBehavior": { "availability": "AVAILABLE", "deviceCount": 2, ... },
+  "behavioralDimensions": [...]
+}
+```
+
+### GET /api/behavior/summary
+
+Returns a safe summary of established behavior and recent anomalies for
+dashboard display. No raw statistics.
+
+### Behavioral findings in risk responses
+
+`POST /api/risk/evaluate-automatic` and `POST /api/payments/guarded` now include
+`behavioralProfileStatus` (`AVAILABLE`, `INSUFFICIENT_DATA`, `UNAVAILABLE`) in
+the risk block, and automatic signals may include behavioral types
+(`AMOUNT_DEVIATION`, `UNUSUAL_PAYMENT_HOUR`, `RECIPIENT_BEHAVIOR_DEVIATION`,
+`TRANSACTION_FREQUENCY_ANOMALY`, `GEOGRAPHIC_BEHAVIOR_DEVIATION`,
+`DEVICE_BEHAVIOR_DEVIATION`, `OVERALL_BEHAVIOR_DEVIATION`) sourced from
+`BEHAVIORAL_PROFILE`.
+

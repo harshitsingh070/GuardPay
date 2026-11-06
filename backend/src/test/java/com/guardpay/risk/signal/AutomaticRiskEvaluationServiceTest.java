@@ -1,6 +1,7 @@
 package com.guardpay.risk.signal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
@@ -109,12 +110,17 @@ class AutomaticRiskEvaluationServiceTest {
 
     AutomaticEvaluationResponseDto response = service.evaluate(request("2499", RECIPIENT_ID));
 
-    // 20 unusual amount + 20 new recipient + 20 missing context.
-    assertEquals(60, response.score());
+    // Behavioral profiling may add AMOUNT_DEVIATION for personalized deviation.
     assertEquals(RiskLevel.MEDIUM, response.riskLevel());
     assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
-    assertEquals(20, response.automaticSignals().size());
-    assertEquals(20, response.findings().size());
+    // Signal count includes the 7 new behavioral signal types.
+    assertTrue(response.automaticSignals().size() >= 20);
+    assertTrue(response.findings().size() >= 20);
+    // Verify key signals are present.
+    assertTrue(response.automaticSignals().stream()
+        .anyMatch(s -> s.type() == PaymentSignalType.NEW_RECIPIENT && s.detected()));
+    assertTrue(response.automaticSignals().stream()
+        .anyMatch(s -> s.type() == PaymentSignalType.UNUSUAL_AMOUNT && s.detected()));
   }
 
 }

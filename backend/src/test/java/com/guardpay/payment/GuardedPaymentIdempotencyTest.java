@@ -92,7 +92,8 @@ class GuardedPaymentIdempotencyTest {
 
   private AutomaticEvaluationResponseDto allowRisk() {
     return new AutomaticEvaluationResponseDto(
-        10, RiskLevel.LOW, RecommendedAction.ALLOW, "Ok.", List.of(), List.of(), "NOT_REQUESTED");
+        10, RiskLevel.LOW, RecommendedAction.ALLOW, "Ok.", List.of(), List.of(), "NOT_REQUESTED",
+        null);
   }
 
   private void stubHappyAllow() {
@@ -154,7 +155,7 @@ class GuardedPaymentIdempotencyTest {
         new GuardedPaymentResponseDto(
             UUID.randomUUID(),
             new GuardedRiskDto(10, RiskLevel.LOW, RecommendedAction.ALLOW, "Ok.", List.of(),
-                List.of(), "NOT_REQUESTED"),
+                List.of(), "NOT_REQUESTED", null),
             GuardedPaymentStatus.PAYPAL_AUTHORIZATION_REQUIRED,
             new GuardedPaypalOrderDto("O-WIN", "https://sandbox.paypal.com/approve"),
             null);

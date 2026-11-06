@@ -38,5 +38,14 @@ public enum PaymentSignalType {
   // A known payee whose new request matches a compromised-account scam.
   KNOWN_RECIPIENT_SCAM,
   // Structuring: many sub-threshold payments to one recipient.
-  SPLIT_PAYMENT
+  SPLIT_PAYMENT,
+  // Adaptive behavioral profiling signals (personalized deviations from
+  // learned user baselines, never universal thresholds).
+  AMOUNT_DEVIATION,
+  UNUSUAL_PAYMENT_HOUR,
+  RECIPIENT_BEHAVIOR_DEVIATION,
+  TRANSACTION_FREQUENCY_ANOMALY,
+  GEOGRAPHIC_BEHAVIOR_DEVIATION,
+  DEVICE_BEHAVIOR_DEVIATION,
+  OVERALL_BEHAVIOR_DEVIATION
 }

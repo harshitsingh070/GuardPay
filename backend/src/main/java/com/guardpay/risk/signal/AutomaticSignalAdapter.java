@@ -44,6 +44,13 @@ public final class AutomaticSignalAdapter {
         collection.detected(PaymentSignalType.VELOCITY_DAILY),
         collection.detected(PaymentSignalType.BLOCKLISTED_RECIPIENT),
         collection.detected(PaymentSignalType.KNOWN_RECIPIENT_SCAM),
-        collection.detected(PaymentSignalType.SPLIT_PAYMENT));
+        collection.detected(PaymentSignalType.SPLIT_PAYMENT),
+        collection.detected(PaymentSignalType.AMOUNT_DEVIATION),
+        collection.detected(PaymentSignalType.UNUSUAL_PAYMENT_HOUR),
+        collection.detected(PaymentSignalType.RECIPIENT_BEHAVIOR_DEVIATION),
+        collection.detected(PaymentSignalType.TRANSACTION_FREQUENCY_ANOMALY),
+        collection.detected(PaymentSignalType.GEOGRAPHIC_BEHAVIOR_DEVIATION),
+        collection.detected(PaymentSignalType.DEVICE_BEHAVIOR_DEVIATION),
+        collection.detected(PaymentSignalType.OVERALL_BEHAVIOR_DEVIATION));
   }
 }

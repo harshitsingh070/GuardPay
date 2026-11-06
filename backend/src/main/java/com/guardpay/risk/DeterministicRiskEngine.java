@@ -64,6 +64,13 @@ public class DeterministicRiskEngine {
     findings.add(finding(RiskSignal.NEW_GEO, request.newGeo()));
     findings.add(finding(RiskSignal.IMPOSSIBLE_TRAVEL, request.impossibleTravel()));
     findings.add(finding(RiskSignal.VPN_PROXY, request.vpnProxy()));
+    findings.add(finding(RiskSignal.AMOUNT_DEVIATION, request.amountDeviation()));
+    findings.add(finding(RiskSignal.UNUSUAL_PAYMENT_HOUR, request.unusualPaymentHour()));
+    findings.add(finding(RiskSignal.RECIPIENT_BEHAVIOR_DEVIATION, request.recipientBehaviorDeviation()));
+    findings.add(finding(RiskSignal.TRANSACTION_FREQUENCY_ANOMALY, request.transactionFrequencyAnomaly()));
+    findings.add(finding(RiskSignal.GEOGRAPHIC_BEHAVIOR_DEVIATION, request.geographicBehaviorDeviation()));
+    findings.add(finding(RiskSignal.DEVICE_BEHAVIOR_DEVIATION, request.deviceBehaviorDeviation()));
+    findings.add(finding(RiskSignal.OVERALL_BEHAVIOR_DEVIATION, request.overallBehaviorDeviation()));
 
     int total = findings.stream().filter(RiskFinding::triggered).mapToInt(RiskFinding::points).sum();
     boolean hardBlocked = request.blocklistedRecipient();

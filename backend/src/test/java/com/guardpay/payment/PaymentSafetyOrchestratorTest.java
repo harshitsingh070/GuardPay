@@ -111,7 +111,7 @@ class PaymentSafetyOrchestratorTest {
   private AutomaticEvaluationResponseDto risk(
       int score, RiskLevel level, RecommendedAction action) {
     return new AutomaticEvaluationResponseDto(
-        score, level, action, "Explanation.", List.of(), List.of(), "NOT_REQUESTED");
+        score, level, action, "Explanation.", List.of(), List.of(), "NOT_REQUESTED", null);
   }
 
   private void stubEchoSaves() {

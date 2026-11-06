@@ -57,7 +57,7 @@ class AutomaticRiskControllerTest {
                         "2499 is at least 5x the historical average of 87.")),
                 List.of(
                     new RiskFindingDto("NEW_RECIPIENT", "New recipient", "New.", 20, true)),
-                "NOT_REQUESTED"));
+                "NOT_REQUESTED", null));
 
     mockMvc
         .perform(

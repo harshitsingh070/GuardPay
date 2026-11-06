@@ -126,10 +126,31 @@ guardpay/
 - Persisted explanations, transaction history, and dashboard aggregates.
 - REST APIs and SSE for the browser/WebView.
 
-Package map (`com.guardpay`): `ai`, `alert`, `auth`, `common`, `dashboard`,
-`device`, `evaluation`, `feedback`, `merchant`, `metrics`, `outcome`, `payment`,
-`paypal`, `recipient`, `risk`, `security`, `session`, `transaction`, `user`,
-`webhook`.
+Package map (`com.guardpay`): `ai`, `alert`, `auth`, `behavior`, `common`,
+`dashboard`, `device`, `evaluation`, `feedback`, `merchant`, `metrics`, `outcome`,
+`payment`, `paypal`, `recipient`, `risk`, `security`, `session`, `transaction`,
+`user`, `webhook`.
+
+### 4.5 Java Behavioral Profiling (`backend/`, `com.guardpay.behavior`)
+
+- Per-user learned behavioral baseline computed from COMPLETED transaction
+  history only (never cancelled/failed/reversed).
+- Three rolling windows: 7-day (short-term), 30-day (medium-term), 90-day
+  (long-term).
+- Behavioral dimensions: amount (median, MAD, percentiles), time (hour-of-day,
+  weekend/night ratio), recipient (unique count, established ratio), device,
+  geographic location, and frequency (payments per day/week).
+- Cold-start states: `INSUFFICIENT_DATA` (<5 txns), `INITIALIZING` (5–19),
+  `ESTABLISHED` (20+). New users are never artificially flagged as high-risk.
+- `AdaptiveBehavioralAnalyzer` compares incoming payments against the learned
+  profile and produces anomaly findings (evidence only — never a payment
+  decision).
+- Findings fold into the existing deterministic risk engine as complementary
+  `PaymentSignal`s with `SignalSource.BEHAVIORAL_PROFILE`. The engine remains
+  the sole ALLOW/VERIFY/STOP authority.
+- Fails safely: profiling service failure degrades to `UNAVAILABLE` and the
+  deterministic engine continues alone.
+
 
 ### 4.4 Python FastAPI (`ai-service/`) — the evidence layer
 

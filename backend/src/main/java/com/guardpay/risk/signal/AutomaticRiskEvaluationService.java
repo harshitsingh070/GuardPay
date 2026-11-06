@@ -1,5 +1,7 @@
 package com.guardpay.risk.signal;
 
+import com.guardpay.behavior.AdaptiveBehavioralAnalyzer;
+import com.guardpay.behavior.dto.BehavioralAnalysisRequest;
 import com.guardpay.risk.DeterministicRiskEngine;
 import com.guardpay.risk.RiskEvaluationRequest;
 import com.guardpay.risk.RiskEvaluationResult;
@@ -23,8 +25,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -52,9 +57,10 @@ public class AutomaticRiskEvaluationService {
   private final RecipientRepository recipients;
   private final MerchantRepository merchants;
   private final AiAnalysisClient aiClient;
+  private final AdaptiveBehavioralAnalyzer behavioralAnalyzer;
   private final DecisionMetrics metrics;
 
-  /** Legacy/test constructor: decision metrics are not recorded. */
+  /** Legacy/test constructor: decision metrics and behavioral profiling are not recorded. */
   public AutomaticRiskEvaluationService(
       PaymentSignalCollectorService collector,
       DeterministicRiskEngine engine,
@@ -71,6 +77,7 @@ public class AutomaticRiskEvaluationService {
         recipients,
         merchants,
         aiClient,
+        null,
         null);
   }
 
@@ -84,6 +91,28 @@ public class AutomaticRiskEvaluationService {
       MerchantRepository merchants,
       AiAnalysisClient aiClient,
       DecisionMetrics metrics) {
+    this(
+        collector,
+        engine,
+        demoUser,
+        deviceStates,
+        recipients,
+        merchants,
+        aiClient,
+        metrics,
+        null);
+  }
+
+  public AutomaticRiskEvaluationService(
+      PaymentSignalCollectorService collector,
+      DeterministicRiskEngine engine,
+      DemoUserService demoUser,
+      DeviceCallStateRepository deviceStates,
+      RecipientRepository recipients,
+      MerchantRepository merchants,
+      AiAnalysisClient aiClient,
+      DecisionMetrics metrics,
+      AdaptiveBehavioralAnalyzer behavioralAnalyzer) {
     this.collector = collector;
     this.engine = engine;
     this.demoUser = demoUser;
@@ -92,6 +121,7 @@ public class AutomaticRiskEvaluationService {
     this.merchants = merchants;
     this.aiClient = aiClient;
     this.metrics = metrics;
+    this.behavioralAnalyzer = behavioralAnalyzer;
   }
 
   public AutomaticEvaluationResponseDto evaluate(AutomaticEvaluationRequestDto dto) {
@@ -137,8 +167,43 @@ public class AutomaticRiskEvaluationService {
       aiStatus = "NOT_REQUESTED";
     }
 
+    // Adaptive behavioral profiling: compares the incoming payment against the
+    // user's learned baseline. Never overrides the engine; produces complementary
+    // evidence signals only. Fails safely — deterministic signals continue alone.
+    List<PaymentSignal> behavioralSignals = List.of();
+    String behavioralProfileStatus = "UNAVAILABLE";
+    if (behavioralAnalyzer != null) {
+      try {
+        BehavioralAnalysisRequest behavioralRequest =
+            new BehavioralAnalysisRequest(
+                currentUserId,
+                dto.getAmount(),
+                dto.getCurrency(),
+                OffsetDateTime.now(),
+                dto.getRecipientId(),
+                null,
+                dto.getMerchantId(),
+                dto.getDeviceId(),
+                dto.getDeviceFingerprint(),
+                dto.getGeoCountry(),
+                dto.getGeoCity(),
+                dto.getAsn(),
+                dto.getVpnOrProxy(),
+                dto.getTransactionId(),
+                OffsetDateTime.now());
+        List<PaymentSignal> bs = behavioralAnalyzer.analyze(behavioralRequest);
+        behavioralSignals = bs != null ? bs : List.of();
+        behavioralProfileStatus =
+            behavioralSignals.isEmpty() ? "INSUFFICIENT_DATA" : "AVAILABLE";
+      } catch (Exception e) {
+        log.warn("Behavioral profiling unavailable, continuing deterministically", e);
+        behavioralProfileStatus = "UNAVAILABLE";
+      }
+    }
+
     List<PaymentSignal> combined = new ArrayList<>(deterministic.signals());
     combined.addAll(aiSignals);
+    combined.addAll(behavioralSignals);
     AutomaticSignalCollectionResult collection =
         new AutomaticSignalCollectionResult(List.copyOf(combined), deterministic.historicalAverage());
 
@@ -171,16 +236,48 @@ public class AutomaticRiskEvaluationService {
                         signal.severity(),
                         signal.confidence()))
             .toList();
+
+    // Build a lookup of behavioral signal metadata by signal type name, so
+    // that RiskFindingDto instances can carry the explanatory evidence
+    // (severity, confidence, evidence) produced by the adaptive behavioral
+    // analyzer.
+    Map<String, PaymentSignal> behavioralSignalMap =
+        collection.signals().stream()
+            .filter(s -> s.source() == SignalSource.BEHAVIORAL_PROFILE)
+            .collect(
+                Collectors.toMap(
+                    s -> s.type().name(),
+                    Function.identity(),
+                    (existing, replacement) -> existing));
+
     List<RiskFindingDto> findings =
         result.findings().stream()
             .map(
-                finding ->
-                    new RiskFindingDto(
+                finding -> {
+                  PaymentSignal signal = behavioralSignalMap.get(finding.code());
+                  if (signal != null) {
+                    return new RiskFindingDto(
                         finding.code(),
                         finding.title(),
                         finding.description(),
                         finding.points(),
-                        finding.triggered()))
+                        finding.triggered(),
+                        signal.severity(),
+                        signal.confidence(),
+                        null, // deviationRatio - not available in PaymentSignalDto
+                        null, // observedValue - not available in PaymentSignalDto
+                        null, // expectedValue - not available in PaymentSignalDto
+                        null, // profileWindow - not available in PaymentSignalDto
+                        null, // contributingFactors - not available in PaymentSignalDto
+                        signal.evidence());
+                  }
+                  return new RiskFindingDto(
+                      finding.code(),
+                      finding.title(),
+                      finding.description(),
+                      finding.points(),
+                      finding.triggered());
+                })
             .toList();
 
     if (metrics != null) {
@@ -197,7 +294,8 @@ public class AutomaticRiskEvaluationService {
         result.explanation(),
         signals,
         findings,
-        aiStatus);
+        aiStatus,
+        behavioralProfileStatus);
   }
 
   /**
