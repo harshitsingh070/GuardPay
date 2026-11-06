@@ -6,6 +6,7 @@ import com.guardpay.user.User;
 public final class AuthContext {
 
   private static final ThreadLocal<User> CURRENT = new ThreadLocal<>();
+  private static final ThreadLocal<AuthSession> SESSION = new ThreadLocal<>();
 
   private AuthContext() {}
 
@@ -13,11 +14,21 @@ public final class AuthContext {
     return CURRENT.get();
   }
 
+  public static AuthSession currentSession() {
+    return SESSION.get();
+  }
+
   static void set(User user) {
     CURRENT.set(user);
   }
 
+  static void set(AuthSession session) {
+    CURRENT.set(session.getUser());
+    SESSION.set(session);
+  }
+
   static void clear() {
     CURRENT.remove();
+    SESSION.remove();
   }
 }

@@ -5,7 +5,8 @@ Evidence-only scam analysis for GuardPay. The Python service produces
 patterns, URL structure); the **Spring Boot deterministic risk engine makes
 every payment decision**. AI findings are evidence, not payment decisions.
 
-No CrewAI: three focused agents run in a fixed deterministic pipeline, so a
+No CrewAI: a fixed deterministic pipeline — local URL rules plus two focused
+LLM agents (social engineering, content scams) — runs in a fixed order, so a
 multi-agent framework would add version weight for zero behavioral gain.
 
 ## Run locally
@@ -14,7 +15,7 @@ multi-agent framework would add version weight for zero behavioral gain.
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
-# Without a key the service still boots; analysis fails clearly (503).
+# Without a key the service still boots and returns local URL findings only.
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8001
 
 # With a key (never commit it) — either export it or put it in ai-service/.env:
@@ -24,8 +25,9 @@ $env:OPENAI_MODEL = "gpt-4o-mini"   # optional
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8001
 ```
 
-Health: `GET http://localhost:8001/health` → `ai_configured` tells whether
-the model is reachable.
+Health: `GET http://localhost:8001/health` → `ai_configured` tells whether an
+LLM key is configured. Model failures on analyze return `502`; invalid
+requests return `422`; a bad shared token returns `401`.
 
 ## Analyze (Spring Boot only — never browsers)
 

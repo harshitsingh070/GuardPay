@@ -2,7 +2,26 @@
 
 ## 1. Project Overview
 
-> **Implementation note (current prototype):** Account registration/login is implemented with BCrypt password hashes and opaque `HttpOnly` session cookies (no OAuth/JWT). Identity always comes from the session, never from client-supplied fields, and account data is owner-scoped. The authentication sections below describe the original product plan; password reset, email verification, OAuth, and MFA-at-login remain future work.
+> **Implementation status (current prototype):** This specification describes
+> the broader product plan. The implemented contract is
+> `docs/api-contract.md`, the architecture is `docs/architecture.md`, and the
+> engine is `docs/risk-engine.md`; those documents and the code take precedence
+> where this plan differs.
+>
+> Implemented now: BCrypt registration/login with opaque `HttpOnly` session
+> cookies, CSRF, rate limiting, session rotation/revocation, owner-scoped data,
+> guarded payment (`POST /api/payments/guarded`), recipient-bound PayPal Sandbox
+> orders, server-side capture, signature-verified webhooks, controlled
+> TOTP/simulated verification, transaction history, persisted dashboard/SSE
+> alerts, device registration/call-state, owner-scoped blocklist, and a
+> 20-signal deterministic engine. AI evidence uses FastAPI with two focused LLM
+> agents plus local URL rules, not CrewAI; AI cannot decide or score.
+>
+> Not implemented: JWT/OAuth/Spring Security, password reset, email
+> verification, MFA-at-login, Google Safe Browsing or live URL reputation,
+> subscription/invoicing management, scam-report APIs, cross-user intelligence,
+> and the original endpoint list. TOTP is a payment-verification channel, not
+> login MFA.
 
 **GuardPay** is an AI-powered, real-time payment safety platform designed around PayPal payments.
 
@@ -17,7 +36,7 @@ It combines:
 - Recipient and merchant behavior
 - Active-call context
 - Invoice/payment-request content
-- URL reputation
+- Structural URL analysis (no reputation lookup)
 - Social-engineering indicators
 - Recurring-payment/subscription signals
 - AI-generated scam-pattern analysis
@@ -232,13 +251,15 @@ Call it a **GuardPay Risk Score**.
 
 # 8. AI Agent Architecture
 
-GuardPay uses three specialized AI agents.
+The implemented AI service uses two specialized LLM agents plus deterministic
+local URL rules. Transaction behavior is not an AI agent; Spring Boot's
+deterministic collector computes it.
 
-## 8.1 Transaction Risk Agent
+## 8.1 Deterministic Transaction Analysis (Spring Boot)
 
 ### Responsibility
 
-Analyze payment behavior and transaction history.
+Analyze payment behavior and transaction history without an LLM.
 
 ### Input
 
@@ -253,11 +274,11 @@ Analyze payment behavior and transaction history.
 - Merchant frequency
 - Payment frequency
 
-### Example output
+### Example derived evidence
 
 ```json
 {
-  "unusual_amount": true,
+  "large_amount": true,
   "new_recipient": true,
   "amount_vs_average": "28.7x",
   "evidence": [
@@ -333,7 +354,7 @@ Analyze content surrounding the payment.
 - Suspicious phone numbers
 - Scam language
 
-URL reputation should use Google Safe Browsing or another reputable URL-security provider.
+The implemented prototype uses structural URL rules only; it does not fetch URLs and does not use Google Safe Browsing or a live reputation provider.
 
 ---
 
@@ -350,7 +371,7 @@ Payment Data
 Signal Extraction
       |
       v
-CrewAI Agents
+AI evidence (no CrewAI)
       |
       v
 Structured AI Findings
@@ -429,11 +450,11 @@ Use:
 - Java 17
 - Spring Boot 3.x
 - Spring Web
-- Spring Security
+- Custom authentication filter and CSRF protection (Spring Security is not used)
 - Spring Data JPA
 - Hibernate
 - PostgreSQL driver
-- WebSocket/SSE support
+- SSE support
 
 ### Spring Boot responsibilities
 
@@ -463,20 +484,18 @@ Python runs as a separate specialized AI service.
 
 ### Python responsibilities
 
-- CrewAI
-- AI agent orchestration
-- LLM calls
-- NLP
-- Social-engineering analysis
-- Invoice analysis
-- URL/content analysis
-- Structured AI output
+- Two focused LLM agents (social engineering and content-scam patterns)
+- Deterministic local URL structure rules
+- LLM calls and prompt-injection-safe untrusted input handling
+- Structured, closed-vocabulary evidence output
 
 ### Why Python is separate
 
 The main payment/business layer remains in Java.
 
-Python is used because the AI-agent ecosystem, CrewAI, NLP tooling, and LLM integrations are particularly convenient in Python.
+Python keeps optional AI dependencies isolated from the trusted payment path.
+CrewAI is intentionally not used; the service runs a fixed pipeline and cannot
+score or decide a payment.
 
 ---
 
@@ -713,7 +732,8 @@ GuardPay should not record or store phone-call audio.
 
 # 18. URL Security
 
-Use Google Safe Browsing or another reputable URL reputation service.
+The implemented prototype uses structural URL rules only. It does not fetch the
+URL and does not call Google Safe Browsing or a live reputation service.
 
 Input:
 
@@ -723,7 +743,7 @@ Input:
 
 Output:
 
-- Safe
+- No structural concern
 - Suspicious
 - Malicious/unsafe
 - Unknown
@@ -942,7 +962,8 @@ Zapier must never be part of the core fraud-prevention path.
 
 # 25. Authentication
 
-Use Spring Security with JWT for the prototype.
+The prototype uses BCrypt passwords and opaque server-side session cookies with
+CSRF protection, not Spring Security or JWT.
 
 Flow:
 
@@ -950,20 +971,23 @@ Flow:
 Login
   |
   v
-Spring Security
+Custom auth filter
   |
   v
-JWT
+HttpOnly session cookie (hashed token server-side)
   |
   v
 Protected APIs
 ```
 
+Session rotation/revocation, idle/absolute expiry, login rate limiting, and
+owner scoping are implemented. Password reset, email verification, OAuth, and
+MFA-at-login are not. TOTP is a payment-verification channel only.
+
 Never expose:
 
 - PayPal client secrets
 - LLM API keys
-- Safe Browsing keys
 - database credentials
 
 to the frontend.
@@ -1006,13 +1030,13 @@ Responsible for:
 
 ## Application 3 — AI Service
 
-**Python + FastAPI + CrewAI**
+**Python + FastAPI (no CrewAI)**
 
 Responsible for:
 
-- Agent orchestration
-- LLM
-- NLP
+- Two focused LLM agents + deterministic URL rules
+- LLM interaction
+- Structured evidence only
 - Scam-pattern classification
 - Content analysis
 
@@ -1047,13 +1071,14 @@ Responsible for:
                     Python AI Service
                          FastAPI
                             |
-                          CrewAI
+                       (no CrewAI)
                             |
            ┌────────────────┼────────────────┐
            |                |                |
            v                v                v
-      Transaction      Social Engineering   Content
-         Agent               Agent           Agent
+      Spring Boot      Social Engineering   Content
+      transaction           Agent           Agent
+       signals                               |
            |                |                |
            └────────────────┼────────────────┘
                             |
@@ -1085,48 +1110,42 @@ Responsible for:
 Examples:
 
 - POST `/api/auth/login`
+- POST `/api/payments/guarded`
+- POST `/api/payments/{paymentId}/verification/confirm`
 - GET `/api/transactions`
-- POST `/api/payments/analyze`
-- POST `/api/payments/create`
-- GET `/api/risk/{transactionId}`
-- GET `/api/subscriptions`
-- POST `/api/scam-reports`
 - GET `/api/dashboard/summary`
+- GET `/api/alerts/stream` (SSE)
+- GET/POST/DELETE `/api/blocklist/recipients/*`
+- GET/POST `/api/devices`
+- POST `/api/device-signals/call-state`
+
+See `docs/api-contract.md` for the complete implemented contract. The planned
+`/api/payments/analyze`, `/api/payments/create`, `/api/risk/{transactionId}`,
+`/api/subscriptions`, and `/api/scam-reports` routes are not implemented.
 
 ## Spring Boot → Python
 
-Example conceptual operation:
+Implemented operation: `POST /api/v1/analyze`, optionally protected by
+`X-GuardPay-Internal-Token`.
 
-> Analyze payment context
+Input: amount/currency, merchant/recipient names, novelty/invoice flags,
+untrusted message text, URL, and call boolean. No user profile, audio, contacts,
+phone numbers, or email destinations.
 
-Input:
-
-- transaction
-- user profile
-- recipient
-- invoice
-- URL
-- call state
-
-Output:
-
-- transaction findings
-- social-engineering findings
-- content findings
-- scam pattern
-- explanation
+Output: `analysis_id`, controlled-vocabulary findings (code, title, description,
+severity, confidence, evidence), and a neutral summary. No action, score, or
+risk level.
 
 ## Spring Boot → PayPal
 
 Used for:
 
-- OAuth
+- Sandbox OAuth
 - Orders
-- Payments
-- Transaction Search
-- Invoicing
-- Subscriptions
+- Payments/capture
 - Webhooks
+
+Invoicing, subscriptions, and transaction-search management are not implemented.
 
 ---
 
@@ -1141,15 +1160,14 @@ Never commit:
 - PayPal secrets
 - LLM keys
 - database passwords
-- Safe Browsing keys
-- JWT secrets
+- AI service internal token
 
 ## API Security
 
 - HTTPS
-- JWT authentication
+- Session-cookie authentication with CSRF
 - Input validation
-- Rate limiting where practical
+- Login rate limiting
 - Server-side PayPal calls
 - Server-side AI calls
 
@@ -1209,19 +1227,18 @@ This is important.
 
 GuardPay should not become completely useless because the LLM API fails.
 
-### Safe Browsing unavailable
+### URL analysis unavailable
 
-Mark:
-
-> URL reputation unavailable
-
-rather than automatically calling the URL safe.
+Mark the URL signal unavailable rather than automatically calling the URL safe.
+The implemented prototype performs local structural checks only; it does not use
+Safe Browsing.
 
 ---
 
 # 32. AI Service Failure Strategy
 
-If Python/CrewAI fails:
+If the Python AI service fails, times out, is unconfigured, or the circuit is
+open:
 
 ```text
 Payment
@@ -1433,7 +1450,7 @@ Build:
 - Risk model
 - PostgreSQL connection
 - REST APIs
-- JWT authentication
+- Session cookie + CSRF authentication
 
 ---
 
@@ -1496,22 +1513,23 @@ At this point you should already have a working non-AI prototype.
 Set up:
 
 - FastAPI
-- CrewAI
-- LLM provider
-- Structured outputs
-- Authentication between Spring and Python
+- Optional LLM provider
+- Structured, validated outputs
+- Optional shared-token authentication between Spring and Python
+- No CrewAI
 
 ---
 
-## Phase 8 — Three AI Agents
+## Phase 8 — AI Evidence Pipeline
 
 Implement:
 
-1. Transaction Agent
-2. Social Engineering Agent
-3. Content Safety Agent
+1. Social Engineering Agent
+2. Content Safety Agent
+3. Deterministic local URL rules
 
-Make every agent return structured evidence.
+Make every agent return structured evidence; transaction behavior stays in
+Spring Boot.
 
 ---
 
@@ -1519,7 +1537,7 @@ Make every agent return structured evidence.
 
 Add:
 
-- Safe Browsing
+- Structural URL analysis (no fetch, no Safe Browsing)
 - Invoice analysis
 - Payment-request analysis
 - Scam-language detection
@@ -1537,16 +1555,13 @@ Spring Boot
 Python AI
       |
       v
-CrewAI
+Two LLM agents + local URL rules
       |
       v
-LLM
+Validated structured findings
       |
       v
-Structured findings
-      |
-      v
-Spring Risk Engine
+Spring Boot deterministic risk engine
 ```
 
 ---
@@ -1592,7 +1607,7 @@ User profile analyzed
 Python AI analyzes context
        |
        v
-Three agents return findings
+Two LLM agents + local URL rules return findings
        |
        v
 Spring risk engine calculates score
@@ -1765,7 +1780,7 @@ The story should be:
 
 - Java 17
 - Spring Boot
-- Spring Security
+- Custom authentication filter (Spring Security is not used)
 - Spring Data JPA
 - Hibernate
 
@@ -1773,8 +1788,9 @@ The story should be:
 
 - Python
 - FastAPI
-- CrewAI
-- GPT/current available OpenAI model
+- Two focused LLM agents + local URL rules
+- OpenAI-compatible model provider (optional)
+- No CrewAI
 
 ### Data
 
@@ -1782,24 +1798,23 @@ The story should be:
 
 ### Payments
 
-- PayPal REST APIs
-- PayPal Agent Toolkit/MCP where useful
+- PayPal Sandbox REST APIs
 - PayPal Webhooks
 
 ### Security
 
-- Google Safe Browsing
-- JWT
 - HTTPS
+- Session cookie + CSRF
 - Server-side secrets
+- Optional AI-service internal token
 
 ### Real-time
 
-- WebSocket/SSE
+- SSE
 
 ### Notifications
 
-- Zapier
+- Asynchronous email/SMS outbox (Zapier is not implemented)
 
 ### Deployment
 
@@ -1834,13 +1849,13 @@ The story should be:
                        v
                 PYTHON FASTAPI
                        |
-                    CREWAI
+                  (no CrewAI)
                        |
         ┌──────────────┼──────────────┐
         |              |              |
-   Transaction     Social          Content
-      Agent       Engineering       Agent
-                     Agent
+   Spring Boot     Social          Content
+   transaction   Engineering       Agent
+    signals         Agent        + URL rules
         |              |              |
         └──────────────┼──────────────┘
                        |

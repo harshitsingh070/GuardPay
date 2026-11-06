@@ -87,10 +87,12 @@ class AutomaticRiskDeviceServiceTest {
 
   private void stubDevice(boolean active, OffsetDateTime observedAt) {
     DeviceCallState state = new DeviceCallState();
+    state.setUser(user);
     state.setDeviceId(DEVICE_ID);
     state.setActiveCall(active);
     state.setObservedAt(observedAt);
-    when(deviceStates.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(state));
+    when(deviceStates.findByUserIdAndDeviceId(USER_ID, DEVICE_ID))
+        .thenReturn(Optional.of(state));
   }
 
   @Test
@@ -125,7 +127,8 @@ class AutomaticRiskDeviceServiceTest {
   @Test
   void unknownDeviceContributesNothing() {
     stubEmptyHistory();
-    when(deviceStates.findByDeviceId(DEVICE_ID)).thenReturn(Optional.empty());
+    when(deviceStates.findByUserIdAndDeviceId(USER_ID, DEVICE_ID))
+        .thenReturn(Optional.empty());
 
     AutomaticEvaluationResponseDto response = service.evaluate(request("45"));
 

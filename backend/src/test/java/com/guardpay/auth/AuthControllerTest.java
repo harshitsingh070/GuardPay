@@ -24,6 +24,7 @@ class AuthControllerTest {
   @Autowired private MockMvc mockMvc;
 
   @MockBean private AuthService auth;
+  @MockBean private CsrfTokenService csrf;
 
   private static User user() {
     User user = new User();
@@ -35,7 +36,7 @@ class AuthControllerTest {
 
   @Test
   void loginSetsHttpOnlySessionCookieAndNeverReturnsToken() throws Exception {
-    when(auth.login(any(), any()))
+    when(auth.login(any(), any(), any(), any()))
         .thenReturn(new AuthService.IssuedSession("raw-session-token", user()));
 
     mockMvc

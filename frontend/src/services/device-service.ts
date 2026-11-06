@@ -1,13 +1,28 @@
-// Device call-state intake. The browser cannot read real telephony state, so
-// the UI reports a user-confirmed signal; the backend still stores it under
-// the development pairing token and decides whether to trust it.
+// Device registration and call-state intake. The browser cannot read real
+// telephony state, so the UI reports a user-confirmed signal; the backend
+// authenticates each per-device credential and stores it for the owner.
 
-import { ApiRequestError, apiBaseUrl } from '@/services/api-client';
+import { ApiRequestError, apiBaseUrl, apiFetch } from '@/services/api-client';
 
 export interface DeviceCallState {
   deviceId: string;
   activeCall: boolean;
   observedAt: string;
+}
+
+export interface DeviceSummary {
+  deviceId: string;
+  label: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface DeviceRegistration {
+  deviceId: string;
+  deviceToken: string;
+  label: string | null;
+  createdAt: string;
 }
 
 const DEVICE_TIMEOUT_MS = 15_000;
@@ -26,9 +41,36 @@ function isAbortError(error: unknown): boolean {
   );
 }
 
+/** Devices owned by the signed-in account; credentials are never returned here. */
+export function listDevices(): Promise<DeviceSummary[]> {
+  return apiFetch<DeviceSummary[]>('/api/devices');
+}
+
+/** Registers a device id under the signed-in account and returns its credential once. */
+export function registerDevice(deviceId: string, label?: string): Promise<DeviceRegistration> {
+  return apiFetch<DeviceRegistration>('/api/devices', {
+    method: 'POST',
+    body: JSON.stringify({ deviceId, label }),
+  });
+}
+
+/** Replaces a device credential after the original was lost or suspected leaked. */
+export function rotateDevice(deviceId: string): Promise<DeviceRegistration> {
+  return apiFetch<DeviceRegistration>(`/api/devices/${encodeURIComponent(deviceId)}/rotate`, {
+    method: 'POST',
+  });
+}
+
+/** Revokes a device and clears its stored call state. */
+export function revokeDevice(deviceId: string): Promise<void> {
+  return apiFetch<void>(`/api/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+  });
+}
+
 /**
- * Reports the current call state for a paired device. Requires the development
- * pairing token; an empty token is rejected by the backend with HTTP 401.
+ * Reports the current call state for a registered device. The per-device
+ * credential is the only authentication this endpoint accepts.
  */
 export async function reportCallState(
   deviceId: string,
@@ -56,7 +98,7 @@ export async function reportCallState(
       throw new ApiRequestError(
         res.status,
         res.status === 401
-          ? 'The device pairing token was rejected.'
+          ? 'The device credential was rejected. Register this device again.'
           : (messageFrom(body) ?? `Device signal failed (${res.status})`),
       );
     }

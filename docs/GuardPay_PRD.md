@@ -7,7 +7,26 @@
 **Primary Platform:** Web application with PayPal sandbox integration  
 **Target Users:** PayPal consumers and online payment users
 
-> **Implementation note (current prototype):** Account registration/login is implemented with BCrypt password hashes and opaque `HttpOnly` session cookies (no OAuth/JWT). Identity always comes from the session, never from client-supplied fields, and account data is owner-scoped. The authentication sections below describe the original product plan; password reset, email verification, OAuth, and MFA-at-login remain future work.
+> **Implementation status (current prototype):** This PRD describes the broader
+> product plan. The implemented contract is in `docs/api-contract.md`, the
+> architecture in `docs/architecture.md`, and the engine in
+> `docs/risk-engine.md`; those documents and the code take precedence where this
+> product plan differs.
+>
+> Implemented now: BCrypt registration/login with opaque `HttpOnly` session
+> cookies, CSRF, rate limiting, session rotation/revocation, owner-scoped data,
+> guarded payment (`POST /api/payments/guarded`), recipient-bound PayPal Sandbox
+> orders, server-side capture, signature-verified webhooks, controlled
+> TOTP/simulated verification, transaction history, persisted dashboard/SSE
+> alerts, device registration/call-state, owner-scoped blocklist, and a
+> 20-signal deterministic engine. AI evidence uses FastAPI with two focused LLM
+> agents plus local URL rules, not CrewAI; AI cannot decide or score.
+>
+> Not implemented: JWT/OAuth/Spring Security, password reset, email
+> verification, MFA-at-login, Google Safe Browsing or live URL reputation,
+> subscriptions/invoicing management, scam-report APIs, cross-user intelligence,
+> and the old endpoint list in Section 26. TOTP is a payment-verification
+> channel, not login MFA.
 
 ---
 
@@ -385,14 +404,15 @@ GuardPay analyzes URLs contained in:
 
 ### Technology
 
-Google Safe Browsing or another reputable URL reputation service.
+No Google Safe Browsing or live reputation service is implemented. Backend and
+AI-service URL analysis is structural only (scheme, host shape, punycode, brand
+lookalikes, shorteners, TLD/port, path lure words) and never fetches the URL.
 
 ### Result
 
-- Safe
+- No structural concern
 - Suspicious
-- Unsafe
-- Unknown
+- Unavailable (not supplied)
 
 ### Acceptance Criteria
 
@@ -405,36 +425,29 @@ Google Safe Browsing or another reputable URL reputation service.
 
 # 15. Feature 7 — AI Agent System
 
-GuardPay uses three agents.
-
-## Transaction Agent
-
-Analyzes transaction behavior.
+The current implementation uses **two focused LLM agents plus deterministic
+local URL rules**, not CrewAI and not a transaction agent:
 
 ## Social Engineering Agent
 
-Analyzes manipulation patterns.
+Analyzes manipulation patterns in untrusted message text: impersonation,
+pressure to pay, secrecy, suspicious payment instructions, and scam-pattern
+combinations.
 
 ## Content Safety Agent
 
-Analyzes invoices, messages, and URLs.
+Analyzes invoice/message/merchant/recipient context for invoice scams and
+scam-like payment requests.
 
-### Agent output requirement
+## Local URL Analyzer
 
-Every agent must return structured data.
+Runs even when no LLM key is configured. It performs structural checks only and
+never fetches the URL.
 
-Example:
-
-```json
-{
-  "finding": "unusual_amount",
-  "detected": true,
-  "severity": "high",
-  "evidence": "Payment is 28.7x higher than user average"
-}
-```
-
-Agents should not directly authorize, capture, or cancel payments.
+Transaction behavior is computed by Spring Boot's deterministic collector, not
+by an LLM. Every AI agent returns structured findings with a controlled code,
+severity, confidence, and evidence; it must not authorize, capture, cancel, or
+score a payment.
 
 ---
 
@@ -442,24 +455,39 @@ Agents should not directly authorize, capture, or cancel payments.
 
 The risk engine combines signals from:
 
-- Transaction analysis
-- Social-engineering analysis
-- Content analysis
-- URL reputation
-- Call context
+- Transaction/recipient/merchant history
+- Velocity and split-payment patterns
+- Social-engineering and content analysis
+- URL structure
+- Blocklist, device, network, and call context
 
-### Example signals
+### Implemented signals
 
 ```text
-Active call              +15
-New recipient            +20
-Unusual amount           +20
-Unknown merchant         +10
-Unexpected invoice       +15
-Urgent language          +10
-Suspicious URL           +10
-Known scam pattern       +20
+Active call                    +15
+New recipient                  +20
+Large amount                   +20
+Recipient amount anomaly       +20
+Repeated attempts (10 min)     +15
+Velocity hourly                +15
+Velocity daily                 +20
+Blocklisted recipient          +25 (forces score 100 / STOP)
+Unknown merchant               +10
+Unexpected invoice             +15
+Urgent language                +10
+Suspicious URL                 +10
+Social engineering             +20
+Known-recipient scam           +50
+Split payment                  +40
+Missing context                +20
+New device                     +20
+New geo                        +15
+Impossible travel              +25
+VPN / proxy                    +10
 ```
+
+Exact trigger rules, sharing/collapsing rules, and unavailable reasons are in
+`docs/risk-engine.md`.
 
 The final score is normalized/capped at 100.
 
@@ -654,7 +682,7 @@ GuardPay must not guarantee refunds.
 
 - Users can register/login.
 - Protected APIs require authentication.
-- JWT is used for the prototype.
+- The prototype uses opaque session cookies today; JWT was the original plan and is not implemented.
 - User-specific transactions cannot be accessed by another user.
 
 ## Payments
@@ -674,9 +702,9 @@ GuardPay must not guarantee refunds.
 ## AI
 
 - AI service accepts structured payment context.
-- Three agents analyze separate concerns.
-- Agent outputs use structured schemas.
-- AI failure does not completely disable basic deterministic protection.
+- Two LLM agents and local URL rules analyze separate concerns.
+- Agent outputs use structured, validated schemas.
+- AI failure does not disable deterministic protection.
 
 ## Dashboard
 
@@ -707,7 +735,7 @@ Target:
 
 - Secrets server-side only.
 - HTTPS in deployed environments.
-- JWT authentication.
+- Session-cookie authentication with CSRF (JWT remains a possible future option).
 - Validate all external input.
 - Never trust LLM output as executable instructions.
 
@@ -720,6 +748,11 @@ Target:
 ---
 
 # 27. System Architecture
+
+> **Plan vs implementation:** the diagram below is the original target
+> architecture. The current service uses two focused LLM agents plus local URL
+> rules instead of CrewAI, and Spring Boot remains the sole decision authority.
+> See `docs/architecture.md` for the implemented view.
 
 ```text
                          USER
@@ -743,13 +776,13 @@ Target:
                     Python AI Service
                          FastAPI
                            |
-                         CrewAI
+                    (no CrewAI)
                            |
              ┌─────────────┼─────────────┐
              v             v             v
-        Transaction     Social         Content
-           Agent      Engineering       Agent
-                          Agent
+       Spring Boot     Social         Content
+       transaction   Engineering       Agent
+        signals        Agent        + URL rules
              |             |             |
              └─────────────┼─────────────┘
                            v
@@ -786,16 +819,16 @@ Target:
 
 - Java 17
 - Spring Boot 3.x
-- Spring Security
 - Spring Data JPA
 - Hibernate
+- Custom authentication filter (Spring Security is not used)
 
 ## AI Backend
 
 - Python
 - FastAPI
-- CrewAI
 - OpenAI-compatible LLM API
+- Deterministic local URL rules (CrewAI is not used)
 
 ## Database
 
@@ -814,9 +847,11 @@ Target:
 
 ## Security
 
-- Google Safe Browsing
-- JWT
 - HTTPS
+- Session cookie + CSRF
+- Optional internal AI-service token
+- No Google Safe Browsing or live URL reputation in the current prototype
+- JWT was planned but is not implemented
 
 ## Real-Time
 
@@ -834,43 +869,44 @@ Target:
 
 # 29. API Requirements
 
-## Authentication
+The authoritative endpoint contract is `docs/api-contract.md`. Implemented
+groups:
+
+## Authentication and sessions
 
 - `POST /api/auth/register`
 - `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`, `GET /api/auth/csrf`
+- Session list/rotate/revoke and password change under `/api/auth/*`
+- TOTP enrollment/status/delete under `/api/mfa/totp`
 
-## Payments
+## Payments and risk
 
-- `POST /api/payments/analyze`
-- `POST /api/payments/create`
-- `GET /api/payments/{id}`
-- `POST /api/payments/{id}/verify`
-- `POST /api/payments/{id}/stop`
+- `POST /api/payments/guarded`
+- `POST /api/payments/{paymentId}/verification/confirm`
+- `POST /api/risk/evaluate-automatic`
+- `POST /api/risk/evaluate` (legacy regression/tooling only)
 
-## Transactions
+## Transactions, dashboard, alerts, blocklist
 
-- `GET /api/transactions`
-- `GET /api/transactions/{id}`
-- `GET /api/transactions/profile`
+- `GET /api/transactions`, `GET /api/transactions/{id}`
+- `GET /api/dashboard/summary`
+- `GET /api/alerts`, `GET /api/alerts/stream` (SSE)
+- `GET/POST/DELETE /api/blocklist/recipients/*`
 
-## Risk
+## Devices and PayPal
 
-- `GET /api/risk/{transactionId}`
-- `POST /api/risk/analyze`
+- `GET/POST /api/devices`, rotate/revoke device credentials
+- `POST /api/device-signals/call-state`
+- `GET /api/paypal/health`
+- `POST /api/paypal/orders/{orderId}/capture`
+- `POST /api/paypal/webhooks`
 
-## Subscriptions
-
-- `GET /api/subscriptions`
-- `GET /api/subscriptions/{id}`
-
-## Reports
-
-- `POST /api/scam-reports`
-- `GET /api/scam-reports`
-
-## Webhooks
-
-- `POST /api/webhooks/paypal`
+The older planned routes (`/api/payments/analyze`, `/api/payments/create`,
+`/api/payments/{id}/verify`, `/api/payments/{id}/stop`, `/api/transactions/profile`,
+`/api/subscriptions`, `/api/scam-reports`, `/api/risk/{transactionId}`,
+`/api/risk/analyze`, and `/api/webhooks/paypal`) are not implemented.
 
 ---
 
@@ -878,35 +914,18 @@ Target:
 
 Spring Boot communicates with Python using internal APIs.
 
-Conceptual endpoint:
+Implemented endpoint:
 
-`POST /ai/analyze-payment`
+`POST /api/v1/analyze` (optional `X-GuardPay-Internal-Token`)
 
-Input:
+Input: amount/currency, merchant/recipient names, novelty/invoice flags,
+untrusted message text, URL string, and active-call boolean. No user profile,
+audio, contacts, phone numbers, or email destinations are sent.
 
-- Transaction data
-- User profile
-- Recipient information
-- Merchant information
-- Invoice
-- Message
-- URL
-- Call state
-
-Output:
-
-```json
-{
-  "transaction_findings": [],
-  "social_engineering_findings": [],
-  "content_findings": [],
-  "scam_pattern": "impersonation_payment_request",
-  "explanation": "...",
-  "recommended_risk": "high"
-}
-```
-
-The Python service does not make the final payment decision.
+Output: `analysis_id`, a controlled-vocabulary `findings` list (code, title,
+description, severity, confidence, evidence), and a neutral summary. The Python
+service does not accept or emit `ALLOW`/`VERIFY`/`STOP`, a score, or a risk
+level. Local URL rules run even without an LLM key. See `docs/api-contract.md`.
 
 ---
 
@@ -1041,7 +1060,7 @@ The MVP is complete when:
 7. Invoice/message content can be analyzed.
 8. URL can be checked.
 9. Python AI service analyzes the context.
-10. Three agents return structured findings.
+10. Two LLM agents and local URL rules return structured findings.
 11. Spring Boot risk engine produces a score.
 12. GuardPay displays the explanation.
 13. User can choose STOP/VERIFY/CONTINUE.
@@ -1064,18 +1083,16 @@ The MVP is complete when:
 - Risk engine
 - Transaction history
 - Social-engineering detection
-- Python/CrewAI
-- Three agents
+- Python/FastAPI AI evidence (two LLM agents + local URL rules)
 - Risk warning
 - AG Grid dashboard
 - Hero demo scenario
 
 ## P1 — Should Have
 
-- URL scanning
+- Structural URL analysis
 - PayPal webhooks
-- Real-time dashboard
-- Subscription detection
+- Real-time dashboard/alerts
 - Authentication
 - WebSocket/SSE
 
@@ -1265,61 +1282,40 @@ The project uses a hybrid backend.
 
 ### Python owns:
 
-- CrewAI
-- AI agents
-- LLM interaction
-- NLP
-- Social-engineering analysis
-- Content analysis
-- URL intelligence
+- AI evidence service (FastAPI)
+- Two focused LLM agents (social engineering, content-scam patterns)
+- Deterministic local URL structure rules
+- LLM interaction and finding validation
 
 ### React + Vite owns:
 
 - User interface
-- Payment analysis experience
-- Risk warning
-- Security dashboard
-- AG Grid
-- Real-time visualization
+- Guarded checkout
+- Risk warning and controlled verification
+- Dashboard, transaction history, device/TOTP setup
+- SSE alert visualization
 
-Final architecture:
+Current architecture:
 
 ```text
-React + Vite
-   |
-   v
-Spring Boot
-   |
-   ├── PayPal
-   ├── PostgreSQL
-   ├── Webhooks
-   └── Risk Engine
+React + Vite / Android WebView
           |
           v
-     Python FastAPI
-          |
-        CrewAI
-          |
-    ┌─────┼─────┐
-    v     v     v
-Transaction  Social  Content
-   Agent    Agent    Agent
-    └─────┼─────┘
-          v
-         LLM
+     Spring Boot -------- PostgreSQL
+          |  \----------- PayPal + webhooks
+          |  \----------- Deterministic risk engine
+          |                  |
+          |                  +-- ALLOW
+          |                  +-- VERIFY
+          |                  +-- STOP
           |
           v
-   Structured Findings
+   Python FastAPI (optional)
+          |
+     two LLM agents + local URL rules
           |
           v
-   Spring Boot Risk Engine
-          |
-    ┌─────┼─────┐
-    v     v     v
-  ALLOW VERIFY STOP
-          |
-          v
-       React + Vite
+   Structured evidence only
 ```
 
 ---

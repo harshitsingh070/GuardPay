@@ -31,12 +31,7 @@ android {
             (project.findProperty(name) as String?) ?: localProperties.getProperty(name) ?: default
 
         val apiBaseUrl = propertyOrDefault("guardpayApiBaseUrl", "http://10.0.2.2:8080")
-        // Development pairing token (build-time only, never hard-coded).
-        // Must match GUARDPAY_DEVICE_SIGNAL_TOKEN in backend/.env; empty means
-        // the backend rejects every report with 401.
-        val deviceToken = propertyOrDefault("guardpayDeviceToken", "")
         buildConfigField("String", "GUARDPAY_API_BASE_URL", "\"$apiBaseUrl\"")
-        buildConfigField("String", "GUARDPAY_DEVICE_TOKEN", "\"$deviceToken\"")
     }
 
     buildFeatures {

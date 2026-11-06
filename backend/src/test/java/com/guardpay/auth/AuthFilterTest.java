@@ -14,14 +14,17 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.Cookie;
 import java.time.OffsetDateTime;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class AuthFilterTest {
@@ -97,5 +100,53 @@ class AuthFilterTest {
 
     assertEquals(401, response.getStatus());
     verify(chain, never()).doFilter(any(), any());
+  }
+
+  @Test
+  void validSessionSlidesIdleExpiryWithoutExceedingAbsoluteExpiry() throws Exception {
+    User user = new User();
+    AuthSession session = new AuthSession();
+    UUID sessionId = UUID.randomUUID();
+    ReflectionTestUtils.setField(session, "id", sessionId);
+    session.setUser(user);
+    when(sessions.findActiveByTokenHash(eq(AuthService.hash("opaque")), any()))
+        .thenReturn(Optional.of(session));
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/transactions");
+    request.setCookies(new Cookie(AuthService.COOKIE_NAME, "opaque"));
+    MockHttpServletResponse response = new MockHttpServletResponse();
+
+    filter.doFilter(request, response, chain);
+
+    ArgumentCaptor<OffsetDateTime> now = ArgumentCaptor.forClass(OffsetDateTime.class);
+    ArgumentCaptor<OffsetDateTime> slidingExpiry =
+        ArgumentCaptor.forClass(OffsetDateTime.class);
+    verify(sessions).touch(eq(sessionId), now.capture(), slidingExpiry.capture());
+    assertEquals(AuthService.SESSION_IDLE_TTL, java.time.Duration.between(now.getValue(), slidingExpiry.getValue()));
+    verify(chain).doFilter(request, response);
+  }
+
+  @Test
+  void sessionManagementEndpointsAreProtectedButCsrfBootstrapIsPublic() throws Exception {
+    MockHttpServletRequest sessionsRequest =
+        new MockHttpServletRequest("GET", "/api/auth/sessions");
+    MockHttpServletResponse sessionsResponse = new MockHttpServletResponse();
+    filter.doFilter(sessionsRequest, sessionsResponse, chain);
+    assertEquals(401, sessionsResponse.getStatus());
+
+    MockHttpServletRequest csrfRequest = new MockHttpServletRequest("GET", "/api/auth/csrf");
+    MockHttpServletResponse csrfResponse = new MockHttpServletResponse();
+    filter.doFilter(csrfRequest, csrfResponse, chain);
+    verify(chain).doFilter(csrfRequest, csrfResponse);
+  }
+
+  @Test
+  void deviceSignalIntakeIsPublicBecauseItUsesADeviceCredential() throws Exception {
+    MockHttpServletRequest request =
+        new MockHttpServletRequest("POST", "/api/device-signals/call-state");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+
+    filter.doFilter(request, response, chain);
+
+    verify(chain).doFilter(request, response);
   }
 }

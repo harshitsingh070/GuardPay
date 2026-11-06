@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiRequestError } from '@/services/api-client';
-import { reportCallState } from '@/services/device-service';
+import {
+  registerDevice,
+  reportCallState,
+  rotateDevice,
+} from '@/services/device-service';
 import { getDeviceFingerprint } from '@/services/device-fingerprint';
 import { getNativeBridge, readNative } from '@/services/native-bridge';
 
@@ -77,8 +81,7 @@ function initialDeviceId(): string {
 
 function initialToken(): string {
   const stored = readStored(DEVICE_TOKEN_KEY);
-  if (stored !== null && stored.trim() !== '') return stored;
-  return import.meta.env.VITE_GUARDPAY_DEVICE_TOKEN ?? '';
+  return stored === null ? '' : stored.trim();
 }
 
 export interface DeviceSignal {
@@ -88,22 +91,31 @@ export interface DeviceSignal {
   activeCall: boolean | null;
   observedAt: string | null;
   reporting: boolean;
+  provisioning: boolean;
   error: string | null;
   /** True when the Android shell detects calls automatically. */
   automatic: boolean;
   /** Changes whenever a new call-state observation is stored. */
   stateKey: string | null;
   setToken: (token: string) => void;
+  provision: () => Promise<string | null>;
   report: (activeCall: boolean) => Promise<void>;
 }
 
+interface UseDeviceSignalOptions {
+  /** Registers this device after login. Leave off in unit tests and public views. */
+  autoProvision?: boolean;
+}
+
 /**
- * Development call-state signalling. A browser cannot read the phone's
+ * Per-device call-state signalling. A browser cannot read the phone's
  * telephony state, so the user reports the state explicitly; the backend
- * stores it (pairing token required) and the risk engine uses it only while
- * the observation is fresh.
+ * authenticates the per-device credential and the risk engine uses it only
+ * while the observation is fresh.
  */
-export function useDeviceSignal(): DeviceSignal {
+export function useDeviceSignal({
+  autoProvision = false,
+}: UseDeviceSignalOptions = {}): DeviceSignal {
   const [native] = useState(() => getNativeBridge());
   const [deviceId, setDeviceId] = useState<string>(initialDeviceId);
   const [fingerprint] = useState<string>(getDeviceFingerprint);
@@ -111,7 +123,9 @@ export function useDeviceSignal(): DeviceSignal {
   const [activeCall, setActiveCall] = useState<boolean | null>(null);
   const [observedAt, setObservedAt] = useState<string | null>(null);
   const [reporting, setReporting] = useState(false);
+  const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const provisioningRequest = useRef<Promise<string | null> | null>(null);
 
   // Repairs a non-UUID id kept from an older build (or a hot reload), which
   // the backend would reject with 400.
@@ -148,23 +162,89 @@ export function useDeviceSignal(): DeviceSignal {
     };
   }, [native]);
 
-  const setToken = useCallback((next: string) => {
-    const trimmed = next.trim();
-    setTokenState(trimmed);
-    store(DEVICE_TOKEN_KEY, trimmed);
+  const syncNativeToken = useCallback((next: string) => {
+    const bridge = getNativeBridge();
+    if (bridge === null || typeof bridge.setDeviceToken !== 'function') return;
+    try {
+      bridge.setDeviceToken(next);
+    } catch {
+      // The native shell may be tearing down; the browser token still works.
+    }
   }, []);
+
+  const setToken = useCallback(
+    (next: string) => {
+      const trimmed = next.trim();
+      setTokenState(trimmed);
+      store(DEVICE_TOKEN_KEY, trimmed);
+      syncNativeToken(trimmed);
+    },
+    [syncNativeToken],
+  );
+
+  const provision = useCallback((): Promise<string | null> => {
+    const existing = token.trim();
+    if (existing !== '') return Promise.resolve(existing);
+    if (provisioningRequest.current !== null) return provisioningRequest.current;
+
+    const request = (async () => {
+      setProvisioning(true);
+      setError(null);
+      try {
+        let issued;
+        try {
+          issued = await registerDevice(deviceId, 'GuardPay device');
+        } catch (failure) {
+          // A device migrated from historical transactions already has an owner.
+          // The signed-in owner may rotate that unrecoverable credential.
+          if (failure instanceof ApiRequestError && failure.status === 409) {
+            issued = await rotateDevice(deviceId);
+          } else {
+            throw failure;
+          }
+        }
+        setToken(issued.deviceToken);
+        return issued.deviceToken;
+      } catch (failure) {
+        if (!(failure instanceof ApiRequestError && failure.status === 401)) {
+          setError(
+            failure instanceof ApiRequestError
+              ? failure.message
+              : 'Unable to register this device.',
+          );
+        }
+        return null;
+      } finally {
+        provisioningRequest.current = null;
+        setProvisioning(false);
+      }
+    })();
+
+    provisioningRequest.current = request;
+    return request;
+  }, [deviceId, setToken, token]);
+
+  useEffect(() => {
+    // Only the Android shell needs a backend credential: it reports call state
+    // from native code. A plain browser has no telephony signal to report.
+    if (autoProvision && native !== null) void provision();
+  }, [autoProvision, native, provision]);
 
   const report = useCallback(
     async (nextActive: boolean) => {
       if (reporting) return;
-      if (token.trim() === '') {
-        setError('Add the device pairing token first.');
-        return;
-      }
       setReporting(true);
       setError(null);
       try {
-        const state = await reportCallState(deviceId, nextActive, token);
+        let credential = token.trim();
+        if (credential === '') {
+          credential = (await provision()) ?? '';
+        }
+        if (credential === '') {
+          setError('This device is not registered yet. Sign in and try again.');
+          return;
+        }
+        const state = await reportCallState(deviceId, nextActive, credential);
         setActiveCall(state.activeCall);
         setObservedAt(state.observedAt);
       } catch (failure) {
@@ -177,7 +257,7 @@ export function useDeviceSignal(): DeviceSignal {
         setReporting(false);
       }
     },
-    [deviceId, reporting, token],
+    [deviceId, provision, reporting, token],
   );
 
   return {
@@ -187,10 +267,12 @@ export function useDeviceSignal(): DeviceSignal {
     activeCall,
     observedAt,
     reporting,
+    provisioning,
     error,
     automatic: native !== null,
     stateKey: observedAt === null || activeCall === null ? null : `${activeCall}:${observedAt}`,
     setToken,
+    provision,
     report,
   };
 }

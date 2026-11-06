@@ -43,14 +43,21 @@ guardpay:
   auth:
     enabled: ${GUARDPAY_AUTH_ENABLED:true}
     cookie-secure: ${GUARDPAY_AUTH_COOKIE_SECURE:false}
+    cookie-same-site: ${GUARDPAY_AUTH_COOKIE_SAME_SITE:Lax}
+    require-https: ${GUARDPAY_AUTH_REQUIRE_HTTPS:false}
+    csrf-enabled: ${GUARDPAY_AUTH_CSRF_ENABLED:true}
+    csrf-secret: ${GUARDPAY_AUTH_CSRF_SECRET:}
+    login-max-attempts: ${GUARDPAY_AUTH_LOGIN_MAX_ATTEMPTS:5}
+    login-ip-max-attempts: ${GUARDPAY_AUTH_LOGIN_IP_MAX_ATTEMPTS:20}
+    login-window-minutes: ${GUARDPAY_AUTH_LOGIN_WINDOW_MINUTES:15}
+    login-lockout-minutes: ${GUARDPAY_AUTH_LOGIN_LOCKOUT_MINUTES:15}
+    session-cleanup-initial-delay-ms: ${GUARDPAY_AUTH_SESSION_CLEANUP_INITIAL_DELAY_MS:60000}
+    session-cleanup-interval-ms: ${GUARDPAY_AUTH_SESSION_CLEANUP_INTERVAL_MS:3600000}
   paypal:
     base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
     client-id: ${PAYPAL_CLIENT_ID:}
     client-secret: ${PAYPAL_CLIENT_SECRET:}
     webhook-id: ${PAYPAL_WEBHOOK_ID:}
-  # Development device pairing (see DeviceSignalProperties javadoc).
-  device:
-    signal-token: ${GUARDPAY_DEVICE_SIGNAL_TOKEN:}
   # Python AI evidence service (optional; deterministic signals always work).
   ai:
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8001}

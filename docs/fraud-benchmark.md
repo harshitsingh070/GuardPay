@@ -319,8 +319,8 @@ Latest checked-in dev run (54 scenarios: 26 fraud, 28 legitimate):
 
 | Mode | TP | FN | FP | TN | Precision | Recall | F1 | FPR | Accuracy |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY` | 21 | 5 | 8 | 20 | 72.41% | 80.77% | 76.36% | 28.57% | 75.93% |
-| `VALIDATED_AI` | 23 | 3 | 9 | 19 | 71.88% | 88.46% | 79.31% | 32.14% | 77.78% |
+| `DETERMINISTIC_ONLY` | 24 | 2 | 8 | 20 | 75.00% | 92.31% | 82.76% | 28.57% | 81.48% |
+| `VALIDATED_AI` | 26 | 0 | 9 | 19 | 74.29% | 100.00% | 85.25% | 32.14% | 83.33% |
 
 Exact score/level/action and signal agreement are 100% because the dataset is
 constructed to characterize the current engine. That is a regression property,
@@ -329,28 +329,28 @@ not proof of real-world accuracy.
 Deterministic misses in this dataset:
 
 - `F08-paypal-lookalike-known` — 30 `ALLOW`; AI raises it to 50 `VERIFY`.
-- `F09-urgent-giftcard-known` — 30 `ALLOW`; social pattern alone is below the verify threshold.
 - `F15-account-takeover-known` — 30 `ALLOW`; AI raises it to 50 `VERIFY`.
-- `F20-payment-instruction-url-known` — 30 `ALLOW`.
-- `F23-just-below-missing-threshold` — 30 `ALLOW`; intentionally documents the
-  `$1000` missing-context threshold gap.
 
-`L25-known-payee-no-context` is a labeled legitimate boundary case: it produces
-no signals and is correctly allowed. It is not a fraud miss.
+`F09-urgent-giftcard-known`, `F20-payment-instruction-url-known`, and
+`F23-just-below-missing-threshold` are detected deterministically in the
+current baseline. `L25-known-payee-no-context` is a labeled legitimate boundary
+case: it produces no signals and is correctly allowed. It is not a fraud miss.
 
-Validated AI still misses `F09`, `F20`, and `F23`, and adds one legitimate false
-positive (`L22-ai-false-positive-medium`). These results are for the synthetic
-dataset only.
+Validated AI detects every fraud scenario, including `F08` and `F15`, and adds
+one legitimate false positive (`L22-ai-false-positive-medium`). These results are
+for the synthetic dataset only.
 
 Notable category observations from the current dataset:
 
-- `boundary` has 0/1 fraud scenarios detected in both modes; `F23` is below the
-  production `VERIFY` boundary, while `L25` is correctly allowed.
+- `boundary` detects 1/1 fraud scenarios in both modes; `L25` is correctly
+  allowed.
 - `invoice_scam` detects 5/5 fraud scenarios with no legitimate false positives.
 - `legitimate_new_payee` has 5/8 legitimate payments sent to `VERIFY` in
   deterministic mode and 5/8 in validated-AI mode, the largest friction source.
 - `ai_false_positive` has 1/4 deterministic false positives and 2/4 validated-AI
   false positives.
+- `account_takeover` and `impersonation` are missed deterministically and
+  detected with AI; each has one scenario.
 
 Small categories make these rates volatile; use the counts alongside the
 percentages.
@@ -365,10 +365,10 @@ behavior without changing production code paths.
 
 | Configuration | TP | FN | FP | TN | Precision | Recall | F1 | Amount anomaly |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY_BASELINE` | 20 | 6 | 8 | 20 | 71.43% | 76.92% | 74.07% | 0/1 |
-| `DETERMINISTIC_ONLY_RECIPIENT` | 21 | 5 | 8 | 20 | 72.41% | 80.77% | 76.36% | 1/1 |
-| `VALIDATED_AI_BASELINE` | 22 | 4 | 9 | 19 | 70.97% | 84.62% | 77.19% | 0/1 |
-| `VALIDATED_AI_RECIPIENT` | 23 | 3 | 9 | 19 | 71.88% | 88.46% | 79.31% | 1/1 |
+| `DETERMINISTIC_ONLY_BASELINE` | 23 | 3 | 8 | 20 | 74.19% | 88.46% | 80.70% | 0/1 |
+| `DETERMINISTIC_ONLY_RECIPIENT` | 24 | 2 | 8 | 20 | 75.00% | 92.31% | 82.76% | 1/1 |
+| `VALIDATED_AI_BASELINE` | 25 | 1 | 9 | 19 | 73.53% | 96.15% | 83.33% | 0/1 |
+| `VALIDATED_AI_RECIPIENT` | 26 | 0 | 9 | 19 | 74.29% | 100.00% | 85.25% | 1/1 |
 
 Recipient intelligence adds one true positive and no false positives in each
 mode by detecting `F26-known-recipient-amount-anomaly`. Across all
@@ -389,8 +389,8 @@ exact inputs disjoint from dev. It is always evaluated with the fixed
 
 | Mode | TP | FN | FP | TN | Precision | Recall | F1 | FPR | Accuracy |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY` | 15 | 1 | 2 | 14 | 88.24% | 93.75% | 90.91% | 12.50% | 90.63% |
-| `VALIDATED_AI` | 15 | 1 | 2 | 14 | 88.24% | 93.75% | 90.91% | 12.50% | 90.63% |
+| `DETERMINISTIC_ONLY` | 16 | 0 | 2 | 14 | 88.89% | 100.00% | 94.12% | 12.50% | 93.75% |
+| `VALIDATED_AI` | 16 | 0 | 2 | 14 | 88.89% | 100.00% | 94.12% | 12.50% | 93.75% |
 
 Both modes record 2 legitimate `VERIFY` outcomes and 0 legitimate `STOP`
 outcomes. Recipient-specific held-out metrics are identical with recipient
@@ -407,13 +407,13 @@ intelligence enabled or disabled:
 
 Current held-out observations:
 
-- The sole fraud miss in both modes is `HF16-paypal-known-urgent-payment` at
-  score `10 LOW ALLOW` with only `URGENT_LANGUAGE`; a known recipient suppresses
-  the new-recipient/merchant evidence.
+- No fraud scenario is missed in either mode.
 - `HL02-paypal-freelancer-invoice` and `HL13-paypal-shortener-new` are the two
   legitimate `VERIFY` outcomes.
 - `HF07-paypal-invoice-known-ai-impersonation` scores `45 MEDIUM VERIFY`
   deterministically and `65 MEDIUM VERIFY` with AI.
+- `HF16-paypal-known-urgent-payment` is detected at `60 MEDIUM VERIFY` in both
+  modes.
 - `HL14-paypal-ai-false-positive` stays `0 LOW ALLOW` deterministically and
   `20 LOW ALLOW` with AI.
 - Official PayPal domains/subdomains such as `paypal.com` and `paypal.me` are not
@@ -461,14 +461,14 @@ best-by-metric labels.
 
 Current dev threshold observations:
 
-- Deterministic mode: the production baseline has 80.77% recall, 76.36% F1,
-  and 8 legitimate false positives. `allow-20` reaches 100.00% recall and 81.25%
-  F1, but raises legitimate false positives to 12. `allow-50` reduces friction
-  to 1 false positive but drops recall to 50.00%.
-- Validated-AI mode: the production baseline remains best by F1 and accuracy at
-  79.31% and 77.78%. `allow-20` reaches 100.00% recall but raises legitimate
-  false positives to 14; `allow-50` reduces friction to 2 false positives with
-  53.85% recall.
+- Deterministic mode: the production baseline has 92.31% recall, 82.76% F1,
+  and 8 legitimate false positives. `allow-20` reaches 100.00% recall with
+  81.25% F1, but raises legitimate false positives to 12. `allow-50` reduces
+  friction to 1 false positive but drops recall to 57.69%.
+- Validated-AI mode: the production baseline is best by recall, F1, and accuracy
+  at 100.00%, 85.25%, and 83.33%. `allow-20` keeps 100.00% recall but raises
+  legitimate false positives to 14; `allow-50` reduces friction to 2 false
+  positives with 61.54% recall.
 
 These are trade-offs on a small synthetic dev dataset. A higher recall or F1
 here does not by itself justify a production threshold change. Threshold

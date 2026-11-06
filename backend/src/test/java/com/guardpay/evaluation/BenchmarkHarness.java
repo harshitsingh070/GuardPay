@@ -129,10 +129,12 @@ final class BenchmarkHarness {
 
     if (input.device() != DeviceState.NONE) {
       DeviceCallState state = new DeviceCallState();
+      state.setUser(user);
       state.setDeviceId(DEVICE_ID);
       state.setActiveCall(input.device() == DeviceState.ACTIVE);
       state.setObservedAt(OffsetDateTime.now(ZoneOffset.UTC));
-      when(deviceStates.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(state));
+      when(deviceStates.findByUserIdAndDeviceId(USER_ID, DEVICE_ID))
+          .thenReturn(Optional.of(state));
       dto.setDeviceId(DEVICE_ID);
     }
 

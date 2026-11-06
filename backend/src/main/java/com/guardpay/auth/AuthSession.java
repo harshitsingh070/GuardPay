@@ -29,6 +29,12 @@ public class AuthSession extends BaseEntity {
   @Column(name = "expires_at", nullable = false)
   private OffsetDateTime expiresAt;
 
+  @Column(name = "last_used_at", nullable = false)
+  private OffsetDateTime lastUsedAt;
+
+  @Column(name = "absolute_expires_at", nullable = false)
+  private OffsetDateTime absoluteExpiresAt;
+
   public User getUser() {
     return user;
   }
@@ -51,5 +57,21 @@ public class AuthSession extends BaseEntity {
 
   public void setExpiresAt(OffsetDateTime expiresAt) {
     this.expiresAt = expiresAt;
+  }
+
+  public OffsetDateTime getLastUsedAt() {
+    return lastUsedAt;
+  }
+
+  public void setLastUsedAt(OffsetDateTime lastUsedAt) {
+    this.lastUsedAt = lastUsedAt;
+  }
+
+  public OffsetDateTime getAbsoluteExpiresAt() {
+    return absoluteExpiresAt;
+  }
+
+  public void setAbsoluteExpiresAt(OffsetDateTime absoluteExpiresAt) {
+    this.absoluteExpiresAt = absoluteExpiresAt;
   }
 }

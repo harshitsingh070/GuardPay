@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.guardpay.device.dto.DeviceCallStateRequestDto;
 import com.guardpay.device.dto.DeviceCallStateResponseDto;
+import com.guardpay.user.User;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -21,24 +22,31 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
-/** Device intake with a mocked repository. Token values never asserted — only outcomes. */
+/** Device intake with mocked repositories. Credential values are never asserted. */
 @ExtendWith(MockitoExtension.class)
 class DeviceSignalServiceTest {
 
+  private static final UUID USER_ID = UUID.randomUUID();
   private static final UUID DEVICE_ID = UUID.randomUUID();
 
   @Mock private DeviceCallStateRepository states;
+  @Mock private DeviceService devices;
 
-  private DeviceSignalProperties properties;
   private DeviceSignalService service;
+  private User user;
+  private Device device;
 
   @BeforeEach
   void setUp() {
-    properties = new DeviceSignalProperties();
-    properties.setSignalToken("dev-token-123");
-    service = new DeviceSignalService(states, properties);
+    service = new DeviceSignalService(states, devices);
+    user = new User();
+    ReflectionTestUtils.setField(user, "id", USER_ID);
+    device = new Device(DEVICE_ID);
+    device.setUser(user);
+    org.mockito.Mockito.lenient().when(devices.authenticate("device-token")).thenReturn(device);
   }
 
   private DeviceCallStateRequestDto request(boolean activeCall) {
@@ -50,27 +58,29 @@ class DeviceSignalServiceTest {
   }
 
   @Test
-  void newDeviceStateCreatesRecord() {
-    when(states.findByDeviceId(DEVICE_ID)).thenReturn(Optional.empty());
+  void newDeviceStateCreatesOwnerScopedRecord() {
+    when(states.findByUserIdAndDeviceId(USER_ID, DEVICE_ID)).thenReturn(Optional.empty());
     when(states.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-    DeviceCallStateResponseDto response = service.report("dev-token-123", request(true));
+    DeviceCallStateResponseDto response = service.report("device-token", request(true));
 
     assertEquals(DEVICE_ID, response.deviceId());
     assertTrue(response.activeCall());
     verify(states).save(any());
+    verify(devices).markSeen(device);
   }
 
   @Test
   void existingDeviceStateUpdates() {
     DeviceCallState stored = new DeviceCallState();
+    stored.setUser(user);
     stored.setDeviceId(DEVICE_ID);
     stored.setActiveCall(true);
     stored.setObservedAt(OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
-    when(states.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(stored));
+    when(states.findByUserIdAndDeviceId(USER_ID, DEVICE_ID)).thenReturn(Optional.of(stored));
     when(states.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-    DeviceCallStateResponseDto response = service.report("dev-token-123", request(false));
+    DeviceCallStateResponseDto response = service.report("device-token", request(false));
 
     assertFalse(response.activeCall());
     assertEquals(DEVICE_ID, stored.getDeviceId());
@@ -80,17 +90,18 @@ class DeviceSignalServiceTest {
   void staleObservationCannotOverwriteANewerState() {
     OffsetDateTime storedAt = OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1);
     DeviceCallState stored = new DeviceCallState();
+    stored.setUser(user);
     stored.setDeviceId(DEVICE_ID);
     stored.setActiveCall(true);
     stored.setObservedAt(storedAt);
-    when(states.findByDeviceId(DEVICE_ID)).thenReturn(Optional.of(stored));
+    when(states.findByUserIdAndDeviceId(USER_ID, DEVICE_ID)).thenReturn(Optional.of(stored));
 
     DeviceCallStateRequestDto stale = request(false);
     stale.setObservedAt(storedAt.minusMinutes(5));
 
     ResponseStatusException failure =
         assertThrows(
-            ResponseStatusException.class, () -> service.report("dev-token-123", stale));
+            ResponseStatusException.class, () -> service.report("device-token", stale));
 
     assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
     assertTrue(stored.isActiveCall());
@@ -100,39 +111,40 @@ class DeviceSignalServiceTest {
 
   @Test
   void futureObservationIsClampedToNow() {
-    when(states.findByDeviceId(DEVICE_ID)).thenReturn(Optional.empty());
+    when(states.findByUserIdAndDeviceId(USER_ID, DEVICE_ID)).thenReturn(Optional.empty());
     when(states.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     DeviceCallStateRequestDto future = request(true);
     future.setObservedAt(OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
 
-    DeviceCallStateResponseDto response = service.report("dev-token-123", future);
+    DeviceCallStateResponseDto response = service.report("device-token", future);
 
     assertFalse(response.observedAt().isAfter(OffsetDateTime.now(ZoneOffset.UTC)));
   }
 
   @Test
-  void missingTokenIsUnauthorized() {
-    ResponseStatusException failure =
-        assertThrows(ResponseStatusException.class, () -> service.report(null, request(true)));
+  void deviceCredentialMayNotReportAnotherDeviceId() {
+    DeviceCallStateRequestDto spoofed = request(true);
+    spoofed.setDeviceId(UUID.randomUUID());
 
-    assertEquals(HttpStatus.UNAUTHORIZED, failure.getStatusCode());
+    ResponseStatusException failure =
+        assertThrows(
+            ResponseStatusException.class, () -> service.report("device-token", spoofed));
+
+    assertEquals(HttpStatus.FORBIDDEN, failure.getStatusCode());
     verify(states, never()).save(any());
+    verify(states, never()).findByUserIdAndDeviceId(any(), any());
   }
 
   @Test
-  void incorrectTokenIsUnauthorized() {
+  void invalidOrRevokedCredentialIsUnauthorized() {
+    when(devices.authenticate("revoked-token"))
+        .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid device credential"));
+
     ResponseStatusException failure =
-        assertThrows(ResponseStatusException.class, () -> service.report("wrong-token", request(true)));
+        assertThrows(
+            ResponseStatusException.class, () -> service.report("revoked-token", request(true)));
 
     assertEquals(HttpStatus.UNAUTHORIZED, failure.getStatusCode());
     verify(states, never()).save(any());
-  }
-
-  @Test
-  void unconfiguredTokenRejectsEverything() {
-    properties.setSignalToken(" ");
-
-    assertThrows(ResponseStatusException.class, () -> service.report("dev-token-123", request(true)));
-    verify(states, never()).findByDeviceId(any());
   }
 }

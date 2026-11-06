@@ -57,7 +57,7 @@ const PRESETS: Record<'safe' | 'suspicious', CheckoutDraft> = {
 export default function GuardedPaymentPage({ service }: { service?: CheckoutService }) {
   usePageTitle('Pay securely');
   const checkout = useCheckout(service);
-  const device = useDeviceSignal();
+  const device = useDeviceSignal({ autoProvision: true });
   const [draft, setDraft] = useState<CheckoutDraft>(EMPTY_DRAFT);
   const [callWarning, setCallWarning] = useState<CallRiskVariant | null>(null);
 

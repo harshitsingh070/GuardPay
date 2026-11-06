@@ -8,6 +8,7 @@ export interface GuardPayNativeBridge {
   isCallStateKnown(): boolean;
   isCallActive(): boolean;
   getLastObservedAt(): string;
+  setDeviceToken?(token: string): void;
   openUrl(url: string): void;
 }
 

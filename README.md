@@ -4,102 +4,92 @@
 
 GuardPay detects when a user may be getting manipulated into making a fraudulent PayPal payment — especially through social-engineering scams such as fake PayPal support calls, urgent payment requests, suspicious invoices, suspicious URLs, and unusual transaction behavior.
 
-> **Status:** the guarded payment flow is implemented end to end — automatic
-> signals + AI evidence → deterministic risk engine → `ALLOW`/`VERIFY`/`STOP`,
-> controlled verification, recipient-bound PayPal Sandbox orders + server-side
-> capture, signature-verified webhooks, and transaction history. Accounts are
-> protected by BCrypt password hashes and an opaque `HttpOnly` session cookie;
-> transactions, recipients, alerts, idempotency keys, and the SSE feed are
-> scoped to the signed-in user. See `docs/demo.md` to run the demo and `docs/`
-> for design.
+> **Status:** the product flow is implemented end to end — guarded payment,
+> automatic signals + validated AI evidence → deterministic risk engine →
+> `ALLOW`/`VERIFY`/`STOP`, controlled TOTP/simulated verification,
+> recipient-bound PayPal Sandbox orders + server-side capture,
+> signature-verified webhooks, transaction history, live dashboard, SSE alerts,
+> owner-scoped blocklist, and paired-device call state. Accounts use BCrypt
+> password hashes and an opaque `HttpOnly` session cookie; transactions,
+> recipients, devices, alerts, blocklist entries, idempotency keys, and the SSE
+> feed are owner-scoped. See `docs/demo.md` to run the demo and `docs/` for the
+> current design.
 
 ## Architecture overview
 
 ```text
-React + Vite
+React + Vite web app / Android WebView shell
     |
+    |  HTTPS + HttpOnly session cookie + CSRF
     v
 Spring Boot
-   |
-   ├── PostgreSQL
-   ├── PayPal APIs
-   ├── PayPal Webhooks
-   ├── Deterministic Risk Engine
-   |
-   v
-Python FastAPI
-   |
-   v
-CrewAI
-   |
-   ├── Transaction Risk Agent
-   ├── Social Engineering Agent
-   └── Content Safety Agent
-   |
-   v
-LLM
-   |
-   v
-Structured Findings
-   |
-   v
-Spring Boot Risk Engine
-   |
-    ├── ALLOW
-    ├── VERIFY
-    └── STOP
+    |-- PostgreSQL + Flyway
+    |-- PayPal Sandbox REST APIs + signature-verified webhooks
+    |-- Automatic signal collection
+    |     |-- history + recipient/merchant + velocity
+    |     |-- content/URL structure
+    |     |-- blocklist, device, network
+    |     `-- validated AI evidence
+    `-- Deterministic Risk Engine (sole decision authority)
+          |-- ALLOW
+          |-- VERIFY -> controlled TOTP/simulated challenge
+          `-- STOP
     |
-    v
-React + Vite
+    `-- optional internal HTTP -> Python FastAPI evidence service -> LLM
 ```
 
-**Security principle:** the LLM never directly decides whether a payment is allowed.
+**Security principle:** the LLM never directly decides whether a payment is
+allowed.
 
 ```text
-AI agents → structured evidence/findings → Spring Boot deterministic risk engine → final score → ALLOW / VERIFY / STOP
+AI / device / history evidence → Spring Boot validation → deterministic score → ALLOW / VERIFY / STOP
 ```
 
-- `docs/architecture.md` — system architecture + service responsibilities.
-- `docs/api-contract.md` - planned seams plus the live endpoints in section D.
-- `docs/risk-engine.md` - deterministic risk-engine design and current behavior.
+- `docs/architecture.md` — current components, boundaries, and limitations.
+- `docs/api-contract.md` — implemented REST/SSE/internal API contract.
+- `docs/risk-engine.md` — 20-signal deterministic engine, weights, and policy.
+- `docs/fraud-benchmark.md` — synthetic benchmark methodology and current baseline.
+- `docs/demo.md` — runnable demo walkthrough.
 
-## Technology stack (do not change)
+## Technology stack
 
-**Frontend:**
+**Frontend and shell:**
 
 - React + Vite, TypeScript, Tailwind CSS, shadcn/ui, AG Grid
+- Kotlin Android WebView debug shell
 
 **Backend:**
 
-- Java 17, Spring Boot 3.x, Spring Data JPA / Hibernate, Maven, PostgreSQL
+- Java 17, Spring Boot 3.x, Spring Data JPA / Hibernate, Maven, PostgreSQL, Flyway
 
-**AI Service:**
+**AI service:**
 
-- Python 3.12+, FastAPI, CrewAI, LLM API
+- Python 3.12+, FastAPI, OpenAI-compatible LLM client, deterministic local URL rules
+- No CrewAI and no multi-agent framework
 
 **External:**
 
-- PayPal REST APIs, PayPal Webhooks, URL reputation/security API where appropriate
-
-**Deployment target:** Render
+- PayPal Sandbox REST APIs and webhooks
+- Optional email/SMS notification delivery
 
 ## Repository layout
 
 ```text
 guardpay/
-├── frontend/     # React + Vite + TS + Tailwind + shadcn/ui + AG Grid (skeleton only)
-├── backend/      # Spring Boot 3.x / Java 17 (package skeleton only)
-├── ai-service/   # Python FastAPI + CrewAI (structure only, no agent logic)
-├── docs/
-│   ├── architecture.md
-│   ├── api-contract.md
-│   └── risk-engine.md
-├── .gitignore
-├── README.md
-└── docker-compose.yml
+├── frontend/     # React + Vite checkout, dashboard, transactions, alerts
+├── backend/      # Spring Boot API, risk engine, persistence, PayPal integration
+├── ai-service/   # FastAPI evidence service (no decisions, no CrewAI)
+├── android/      # Kotlin WebView shell + foreground call-state reporting
+├── docs/         # current architecture, API, engine, demo, benchmark, product docs
+├── scripts/      # demo, APK build, and developer helpers
+├── docker-compose.yml
+└── README.md
 ```
 
-Existing product specs in `docs/` (`GuardPay_PRD.md`, `GuardPay_Project_Specification.md`) are the source of truth for later milestones.
+The product docs `docs/GuardPay_PRD.md` and
+`docs/GuardPay_Project_Specification.md` describe the broader product plan; the
+implementation notes at their top and the current contract/architecture docs
+take precedence for what is built.
 
 ## Local development prerequisites
 
@@ -108,10 +98,11 @@ Existing product specs in `docs/` (`GuardPay_PRD.md`, `GuardPay_Project_Specific
 - Java 17 + Maven 3.9+ (backend)
 - Python 3.12+ (ai-service)
 - PostgreSQL 16+ (or Docker + Docker Compose)
-- PayPal Developer sandbox account (later milestone — not needed for this init step)
-- LLM API key (later milestone — not needed for this init step)
+- PayPal Developer Sandbox account for live order/capture testing
+- Optional LLM API key; without one the AI service still answers with local
+  URL findings only, and the deterministic path continues
 
-Planned local URLs (not all running yet):
+Local services:
 
 | Service    | URL                   |
 | ---------- | --------------------- |
@@ -120,15 +111,16 @@ Planned local URLs (not all running yet):
 | AI service | http://localhost:8001 |
 | PostgreSQL | localhost:5432        |
 
-## Planned services
+## Services
 
-| Directory    | Description                                                                 |
-| ------------ | --------------------------------------------------------------------------- |
-| `frontend/`  | Payment interface, risk-warning interface, dashboard, transaction history (AG Grid), real-time risk updates. |
-| `backend/`   | Users, transactions, recipients, merchants, payment processing, PayPal integration + webhooks, PostgreSQL, deterministic risk engine + final ALLOW/VERIFY/STOP decision, REST APIs, real-time communication. |
-| `ai-service/`| FastAPI + CrewAI agents (transaction risk, social engineering, content safety), LLM interaction, structured AI findings only. No payment decisions. |
+| Directory    | Description |
+| ------------ | ----------- |
+| `frontend/`  | Registration/login, guarded checkout, risk warning, TOTP enrollment, dashboard, transaction detail, SSE alert feed. |
+| `backend/`   | Accounts/sessions/devices, transactions, recipients, merchants, PayPal integration + webhooks, PostgreSQL/Flyway, automatic signals, deterministic risk engine + final decision, dashboard/alerts/blocklist APIs. |
+| `ai-service/`| FastAPI structural/LLM evidence service. Returns validated structured findings only; never scores or decides. |
+| `android/`   | Debug WebView shell with foreground telephony call-state reporting. |
 
-## Backend quickstart (Milestone 2 — foundation)
+## Quickstart
 
 Requires **Java 17** + Maven 3.9+. The build targets release 17
 (`maven-compiler-plugin` pins `<release>17</release>`).
@@ -149,7 +141,18 @@ mvn -f backend spring-boot:run
 
 # 5. Verify (health and /api/auth/* are public)
 curl http://localhost:8080/api/health
-# �+' {"status":"UP","service":"guardpay-backend"}
+# -> {"status":"UP","service":"guardpay-backend"}
+
+# 6. Start the frontend (separate terminal)
+npm --prefix frontend install
+npm --prefix frontend run dev            # http://localhost:3000
+
+# 7. Start the AI service (optional, separate terminal; run from ai-service/)
+cd ai-service
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8001   # :8001/health
+cd ..
 ```
 
 Open the frontend, create an account, and sign in. The browser stores only the
@@ -160,23 +163,26 @@ Controllers return DTOs (`common/dto/ApiResponse`) — never JPA entities.
 CORS default-allows the Vite dev server (`http://localhost:3000`,
 override via `CORS_ALLOWED_ORIGINS`) with credentials enabled. Authentication
 uses BCrypt password hashes and an opaque `HttpOnly`, `SameSite=Lax` session
-cookie; only the SHA-256 token hash is stored server-side. `/api/auth/*`,
-`/api/health`, signed PayPal webhooks, device-signal intake, and the loopback
-verification outbox are public; all other API routes require a session.
-Set `GUARDPAY_AUTH_COOKIE_SECURE=true` behind HTTPS and
-`GUARDPAY_AUTH_ENABLED=false` only for fixture/unit-test tooling.
+cookie; only the SHA-256 token hash is stored server-side. Sessions expire
+after 24h idle or 7 days absolute, and can be listed, rotated, or revoked.
+Only registration, login, CSRF bootstrap, `me`, health, signed PayPal
+webhooks, device-signal intake, and the loopback verification outbox are
+public. Cookie-authenticated unsafe requests must send `X-CSRF-Token` from
+`GET /api/auth/csrf`. Set `GUARDPAY_AUTH_COOKIE_SECURE=true` behind HTTPS,
+and `GUARDPAY_AUTH_ENABLED=false` only for fixture/unit-test tooling.
 
-Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1���?"V21`,
+Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1–V23`,
 applied automatically at startup); Hibernate stays on `ddl-auto=validate`.
-Tables include `users, auth_sessions, merchants, recipients, transactions,
-payment_context, risk_assessments, paypal_webhook_events, device_call_states,
-guarded_payment_idempotency, payment_verifications, recipient_blocklist,
-alerts, notification_outbox`. V21 restores auth and makes idempotency keys
-unique per owner.
+Tables include `users, auth_sessions, devices, merchants, recipients,
+transactions, payment_context, risk_assessments, paypal_webhook_events,
+device_call_states, guarded_payment_idempotency, payment_verifications,
+recipient_blocklist, alerts, notification_outbox`. V21 restores auth and makes
+idempotency keys unique per owner, V22 adds per-device ownership and hashed
+credentials, and V23 hardens session expiry and revocation.
 Note: if a local PostgreSQL already occupies host port 5432, either stop it
 or point the backend at the compose DB via `DB_PORT`.
 
-## PayPal Sandbox setup (Milestone 7 — foundation, no orders yet)
+## PayPal Sandbox setup
 
 Required environment variables (Sandbox):
 
@@ -242,33 +248,30 @@ the signed-in user's workspace. Idempotency keys are unique per owner, and
 capture uniqueness is enforced in the database. Webhook, engine, and threshold
 behavior are unchanged.
 
-Real-LLM status: no `OPENAI_API_KEY` is available in this environment, so the
-live hero runs deterministically (STOP via the guarded endpoint additionally
-requires AI/device evidence by design — deterministic signals top out at
-VERIFY). AI-unavailable fallback, forged-field rejection, and the full
-mocked pipeline (including an AI-driven 100/STOP merge test) are green.
+AI is optional evidence, not a prerequisite for blocking: the deterministic
+engine can reach `STOP` without AI or device data. Without an
+`OPENAI_API_KEY` the AI service still answers with local URL findings only;
+if the service is down, errors, or is circuit-open, AI analysis reports
+`UNAVAILABLE` and the deterministic path continues. AI-unavailable fallback,
+forged-field rejection, and validated merge
+behavior are covered by tests.
 
-### M15 — end-to-end validation (key configured, account unfunded)
+### M15 — end-to-end validation
 
 Architecture: User → Guarded Payment → Automatic Signals
-(Transaction/Merchant/Recipient, Device, Content → AI) → Validated Findings
-→ Deterministic Risk Engine → ALLOW/VERIFY/STOP → PayPal (order,
-authorization, server capture, webhook). **GuardPay does not bypass PayPal
-authorization. It automatically evaluates payment risk and controls whether
-an eligible payment can proceed.**
+(transaction/recipient/merchant history, device, content, network → optional
+AI) → validated findings → deterministic risk engine → ALLOW/VERIFY/STOP →
+PayPal (order, authorization, server capture, webhook). **GuardPay does not
+bypass PayPal authorization. It automatically evaluates payment risk and
+controls whether an eligible payment can proceed.**
 
-Validated live: AI health (`ai_configured: true`), guarded ALLOW (+ real
-Sandbox order, idempotent replay byte-identical with exactly one transaction
-row), VERIFY 40/MEDIUM with no order, forged-field rejection, the former manual
-engine hero 100/CRITICAL/STOP, both healths, leak-free logs, clean database afterward.
-`/payment` shows a collapsible Developer details block (payment ID, AI
-status, signal codes, order ID, payment status) — no secrets, no raw JSON
-dumps. Real-LLM hero: **pending — the configured key's account has no
-credits** (`RateLimitError` 429 at OpenAI account level, verified); the
-service fails safely (`UNAVAILABLE` fallback) and the full mocked merge path
-is unit-proven. Human Sandbox approval/capture and tunneled webhooks remain
-user-executed; external webhook delivery was not live-tested (localhost
-unreachable).
+The guarded flow has been exercised end to end with PayPal Sandbox: ALLOW with a
+real order, idempotent replay, VERIFY with no order until the challenge passes,
+forged-field rejection, AI-unavailable fallback, and leak-free logs.
+`/payment` shows a collapsible Developer details block (payment ID, AI status,
+signal codes, order ID, payment status) with no secrets or raw JSON dumps.
+Human Sandbox approval/capture and external webhook delivery still require a
+human/tunnel; localhost webhooks are not reachable by PayPal.
 
 ### M16 — lifecycle status, controlled VERIFY, transaction history
 
@@ -287,11 +290,12 @@ unreachable).
   hashed answer, TTL, capped attempts), the server records the outcome, and the
   order is created only after a server-verified success
   (`POST /api/payments/{paymentId}/verification/confirm`). Wrong codes never
-  verify; expiry and max-attempts end the challenge. With no identity provider
-  configured the channel is clearly labelled **simulated** (`simulated: true`).
-  The code is delivered out of band and is never returned by the payment API or
-  written to logs; in development it sits in an in-memory outbox readable only
-  from loopback via `GET /api/dev/verifications/{paymentId}/code` (disable
+  verify; expiry and max-attempts end the challenge. The channel is **TOTP**
+  when an authenticator is enrolled on `/dashboard`, otherwise **simulated**
+  (`simulated: true`). The code is delivered out of band and is never returned
+  by the payment API or written to logs; in development the simulated code sits
+  in an in-memory outbox readable only from loopback via
+  `GET /api/dev/verifications/{paymentId}/code` (disable
   `GUARDPAY_DEV_VERIFICATION_OUTBOX` in production).
 - **Receipt + transaction history.** Findings are persisted on each assessment
   (`V13__add_risk_assessment_findings.sql`) so decisions stay explainable.
@@ -299,6 +303,11 @@ unreachable).
   stored decision, findings, PayPal references and verification outcome for the
   signed-in account only. The `/transactions` UI lists history in AG Grid with
   a detail panel; the checkout receipt closes the loop.
+- **Dashboard, alerts, blocklist.** `/api/dashboard/summary` aggregates live
+  decision, latency, AI, notification, and verification metrics. High-risk
+  alerts persist to `alerts`/`notification_outbox` and stream over SSE at
+  `/api/alerts/stream`. `/api/blocklist/recipients` is owner-scoped and a
+  blocklisted recipient forces `CRITICAL / STOP`.
 - **Run it:** `pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail <sandbox-payee>` (checks the safety
   invariants against a running backend) — see `docs/demo.md`.
 
@@ -329,53 +338,48 @@ needs a public tunnel or deployment (not configured; no tunnel credentials
 committed). Unit/integration coverage stands in until then — do NOT fake a
 live webhook.
 
-## Automatic signal collection (Milestone 10 — derived, never client-supplied)
+## Automatic signal collection (derived, never client-supplied)
 
 `POST /api/risk/evaluate-automatic` accepts payment context only (`amount`,
-optional `recipientId`/`merchantId`/`transactionId`). The workspace is resolved
-server-side from the authenticated session, and there are no risk booleans on
-this path, so forged flags are ignored.
+optional `recipientId`/`merchantId`/`transactionId`, device identity, message,
+URL, server-observed network context). The workspace is resolved server-side
+from the authenticated session and there are no risk booleans on this path.
 
-CURRENT (backend-derived): `UNUSUAL_AMOUNT` (same ≥5× definition as the
-engine, shared constant), `NEW_RECIPIENT` / `UNKNOWN_MERCHANT` (prior
-COMPLETED history, current excluded), with `INSUFFICIENT_HISTORY` /
-`..._IDENTITY_UNAVAILABLE` reasons instead of guesses; `UNEXPECTED_INVOICE`
-and `SUSPICIOUS_URL` report `INSUFFICIENT_CONTEXT` /
-`URL_REPUTATION_NOT_CONFIGURED` until their integrations exist.
+The guarded pipeline collects twenty signals: amount/recipient/merchant history,
+recipient anomaly, three velocity tiers, split payments, blocklist, content and
+URL structure, social engineering, known-recipient compromise, missing context,
+device novelty, geo novelty, impossible travel, VPN/proxy, and active call where
+a fresh paired-device observation exists. Missing evidence is returned with an
+unavailable reason instead of being guessed. The legacy
+`POST /api/risk/evaluate` endpoint takes explicit booleans for
+regression/tooling only and never feeds guarded decisions. See
+`docs/risk-engine.md` for exact weights.
 
-FUTURE (report `NOT_AVAILABLE_YET`): `URGENT_LANGUAGE` +
-`SOCIAL_ENGINEERING_DETECTED` (AI analysis). `ACTIVE_CALL` left this group in
-Milestone 11 — it is now device-derived when a fresh paired-device state
-exists, otherwise unavailable. The old manual toggles (`POST /api/risk/evaluate`)
-were removed from the checkout; the legacy `/api/risk/evaluate` endpoint
-remains regression-only and never feeds guarded decisions.
-
-### M12 AI risk intelligence (evidence, never decisions)
+### AI risk intelligence (evidence, never decisions)
 
 **AI findings are evidence, not payment decisions.** The Python service
-(`ai-service/`, FastAPI on :8001) analyzes message/invoice text, payment
-context, and URL *structure* through three focused agents (social
-engineering, content/scam patterns, URL heuristics — no URL fetching, no
-reputation DB) and returns closed-vocabulary findings with confidence
-(`URGENT_LANGUAGE`, `IMPERSONATION`, `PRESSURE_TO_PAY`, `SECRECY_REQUEST`,
-`SUSPICIOUS_PAYMENT_INSTRUCTION`, `SCAM_PATTERN`,
-`SUSPICIOUS_URL_STRUCTURE`, `UNEXPECTED_INVOICE_CONTEXT`). No CrewAI — a
-fixed deterministic pipeline needs no multi-agent framework. The model is
-configured via `OPENAI_API_KEY`/`OPENAI_MODEL` (never committed, never
-logged); without a key the service boots and `/api/v1/analyze` fails
-clearly (503) instead of faking results. Set the same optional
-`AI_SERVICE_INTERNAL_TOKEN` on Spring Boot and FastAPI to require the
-`X-GuardPay-Internal-Token` header on the internal hop.
+(`ai-service/`, FastAPI on :8001) analyzes message/invoice text and URL
+*structure* through two focused LLM agents plus deterministic local URL rules
+(no URL fetching, no reputation DB) and returns closed-vocabulary findings with
+confidence: `URGENT_LANGUAGE`, `IMPERSONATION`, `PRESSURE_TO_PAY`,
+`SECRECY_REQUEST`, `SUSPICIOUS_PAYMENT_INSTRUCTION`, `SCAM_PATTERN`,
+`SUSPICIOUS_URL_STRUCTURE`, `UNEXPECTED_INVOICE_CONTEXT`. No CrewAI — the
+evidence pipeline does not need a multi-agent framework. The model is configured
+via `OPENAI_API_KEY`/`OPENAI_MODEL` (never committed, never logged); without a
+key the service still boots and `/api/v1/analyze` returns local structural URL
+findings only — no LLM evidence, never a faked result. Set the same optional
+`AI_SERVICE_INTERNAL_TOKEN` on Spring Boot and
+FastAPI to require the `X-GuardPay-Internal-Token` header on the internal hop.
 
-Spring Boot calls it only when the automatic request carries content, maps
-validated findings (unknown codes skipped, confidence < 0.5 skipped) onto its
-*existing* engine flags (five social codes collapse onto one +20
-`SOCIAL_ENGINEERING` — no double counting, no new weights, cap still 100),
-and reports `aiStatus: NOT_REQUESTED | AVAILABLE | UNAVAILABLE`. Any AI
-failure degrades to deterministic-only evaluation; AI can never set
-ALLOW/VERIFY/STOP. Privacy: minimum context only (amount, names, flags,
-text, URL, call boolean) — no audio, phones, contacts, or emails. Logs mask
-message/user content, URLs, names, and email destinations.
+Spring Boot calls it only when content is present, validates findings (unknown
+codes and confidence < 0.5 skipped), and folds AI evidence onto *existing* engine
+signals: five social codes → one +20 `SOCIAL_ENGINEERING`; urgent language → +10;
+suspicious URL structure → `SUSPICIOUS_URL`; unexpected-invoice context →
+`UNEXPECTED_INVOICE`. AI cannot add weights, subtract risk, or set an action. It
+reports `aiStatus: NOT_REQUESTED | AVAILABLE | UNAVAILABLE`; any failure degrades
+to deterministic-only evaluation. Privacy: minimum context only (amount, names,
+flags, text, URL) — no audio, phones, contacts, or emails. Logs mask message/user
+content, URLs, names, and email destinations.
 
 ### M13 — Guarded PayPal payment flow (primary path)
 
@@ -401,24 +405,27 @@ requires sign-in; the public manual-risk UI was removed.
 
 Architecture: Android (`TelephonyManager`/`TelephonyCallback`, `READ_PHONE_STATE`
 only) maps `OFFHOOK → activeCall=true`, `IDLE`/`RINGING → false` → `POST
-/api/device-signals/call-state` (`X-GuardPay-Device-Token` + `{deviceId,
-activeCall, observedAt}`) → backend upserts one `device_call_states` row →
+/api/device-signals/call-state` (per-device `X-GuardPay-Device-Token` +
+`{deviceId, activeCall, observedAt}`) → backend validates the hashed
+credential and upserts one owner-scoped `device_call_states` row →
 `POST /api/risk/evaluate-automatic` accepts optional `deviceId`, resolves the
 latest trusted state (observations older than **5 minutes are STALE, never
 active**), and the collector emits `ACTIVE_CALL` (+15, `source: DEVICE`) into
 the unchanged engine. Unknown/absent devices → unavailable. The automatic
 request has no `activeCall` field, so clients cannot forge it.
 
-Pipeline: PayPal → GuardPay Integration Layer → Automatic Signal Collection
-(Transaction/Merchant history + Device `ACTIVE_CALL`) → (AI Agents: future)
-→ Deterministic Risk Engine → ALLOW/VERIFY/STOP.
+Pipeline: payment context → GuardPay orchestration → automatic signal collection
+(history, content/URL, device, network, validated AI evidence) → deterministic
+risk engine → ALLOW/VERIFY/STOP → PayPal authorization and capture.
 
 Android app (`android/`, Kotlin, `com.guardpay.device`): a thin WebView shell
 around the exact same React checkout, so the phone UI matches the web UI. The
 shell reads call state with `TelephonyManager`/`TelephonyCallback` (a random
-UUID in `SharedPreferences`, never IMEI), posts it to
-`/api/device-signals/call-state` with the same device id the page uses, and
-shows **Automatic** call detection and, when the user taps **Pay** during an
+UUID in `SharedPreferences`, never IMEI). After sign-in the page registers the
+device through the authenticated `/api/devices` API; the shell persists the
+returned per-device credential and posts call state with the same device id
+the page uses. It shows **Automatic** call detection and, when the user taps
+**Pay** during an
 active call, a blocking fraud warning: "You are on a phone call" with
 **Cancel payment** / **Continue anyway** choices. Cancel keeps the form so
 the user can hang up and retry; Continue runs the normal risk check. It opens
@@ -435,20 +442,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android-apk.ps
 ```
 
 The script builds `frontend/dist` and Gradle bundles it into
-`android/app/src/main/assets`. Backend URL and pairing token come from
-`android/local.properties` (`guardpayApiBaseUrl`, `guardpayDeviceToken`) or
-`-P` flags. A physical phone must reach the backend over the LAN (not
-`localhost`), and the backend must allow the WebView origin
-`https://appassets.androidplatform.net` (`CORS_ALLOWED_ORIGINS`; included in
-the default). For an emulator use `guardpayApiBaseUrl=http://10.0.2.2:8080`.
+`android/app/src/main/assets`. The backend URL comes from
+`android/local.properties` (`guardpayApiBaseUrl`) or a `-P` flag; device
+credentials are issued at runtime, never baked into the APK. A physical phone
+must reach the backend over the LAN (not `localhost`), and the backend must
+allow the WebView origin `https://appassets.androidplatform.net`
+(`CORS_ALLOWED_ORIGINS`; included in the default). For an emulator use
+`guardpayApiBaseUrl=http://10.0.2.2:8080`.
 
 Call detection is foreground-only: Android pauses telephony observation when
 the app is backgrounded. The demo APK is debug-signed, not a Play Store
 release, and PayPal Sandbox approval still happens in the browser.
 
-"This is a development/hackathon device pairing mechanism. Production
-implementation should use authenticated device registration, short-lived
-credentials, and platform/device attestation."
+Device credentials are now issued by authenticated registration and stored
+only as hashes server-side; rotation and revocation are explicit endpoints.
+Production should add short-lived credentials and platform/device attestation.
 
 Limitations (honest): observation is foreground-only (no foreground service
 by design); Android lifecycle/background restrictions can pause monitoring;
@@ -470,13 +478,16 @@ Full instructions: `docs/demo.md`. Automated safety-invariant suite:
 6. Show real AI evidence (impersonation, urgency, pressure, secrecy, URL) and the
    deterministic calculation → **VERIFY** or **STOP**.
 7. If **VERIFY**: the controlled challenge appears — **no PayPal order exists**.
-   Enter the shown code to continue, or a wrong code to watch attempts decrement.
+   If TOTP is enrolled, enter the authenticator code; otherwise read the
+   simulated code from the loopback dev outbox. A wrong code decrements attempts.
    The order is created only after the server verifies.
 8. If **STOP**: show **PayPal Order ID: None** — no order was created.
 9. Open `/transactions`: every run is stored with its decision; select a row to
    show amount, PayPal references, verification outcome, and **why** (findings).
-10. Explain: "GuardPay doesn't ask the user to identify the scam. It
-    automatically analyzes the payment context, uses AI for evidence, and lets
+10. Open `/dashboard`: show decision/blocked-value/latency/AI/verification
+    aggregates, TOTP enrollment, the AI-outage simulator, and recent SSE alerts.
+11. Explain: "GuardPay doesn't ask the user to identify the scam. It
+    automatically analyzes the payment context, validates AI evidence, and lets
     a deterministic risk engine decide whether the payment can reach PayPal —
     and it never creates a PayPal order unless the decision allows it."
 
@@ -505,11 +516,15 @@ of the official PayPal app, and not endorsed by PayPal.
 
 - PayPal Sandbox approval/capture needs a human with a Sandbox Personal account.
 - External webhook delivery needs a public tunnel (not configured; never faked).
-- Device call-state is foreground-only with Android lifecycle limits.
-- Free-tier AI models vary run to run; strict schema + confidence gates absorb it.
+- Device call-state is foreground-only with Android lifecycle limits; the APK is
+  debug-signed.
+- AI quality varies by model/provider; strict schema + confidence gates and
+  deterministic fallback absorb failures.
 - Sessions are server-side cookie sessions (no OAuth, password reset, email
-  verification, or MFA on login yet). Dev verification outbox is temporary and
-  loopback-only.
+  verification, or MFA on login yet). TOTP is a payment-verification channel.
+  The simulated verification outbox is temporary and loopback-only.
+- No live Google Safe Browsing or URL-reputation integration; URL analysis is
+  structural and local, so a clean-looking phishing domain can pass.
 - Host port 5432 may clash with a local PostgreSQL — use `DB_PORT` or stop it.
 
 ## Current step — what is / isn't done
@@ -524,13 +539,16 @@ Done:
 - [x] Receipt + transaction history with persisted, explainable findings
 - [x] End-to-end Sandbox demo suite (`scripts/demo-guarded-flow.ps1`) + docs
 - [x] Multi-user authentication with owner-scoped data, idempotency, and SSE
+- [x] TOTP verification channel, persisted dashboard aggregates, SSE alerts
+- [x] Device registration/rotation, call-state reporting, owner-scoped blocklist
 
 Explicitly NOT done (honest):
 
 - [ ] Password reset, email verification, OAuth, and MFA-at-login
-- [ ] Real identity provider for verification (currently a simulated channel)
 - [ ] External webhook delivery (needs a public tunnel/deploy)
-- [ ] Persisted dashboard aggregates / real-time (WS/SSE) updates
+- [ ] Blocklist management screen
+- [ ] Production mobile release/background call monitoring
+- [ ] Live URL reputation service
 
 ## Quick verify
 

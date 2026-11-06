@@ -28,8 +28,21 @@ import org.springframework.web.filter.OncePerRequestFilter;
     matchIfMissing = true)
 public class AuthFilter extends OncePerRequestFilter {
 
+  private static final List<String> PUBLIC_EXACT =
+      List.of(
+          "/api/auth/me",
+          "/api/auth/login",
+          "/api/auth/register",
+          "/api/auth/logout",
+          "/api/auth/csrf",
+          "/api/auth/password/forgot",
+          "/api/auth/password/reset",
+          "/api/health",
+          "/error",
+          "/favicon.ico");
+
   private static final List<String> PUBLIC_PREFIXES =
-      List.of("/api/auth/", "/api/paypal/webhooks/", "/api/device-signals/", "/api/dev/");
+      List.of("/api/paypal/webhooks/", "/api/device-signals/", "/api/dev/");
 
   private final AuthSessionRepository sessions;
 
@@ -65,9 +78,14 @@ public class AuthFilter extends OncePerRequestFilter {
     if (token == null) {
       return;
     }
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     sessions
-        .findActiveByTokenHash(AuthService.hash(token), OffsetDateTime.now(ZoneOffset.UTC))
-        .ifPresent(session -> AuthContext.set(session.getUser()));
+        .findActiveByTokenHash(AuthService.hash(token), now)
+        .ifPresent(
+            session -> {
+              sessions.touch(session.getId(), now, now.plus(AuthService.SESSION_IDLE_TTL));
+              AuthContext.set(session);
+            });
   }
 
   private static String sessionToken(HttpServletRequest request) {
@@ -84,12 +102,9 @@ public class AuthFilter extends OncePerRequestFilter {
   }
 
   private static boolean isPublic(String path) {
-    if (path == null
-        || path.equals("/api/health")
-        || path.equals("/error")
-        || path.equals("/favicon.ico")) {
+    if (path == null) {
       return true;
     }
-    return PUBLIC_PREFIXES.stream().anyMatch(path::startsWith);
+    return PUBLIC_EXACT.contains(path) || PUBLIC_PREFIXES.stream().anyMatch(path::startsWith);
   }
 }

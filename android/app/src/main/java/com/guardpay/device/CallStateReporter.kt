@@ -16,16 +16,28 @@ import java.time.Instant
  */
 class CallStateReporter(
     private val apiBaseUrl: String,
-    private val deviceToken: String,
+    initialDeviceToken: String = "",
 ) {
 
     private val client = OkHttpClient()
+
+    @Volatile
+    private var deviceToken: String = initialDeviceToken
+
+    fun updateToken(token: String) {
+        deviceToken = token
+    }
 
     fun interface ResultListener {
         fun onResult(connected: Boolean)
     }
 
     fun report(deviceId: String, activeCall: Boolean, listener: ResultListener) {
+        val token = deviceToken
+        if (token.isBlank()) {
+            listener.onResult(false)
+            return
+        }
         val body =
             """
             {"deviceId": "$deviceId", "activeCall": $activeCall, "observedAt": "${Instant.now()}"}
@@ -34,7 +46,7 @@ class CallStateReporter(
         val request =
             Request.Builder()
                 .url("$apiBaseUrl/api/device-signals/call-state")
-                .header("X-GuardPay-Device-Token", deviceToken)
+                .header("X-GuardPay-Device-Token", token)
                 .post(body)
                 .build()
         client.newCall(request).enqueue(

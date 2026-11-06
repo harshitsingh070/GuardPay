@@ -115,7 +115,7 @@ public class AutomaticRiskEvaluationService {
             dto.getAsn(),
             dto.getVpnOrProxy());
 
-    DeviceCallSignal deviceSignal = resolveDeviceSignal(dto.getDeviceId());
+    DeviceCallSignal deviceSignal = resolveDeviceSignal(currentUserId, dto.getDeviceId());
     AutomaticSignalCollectionResult deterministic =
         collector.collect(collectionRequest, deviceSignal);
 
@@ -205,11 +205,11 @@ public class AutomaticRiskEvaluationService {
    * observations, and observations older than {@link #DEVICE_STATE_MAX_AGE}
    * all resolve to unavailable â€” never guessed, never an old "active".
    */
-  private DeviceCallSignal resolveDeviceSignal(UUID deviceId) {
-    if (deviceId == null) {
+  private DeviceCallSignal resolveDeviceSignal(UUID userId, UUID deviceId) {
+    if (userId == null || deviceId == null) {
       return new DeviceCallSignal(null, "NOT_AVAILABLE");
     }
-    Optional<DeviceCallState> state = deviceStates.findByDeviceId(deviceId);
+    Optional<DeviceCallState> state = deviceStates.findByUserIdAndDeviceId(userId, deviceId);
     if (state.isEmpty() || state.get().getObservedAt() == null) {
       return new DeviceCallSignal(null, "NOT_AVAILABLE");
     }

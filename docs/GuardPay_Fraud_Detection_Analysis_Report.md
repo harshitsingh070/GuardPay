@@ -61,12 +61,15 @@ The guarded endpoint accepts business context only. The server resolves the auth
 The signal collector derives evidence from:
 
 - Completed transaction history
-- Recipient history
+- Recipient history and recipient amount anomalies
 - Merchant history
-- Recent payment attempt velocity
+- Recent payment attempt velocity (10-minute, hourly, daily)
+- Split-payment patterns
+- Owner-scoped recipient blocklist
 - Payment message text
 - Payment URL structure
-- Paired Android device call state
+- Paired Android device call state and device novelty
+- Geo/network context (new country, impossible travel, VPN/proxy)
 - Deterministic content analysis
 
 Anything that cannot be derived reliably is reported as unavailable with a reason code rather than guessed as “safe.” That design choice is important: the system prefers “unknown” over a false reassurance.
@@ -77,7 +80,7 @@ The backend calls the Python AI service only when message text or a URL exists. 
 
 ### 3.4 Step 4 — Deterministic scoring
 
-The engine evaluates ten signals in a fixed order, sums the weights of triggered signals, caps the score at 100, and maps score to risk level and action.
+The engine evaluates twenty signals in a fixed order, sums the weights of triggered signals, applies the blocklist hard-block override, caps the score at 100, and maps score to risk level and action.
 
 ### 3.5 Step 5 — Enforcement
 
@@ -87,22 +90,32 @@ The engine evaluates ten signals in a fixed order, sums the weights of triggered
 
 ## 4. Core Detection Logic
 
-### 4.1 The ten risk signals and their weights
+### 4.1 The twenty risk signals and their weights
 
-| Signal | Points | Source | Trigger rule |
-|---|---:|---|---|
-| `ACTIVE_CALL` | +15 | Device | A fresh paired-device observation says the user is on a call. Stale observations older than 5 minutes never count as active. |
-| `NEW_RECIPIENT` | +20 | Transaction history | No prior **completed** transaction to this recipient, same currency, current transaction excluded. If recipient identity is unavailable, the signal is not guessed. |
-| `LARGE_AMOUNT` | +20 | Transaction history | Current amount is at least **5×** the average of completed history. No history, zero, or negative average means “insufficient data” and does not fire. |
-| `REPEATED_ATTEMPTS` | +15 | Transaction history | At least **3 attempts including the current one** within **10 minutes**, any status, same currency. This catches a user being pushed to retry repeatedly. |
-| `UNKNOWN_MERCHANT` | +10 | Merchant history | No previous completed transaction with this merchant. |
-| `UNEXPECTED_INVOICE` | +15 | Payment content | Invoice/billing/overdue/refund wording combined with either “unexpected” wording or urgency. |
-| `URGENT_LANGUAGE` | +10 | Payment content | Urgency/pressure phrasing such as “urgent,” “immediately,” “act now,” “final warning,” “account will be locked,” “verify your account,” “pay now,” “ASAP.” |
-| `SUSPICIOUS_URL` | +10 | URL structure | Non-HTTPS link, embedded credentials/user info, raw IP host, punycode lookalike, excessive subdomains, anonymous shortener, high-abuse TLD, nonstandard port, brand-lookalike host, malformed URL, or unreasonable length. |
-| `SOCIAL_ENGINEERING` | +20 | Content + counterparty + call | Multiple independent scam indicators co-occur: known scam-pattern combination, payment instruction to a new/unknown counterparty, unexpected invoice to a new counterparty with urgency/call, or an active call combined with urgency/unexpected invoice/payment instruction. |
-| `MISSING_CONTEXT` | +20 | Payment context | A high-value payment of at least **$1,000** with no message, no link, and no trusted device observation. |
+| # | Signal | Points | Source | Trigger rule |
+|---:|---|---:|---|---|
+| 1 | `ACTIVE_CALL` | +15 | Device | A fresh paired-device observation says the user is on a call. Observations older than five minutes never count as active. |
+| 2 | `NEW_RECIPIENT` | +20 | Transaction history | No prior **completed** transaction to this recipient, same currency, current attempt excluded. Unavailable identity is not guessed. |
+| 3 | `LARGE_AMOUNT` | +20 | Transaction history | Current amount is at least **5×** the account-wide completed-history average. Missing/zero/negative history does not fire. |
+| 4 | `RECIPIENT_AMOUNT_ANOMALY` | +20 | Recipient history | At least 3 completed samples exist and the amount is at least **5×** the recipient median. Suppressed when `LARGE_AMOUNT` already fires. |
+| 5 | `REPEATED_ATTEMPTS` | +15 | Transaction history | At least **3 attempts including the current one** within **10 minutes**, any status, same currency. |
+| 6 | `VELOCITY_HOURLY` | +15 | Transaction history | At least **5 attempts including the current one** within **1 hour**. |
+| 7 | `VELOCITY_DAILY` | +20 | Transaction history | At least **10 attempts including the current one** within **24 hours**. |
+| 8 | `BLOCKLISTED_RECIPIENT` | +25 | Blocklist | Recipient is on the owner's fraud blocklist. This also forces the final score to 100. |
+| 9 | `UNKNOWN_MERCHANT` | +10 | Merchant history | No previous completed transaction with this merchant. |
+| 10 | `UNEXPECTED_INVOICE` | +15 | Payment content / AI | Invoice/billing/overdue/refund wording combined with unexpected/pressure context, or validated AI `UNEXPECTED_INVOICE_CONTEXT`. |
+| 11 | `URGENT_LANGUAGE` | +10 | Payment content / AI | Urgency/pressure phrasing such as “urgent,” “immediately,” “act now,” “final warning,” or validated AI `URGENT_LANGUAGE`. |
+| 12 | `SUSPICIOUS_URL` | +10 | URL structure / AI | Local structural URL rules fire, or validated AI `SUSPICIOUS_URL_STRUCTURE` fires. |
+| 13 | `SOCIAL_ENGINEERING` | +20 | Content + counterparty + call / AI | Multiple independent scam indicators co-occur, or a validated AI social code fires. Counted once. |
+| 14 | `KNOWN_RECIPIENT_SCAM` | +50 | Recipient history + content | An established recipient sends a new high-risk payment instruction, lookalike invoice/link, or scam-pattern combination consistent with a compromised payee. |
+| 15 | `SPLIT_PAYMENT` | +40 | Transaction history | At least 3 payments to the same recipient, each below `$1,000`, totaling at least `$1,000` within 24 hours (current attempt included). |
+| 16 | `MISSING_CONTEXT` | +20 | Payment context | High-value payment with no message/link and no trusted device observation; `$1,000`, or `$500` for a new recipient. |
+| 17 | `NEW_DEVICE` | +20 | Transaction history | The account has prior device observations and this device has not been seen. A first-ever payment reports unavailable, not new. |
+| 18 | `NEW_GEO` | +15 | Transaction history / network | The account has prior geolocated payments and this country has not been seen. Missing geo reports unavailable. |
+| 19 | `IMPOSSIBLE_TRAVEL` | +25 | Transaction history / network | A different country is seen within **6 hours** of the previous geolocated payment. |
+| 20 | `VPN_PROXY` | +10 | Network | Trusted network reputation reports a VPN, proxy, or hosting connection. |
 
-The weights are fixed constants in one place, not learned or statistically calibrated. The design intentionally consolidates all social-engineering evidence into a **single +20 signal**, so five AI findings cannot multiply the score.
+The weights are fixed constants in `RiskSignal`, not learned or statistically calibrated. `BLOCKLISTED_RECIPIENT` is a hard block: the score is forced to 100 and the action to `STOP`. Social-engineering evidence is consolidated into a **single +20 signal**, so multiple AI findings cannot multiply the score.
 
 ### 4.2 Score-to-action policy
 
@@ -194,9 +207,9 @@ The AI can only **add** evidence. It cannot subtract risk, lower a score, or mak
 
 Android reads only the binary telephony call state via `TelephonyManager` / `TelephonyCallback` with `READ_PHONE_STATE`. It does not read audio, phone numbers, contacts, SMS, or location.
 
-The phone sends only the device identifier, active-call boolean, and observation time to the backend, authenticated with a pairing token. The backend:
+The phone sends only the device identifier, active-call boolean, and observation time to the backend, authenticated with a per-device credential issued through the signed-in `/api/devices` API. The backend:
 
-- Compares the token in constant time.
+- Stores only a SHA-256 hash of the credential and rejects revoked devices.
 - Rejects older observations so a replay cannot overwrite a newer state.
 - Clamps far-future timestamps.
 - Treats observations older than 5 minutes as stale and never active.
@@ -355,7 +368,7 @@ A `VERIFY` decision creates **no PayPal order**. The user receives a controlled 
 - The code is delivered out of band; the public payment API never returns it
 - Only after successful verification does the backend create the PayPal order
 
-In the demo, the verification channel is explicitly labelled simulated. The development outbox is loopback-only and must be disabled in production.
+The verification channel is TOTP when an authenticator is enrolled, otherwise simulated. The development outbox is loopback-only and must be disabled in production.
 
 ### 6.4 Receipt and transaction history
 
@@ -407,7 +420,7 @@ The most important anti-bypass property is:
 
 | Aspect | Assessment |
 |---|---|
-| Deterministic scoring | Constant ten checks; very fast |
+| Deterministic scoring | Constant twenty checks; very fast |
 | Database reads | Several queries per payment: history average, velocity window, recipient history, merchant history |
 | AI latency | Connect timeout 2 seconds, read timeout 8 seconds |
 | Worst-case AI delay | About 10 seconds before fallback |
@@ -431,7 +444,7 @@ The deterministic path is fast and predictable. The AI path is time-bounded and 
 | Repeated pressured attempts | Medium | 3 attempts in 10 minutes | +15 |
 | High-value blind payment | Medium | Missing context +20 at $1,000+ with no message/link/device | VERIFY when combined |
 | Authorized push payment to a known payee | Low | No anomaly, no new counterparty, no content | Often ALLOW |
-| Account takeover / stolen credentials | Low | No behavioral biometrics, no device fingerprint, no login anomaly | Often ALLOW |
+| Account takeover / stolen credentials | Low-medium | Payment-path device/geo novelty; no login anomaly or session-risk model | Can still ALLOW if the attacker keeps the victim's payee, amount, and context |
 | Fake merchant / non-delivery fraud | Low | No delivery, chargeback, or merchant reputation data | Not detected |
 | Mule account / beneficiary risk | Low | No recipient reputation or cross-user intelligence | Not detected |
 | Non-English or obfuscated scam text | Low-medium | English regex; relies on LLM | AI-dependent |
@@ -451,18 +464,18 @@ The deterministic path is fast and predictable. The AI path is time-bounded and 
 
 ### 8.4 Weaknesses and blind spots
 
-- **No statistical validation.** There is no precision, recall, ROC, or field-test measurement against real fraud data. The weights are prototype heuristics.
+- **No real-world statistical validation.** The synthetic benchmark reports precision/recall and threshold trade-offs, but there is no field-test measurement against real fraud data or calibrated probability. The weights are prototype heuristics.
 - **No learning loop.** Chargebacks, confirmed fraud, false positives, and user feedback are not fed back into the model.
 - **Per-user workspaces.** No population-level intelligence, no cross-user mule detection, no merchant global reputation.
 - **Known-payee fraud is largely invisible.** If the attacker uses the victim’s normal payee, normal amount, and no suspicious text, the score can be near zero.
-- **Account takeover is not modelled.** There is no login anomaly, device fingerprint, IP reputation, geolocation, or session-risk analysis.
+- **Account takeover is only partly modelled.** Payment-path device novelty, new-country, impossible-travel, and VPN/proxy signals exist, but there is no login anomaly, session-risk model, or credential-theft detection. An attacker using the victim's known payee, amount, and clean context can still pass.
 - **URL analysis is structural only.** The system does not fetch URLs or query Google Safe Browsing or any reputation service. A clean-looking phishing domain can pass.
 - **English-centric regex.** Non-English, leetspeak, or heavily obfuscated text relies on the LLM.
 - **AI findings are not severity-weighted.** Severity is recorded but does not change points; every finding of a given type contributes the same fixed weight.
 - **AI false positives can add friction.** AI can add up to +10 urgent, +10 URL, +15 unexpected invoice, and +20 social, so a confident but wrong AI can push a borderline payment from VERIFY to STOP.
 - **The AI model itself is not deterministic run to run.** Strict schema, confidence gating, and deterministic scoring absorb most of this, but evidence availability can vary.
 - **History queries scale linearly.** Large completed-history sets are loaded and filtered in memory.
-- **Demo limitations.** No multi-user auth, simulated verification channel, debug-signed Android APK, foreground-only call detection, and external webhook delivery requires a tunnel.
+- **Demo limitations.** No password reset, email verification, OAuth, or MFA-at-login; verification is simulated unless TOTP is enrolled; debug-signed Android APK; foreground-only call detection; external webhook delivery requires a tunnel.
 
 ### 8.5 False-positive and false-negative behaviour
 
@@ -496,8 +509,8 @@ Positive controls:
 
 Important demo limitations:
 
-- Cookie sessions only; no password reset, email verification, OAuth, or MFA at login.
-- No real identity provider for verification; the channel is simulated.
+- Cookie sessions only; no password reset, email verification, OAuth, or MFA at login. TOTP is a payment-verification channel, not login MFA.
+- No real identity provider for the default simulated channel; TOTP is available when enrolled.
 - The Android app is a development pairing mechanism, not production attestation.
 - The dev verification outbox must be disabled in production.
 - External webhook delivery was not live-tested without a public tunnel.
@@ -508,9 +521,17 @@ Important demo limitations:
 
 The repository contains substantial automated coverage:
 
-- **41 backend Java test classes**
-- **6 frontend test files**
+- **63 backend Java test classes**
+- **8 frontend test files**
 - **4 AI-service test modules**
+
+The synthetic benchmark is the only quantitative evaluation. On the 54-scenario
+dev set, `DETERMINISTIC_ONLY` reaches 75.00% precision, 92.31% recall, 82.76%
+F1, and 81.48% accuracy; `VALIDATED_AI` reaches 74.29% precision, 100.00%
+recall, 85.25% F1, and 83.33% accuracy. On the 32-scenario PayPal-specific
+held-out set, both modes reach 88.89% precision, 100.00% recall, 94.12% F1, and
+93.75% accuracy. These are synthetic regression figures, not real-world
+accuracy. See `docs/fraud-benchmark.md`.
 
 Key validated behaviours:
 
@@ -533,7 +554,7 @@ Key validated behaviours:
 - Webhook risk separation: webhooks cannot change the risk decision.
 - End-to-end demo script checking that non-ALLOW never creates a PayPal order and that VERIFY creates no order until verified.
 
-Documentation note: the implementation has advanced beyond parts of the README. The actual AI service does **not** use CrewAI; it uses two focused LLM agents plus local URL rules. Also, deterministic content signals can reach `STOP` without AI or device evidence in the canonical scam test, even though parts of the README describe deterministic signals as topping out at `VERIFY`. The code and tests are the reliable source of current behaviour.
+Documentation note: the AI service does **not** use CrewAI; it uses two focused LLM agents plus local URL rules. Deterministic content signals can reach `STOP` without AI or device evidence. The current implementation contract is `docs/architecture.md`, `docs/api-contract.md`, and `docs/risk-engine.md`.
 
 ---
 
@@ -545,7 +566,7 @@ GuardPay is very effective at catching the fraud pattern it was designed for: **
 
 ### What it cannot yet claim
 
-It cannot claim a real-world fraud detection rate. There is no precision/recall measurement, no labelled fraud dataset, no production feedback loop, and no cross-user intelligence. It will miss account takeover, known-payee authorized-push-payment fraud, clean-looking phishing domains, non-English scams, and fraud that leaves no textual or behavioural trace.
+It cannot claim a real-world fraud detection rate. The available precision/recall comes from a small synthetic benchmark, not field data; there is no production feedback loop or cross-user intelligence. It can still miss account takeover, known-payee authorized-push-payment fraud, clean-looking phishing domains, non-English scams, and fraud that leaves no textual or behavioural trace.
 
 ### Overall efficiency rating
 

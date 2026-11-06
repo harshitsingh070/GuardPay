@@ -53,6 +53,11 @@ public abstract class BaseEntity {
     return id;
   }
 
+  /** Allows an entity to adopt a stable client/imported identity during construction. */
+  protected void setId(UUID id) {
+    this.id = id;
+  }
+
   public OffsetDateTime getCreatedAt() {
     return createdAt;
   }

@@ -43,10 +43,16 @@ export interface AuthUser {
 export interface AuthSession {
   authenticated: boolean;
   user: AuthUser | null;
+  csrfToken?: string | null;
 }
 
 /** Payment evaluation can include two LLM calls, so allow up to 90 seconds. */
 const DEFAULT_TIMEOUT_MS = 90_000;
+const CSRF_HEADER = 'X-CSRF-Token';
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+
+let csrfToken: string | null = null;
+let csrfRequest: Promise<string | null> | null = null;
 
 /** Error carrying the HTTP status plus the backend's message when available. */
 export class ApiRequestError extends Error {
@@ -89,11 +95,68 @@ function isAbortError(error: unknown): boolean {
   );
 }
 
-export async function apiFetch<T>(
+function rememberCsrfToken(body: unknown): void {
+  if (typeof body !== 'object' || body === null) return;
+  const candidate = (body as Record<string, unknown>).csrfToken;
+  if (typeof candidate === 'string' && candidate.length > 0) {
+    csrfToken = candidate;
+  }
+}
+
+function isCsrfFailure(body: unknown): boolean {
+  return messageFrom(body) === 'Invalid CSRF token';
+}
+
+/** Exposed for the PayPal capture path, which needs its own gate response handling. */
+export function getCsrfToken(): string | null {
+  return csrfToken;
+}
+
+/** Stores a token returned by login/me/csrf so mutations can echo it. */
+export function setCsrfToken(token: string | null | undefined): void {
+  csrfToken = typeof token === 'string' && token.length > 0 ? token : null;
+}
+
+async function refreshCsrfToken(): Promise<string | null> {
+  csrfToken = null;
+  return ensureCsrfToken();
+}
+
+/** Fetches the session-bound token once, then reuses it for every mutation. */
+export async function ensureCsrfToken(): Promise<string | null> {
+  if (csrfToken !== null) return csrfToken;
+  if (csrfRequest !== null) return csrfRequest;
+
+  csrfRequest = (async () => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/auth/csrf`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      const body = await readJson(res);
+      if (res.ok) rememberCsrfToken(body);
+      return csrfToken;
+    } catch {
+      return null;
+    } finally {
+      csrfRequest = null;
+    }
+  })();
+
+  return csrfRequest;
+}
+
+interface FetchResult {
+  res: Response;
+  body: unknown;
+}
+
+async function performFetch(
   path: string,
-  init: RequestInit = {},
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<T> {
+  init: RequestInit,
+  timeoutMs: number,
+  csrf: string | null,
+): Promise<FetchResult> {
   const { headers, ...rest } = init;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -104,21 +167,50 @@ export async function apiFetch<T>(
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...(csrf === null ? {} : { [CSRF_HEADER]: csrf }),
         ...(headers ?? {}),
       },
     });
-    if (!res.ok) {
-      throw await toApiError(res);
+    const body = res.status === 204 ? undefined : await readJson(res);
+    return { res, body };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  const method = (init.method ?? 'GET').toUpperCase();
+  const needsCsrf = !SAFE_METHODS.has(method);
+  let csrf = needsCsrf ? await ensureCsrfToken() : null;
+
+  try {
+    let result = await performFetch(path, init, timeoutMs, csrf);
+
+    // A session rotation in another tab invalidates the old token. Refresh the
+    // token and retry once instead of surfacing a spurious failure.
+    if (needsCsrf && result.res.status === 403 && isCsrfFailure(result.body)) {
+      const refreshed = await refreshCsrfToken();
+      if (refreshed !== null && refreshed !== csrf) {
+        csrf = refreshed;
+        result = await performFetch(path, init, timeoutMs, csrf);
+      }
     }
-    return (await res.json()) as T;
+
+    if (!result.res.ok) {
+      throw await toApiError(result.res, result.body);
+    }
+    rememberCsrfToken(result.body);
+    return result.body as T;
   } catch (error) {
     if (error instanceof ApiRequestError) throw error;
     if (isAbortError(error)) {
       throw new ApiRequestError(0, 'The security check timed out. Please try again.');
     }
     throw new ApiRequestError(0, 'Unable to reach GuardPay. Check your connection and try again.');
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -257,20 +349,32 @@ export function setAiEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
 
 /** Captures an approved order. Allowed only by the stored server-side decision. */
 export async function capturePayPalOrder(orderId: string): Promise<PayPalCaptureResponse> {
-  const res = await fetch(
-    `${apiBaseUrl}/api/paypal/orders/${encodeURIComponent(orderId)}/capture`,
-    {
+  const url = `${apiBaseUrl}/api/paypal/orders/${encodeURIComponent(orderId)}/capture`;
+  const send = async (csrf: string | null) => {
+    const res = await fetch(url, {
       method: 'POST',
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        ...(csrf === null ? {} : { [CSRF_HEADER]: csrf }),
       },
-    },
-  );
-  const body = await readJson(res);
-  if (res.status === 403 && isGateResponse(body)) {
-    throw new PayPalGateError(body);
+    });
+    const body = await readJson(res);
+    return { res, body };
+  };
+
+  let csrf = await ensureCsrfToken();
+  let result = await send(csrf);
+  if (result.res.status === 403 && isCsrfFailure(result.body)) {
+    const refreshed = await refreshCsrfToken();
+    if (refreshed !== null && refreshed !== csrf) {
+      csrf = refreshed;
+      result = await send(csrf);
+    }
   }
-  if (!res.ok) throw await toApiError(res, body);
-  return body as PayPalCaptureResponse;
+  if (result.res.status === 403 && isGateResponse(result.body)) {
+    throw new PayPalGateError(result.body);
+  }
+  if (!result.res.ok) throw await toApiError(result.res, result.body);
+  return result.body as PayPalCaptureResponse;
 }

@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var telephonyManager: TelephonyManager
     private lateinit var deviceId: String
+    private lateinit var deviceTokenStore: DeviceTokenStore
     private lateinit var reporter: CallStateReporter
 
     private var callback: TelephonyCallback? = null
@@ -48,7 +49,8 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         deviceId = DeviceIdStore(this).deviceId().toString()
-        reporter = CallStateReporter(BuildConfig.GUARDPAY_API_BASE_URL, BuildConfig.GUARDPAY_DEVICE_TOKEN)
+        deviceTokenStore = DeviceTokenStore(this)
+        reporter = CallStateReporter(BuildConfig.GUARDPAY_API_BASE_URL, deviceTokenStore.token())
         telephonyManager = getSystemService(TelephonyManager::class.java)
 
         window.statusBarColor = Color.WHITE
@@ -286,6 +288,14 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun getLastObservedAt(): String = lastObservedAt ?: ""
+
+        @JavascriptInterface
+        fun setDeviceToken(token: String) {
+            val trimmed = token.trim()
+            if (trimmed.isEmpty()) return
+            deviceTokenStore.save(trimmed)
+            reporter.updateToken(trimmed)
+        }
 
         @JavascriptInterface
         fun openUrl(url: String) {

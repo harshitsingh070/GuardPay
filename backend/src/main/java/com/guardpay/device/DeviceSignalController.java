@@ -11,9 +11,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Device signal intake (development stage). The
- * {@code X-GuardPay-Device-Token} header is the pairing check — never logged.
- * Devices report call state here; payment risk stays on the risk endpoints.
+ * Device signal intake. The {@code X-GuardPay-Device-Token} header is a
+ * per-device credential issued by {@code /api/devices} — never logged. Devices
+ * report call state here; payment risk stays on the risk endpoints.
  */
 @RestController
 @RequestMapping("/api/device-signals")
