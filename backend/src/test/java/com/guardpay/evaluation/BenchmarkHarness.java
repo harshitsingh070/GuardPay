@@ -9,6 +9,13 @@ import com.guardpay.ai.AiAnalysisClient;
 import com.guardpay.ai.AiUnavailableException;
 import com.guardpay.ai.dto.AiAnalysisResponse;
 import com.guardpay.ai.dto.AiFindingDto;
+import com.guardpay.behavior.AdaptiveBehavioralAnalyzer;
+import com.guardpay.behavior.BehavioralProfileService;
+import com.guardpay.behavior.UserBehaviorProfileRepository;
+import com.guardpay.behavior.UserRecipientBehaviorRepository;
+import com.guardpay.behavior.UserHourlyBehaviorRepository;
+import com.guardpay.behavior.UserGeoBehaviorRepository;
+import com.guardpay.behavior.UserDeviceBehaviorRepository;
 import com.guardpay.device.DeviceCallState;
 import com.guardpay.device.DeviceCallStateRepository;
 import com.guardpay.merchant.Merchant;
@@ -30,6 +37,7 @@ import com.guardpay.transaction.TransactionStatus;
 import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
 import com.guardpay.user.UserRepository;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -37,6 +45,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -52,11 +62,19 @@ final class BenchmarkHarness {
   private static final UUID DEVICE_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
 
   Result evaluate(BenchmarkScenario scenario, BenchmarkMode mode) {
-    return evaluate(scenario, mode, true);
+    return evaluate(scenario, mode, true, true);
   }
 
   Result evaluate(
       BenchmarkScenario scenario, BenchmarkMode mode, boolean recipientIntelligence) {
+    return evaluate(scenario, mode, recipientIntelligence, true);
+  }
+
+  Result evaluate(
+      BenchmarkScenario scenario,
+      BenchmarkMode mode,
+      boolean recipientIntelligence,
+      boolean behavioralAnalysis) {
     BenchmarkScenario.Input input = scenario.input();
 
     UserRepository users = mock(UserRepository.class);
@@ -80,6 +98,8 @@ final class BenchmarkHarness {
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED)).thenReturn(history);
     when(transactions.findByUserAndTransactionTimestampAfter(eq(user), any()))
         .thenReturn(recentAttempts(input));
+    when(transactions.findByUserId(any(UUID.class), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(history));
 
     AutomaticEvaluationRequestDto dto = new AutomaticEvaluationRequestDto();
     dto.setAmount(input.amount());
@@ -150,6 +170,28 @@ final class BenchmarkHarness {
                   "Synthetic benchmark AI evidence"));
     }
 
+    UserBehaviorProfileRepository profileRepo = mock(UserBehaviorProfileRepository.class);
+    UserRecipientBehaviorRepository recipientBehaviorRepo =
+        mock(UserRecipientBehaviorRepository.class);
+    UserHourlyBehaviorRepository hourlyBehaviorRepo =
+        mock(UserHourlyBehaviorRepository.class);
+    UserGeoBehaviorRepository geoBehaviorRepo = mock(UserGeoBehaviorRepository.class);
+    UserDeviceBehaviorRepository deviceBehaviorRepo =
+        mock(UserDeviceBehaviorRepository.class);
+    EntityManager entityManager = mock(EntityManager.class);
+
+    BehavioralProfileService profileService =
+        new BehavioralProfileService(
+            transactions,
+            profileRepo,
+            recipientBehaviorRepo,
+            hourlyBehaviorRepo,
+            geoBehaviorRepo,
+            deviceBehaviorRepo,
+            entityManager);
+    AdaptiveBehavioralAnalyzer behavioralAnalyzer =
+        behavioralAnalysis ? new AdaptiveBehavioralAnalyzer(profileService) : null;
+
     PaymentSignalCollectorService collector =
         new PaymentSignalCollectorService(
             users,
@@ -167,7 +209,9 @@ final class BenchmarkHarness {
             deviceStates,
             recipients,
             merchants,
-            aiClient);
+            aiClient,
+            null,
+            behavioralAnalyzer);
 
     long startedAt = System.nanoTime();
     AutomaticEvaluationResponseDto response = service.evaluate(dto);

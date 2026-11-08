@@ -5,15 +5,14 @@ import com.guardpay.behavior.dto.BehavioralAnalysisResponse;
 import com.guardpay.behavior.dto.BehavioralFindingDto;
 import com.guardpay.behavior.dto.BehavioralProfileDto;
 import com.guardpay.behavior.dto.BehavioralProfileSummaryDto;
-import com.guardpay.common.domain.BaseEntity;
 import com.guardpay.recipient.Recipient;
+import com.guardpay.risk.RecommendedAction;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
 import com.guardpay.user.User;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -21,29 +20,50 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
+import org.hibernate.StaleObjectStateException;
+import org.hibernate.StaleStateException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Computes and persists per-user behavioral statistics from COMPLETED
+ * Computes per-user behavioral statistics from eligible COMPLETED
  * transaction history across three rolling windows (7, 30, 90 days).
  *
- * <p>The service now loads and persists {@link UserBehaviorProfile} rows so
- * that subsequent evaluations reuse the learned baseline instead of
- * recomputing from raw history every time. Profiles are updated idempotently
- * after eligible transaction outcomes complete.
+ * <p>Analysis ({@link #analyze}) is strictly read-only: it never writes to
+ * the profile tables. Profile persistence happens only through
+ * {@link #updateProfileAfterOutcome(UUID, Transaction, OffsetDateTime)}, which
+ * is called when a transaction reaches a terminal state (COMPLETED, FAILED,
+ * or CANCELLED).
  *
  * <p>Amount statistics are maintained separately per currency. Time-of-day
    analysis uses the user's configured IANA timezone when available.
+ *
+ * <p>Suspicious transactions (high-risk decisions: STOP, or HIGH/CRITICAL
+   behavioral findings) are excluded from baseline learning to prevent profile
+   poisoning.
  */
 @Service
 public class BehavioralProfileService {
+
+  private static final Logger log = LoggerFactory.getLogger(BehavioralProfileService.class);
+
+  /** Maximum retries for optimistic lock conflicts during profile update. */
+  public static final int MAX_RETRIES = 3;
 
   /** Fewer than this many eligible transactions = insufficient baseline. */
   public static final int MIN_TRANSACTIONS_FOR_BASELINE = 5;
@@ -60,6 +80,18 @@ public class BehavioralProfileService {
   /** Minimum meaningful deviation ratio to avoid flagging trivial variations. */
   private static final BigDecimal MIN_MEANINGFUL_DEVIATION_RATIO = new BigDecimal("1.5");
 
+  /**
+   * Robust-outlier guard for baseline learning. A completed payment this far
+   * outside the established distribution is not learned unless the user
+   * explicitly cleared a VERIFY challenge. This prevents a single
+   * account-takeover payment from poisoning the profile.
+   */
+  private static final BigDecimal POISONING_MODIFIED_Z_THRESHOLD = new BigDecimal("5.0");
+
+  private static final BigDecimal POISONING_RATIO_THRESHOLD = new BigDecimal("5.0");
+
+  private static final long RETRY_BACKOFF_MILLIS = 20L;
+
   private final TransactionRepository transactions;
   private final UserBehaviorProfileRepository profiles;
   private final UserRecipientBehaviorRepository recipientBehaviors;
@@ -67,6 +99,8 @@ public class BehavioralProfileService {
   private final UserGeoBehaviorRepository geoBehaviors;
   private final UserDeviceBehaviorRepository deviceBehaviors;
   private final EntityManager entityManager;
+  private final BehavioralOutcomeEventRepository outcomeEvents;
+  private final TransactionTemplate requiresNewTransaction;
 
   public BehavioralProfileService(
       TransactionRepository transactions,
@@ -76,6 +110,29 @@ public class BehavioralProfileService {
       UserGeoBehaviorRepository geoBehaviors,
       UserDeviceBehaviorRepository deviceBehaviors,
       EntityManager entityManager) {
+    this(
+        transactions,
+        profiles,
+        recipientBehaviors,
+        hourlyBehaviors,
+        geoBehaviors,
+        deviceBehaviors,
+        entityManager,
+        null,
+        null);
+  }
+
+  @Autowired
+  public BehavioralProfileService(
+      TransactionRepository transactions,
+      UserBehaviorProfileRepository profiles,
+      UserRecipientBehaviorRepository recipientBehaviors,
+      UserHourlyBehaviorRepository hourlyBehaviors,
+      UserGeoBehaviorRepository geoBehaviors,
+      UserDeviceBehaviorRepository deviceBehaviors,
+      EntityManager entityManager,
+      BehavioralOutcomeEventRepository outcomeEvents,
+      PlatformTransactionManager transactionManager) {
     this.transactions = transactions;
     this.profiles = profiles;
     this.recipientBehaviors = recipientBehaviors;
@@ -83,18 +140,26 @@ public class BehavioralProfileService {
     this.geoBehaviors = geoBehaviors;
     this.deviceBehaviors = deviceBehaviors;
     this.entityManager = entityManager;
+    this.outcomeEvents = outcomeEvents;
+    if (transactionManager == null) {
+      this.requiresNewTransaction = null;
+    } else {
+      TransactionTemplate template = new TransactionTemplate(transactionManager);
+      template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+      this.requiresNewTransaction = template;
+    }
   }
 
   /**
    * Computes behavioral anomaly findings for an incoming payment against the
-   * user's persisted profile, then persists an updated profile.
+   * user's persisted profile. Strictly read-only: never writes to profile
+   * tables. Profile persistence happens only through
+   * {@link #updateProfileAfterOutcome(UUID, Transaction, OffsetDateTime)}.
    *
    * <p>Does not include the current transaction in its own baseline.
-   * Fails safely: if persistence fails, findings are still returned and the
-   * profile is marked DEGRADED.
    */
-  @Transactional
-  public BehavioralAnalysisResponse analyzeAndPersist(
+  @Transactional(readOnly = true)
+  public BehavioralAnalysisResponse analyze(
       BehavioralAnalysisRequest request, UUID excludeTransactionId) {
     if (request.userId() == null) {
       return new BehavioralAnalysisResponse(
@@ -104,7 +169,7 @@ public class BehavioralProfileService {
 
     OffsetDateTime asOf = request.asOf() != null ? request.asOf() : OffsetDateTime.now();
 
-    // Load existing profile (optimistic lock via version check on save)
+    // Load existing profile (read-only)
     Optional<UserBehaviorProfile> existingProfile =
         profiles.findByUserId(request.userId());
 
@@ -250,23 +315,6 @@ public class BehavioralProfileService {
     // Overall behavioral deviation (aggregate)
     String overall = computeOverallDeviation(findings);
 
-    // Persist / update the profile
-    try {
-      persistProfile(request.userId(), history, asOf, confidence, primaryAmountStats,
-          requestCurrency, userTimezoneFromProfile(existingProfile));
-    } catch (Exception e) {
-      // Profile persistence failure must not block the payment decision
-      return new BehavioralAnalysisResponse(
-          request.userId(),
-          "DEGRADED",
-          history.size(),
-          null,
-          null,
-          findings,
-          overall,
-          true);
-    }
-
     return new BehavioralAnalysisResponse(
         request.userId(),
         confidence.status().toString(),
@@ -281,328 +329,500 @@ public class BehavioralProfileService {
   }
 
   /**
-   * Read-only analysis without persistence. Used for evaluation endpoints
-   * that should not modify the profile.
+   * Updates the user's behavioral profile after a transaction reaches a
+   * terminal state. Suspicious or non-completed attempts are recorded as
+   * non-learnable outcomes, so they can never enter the baseline.
+   *
+   * <p>This overload infers the outcome from the transaction status and is
+   * kept for compatibility. New lifecycle callers should pass an explicit
+   * outcome and source so refunds, reversals, and disputes are unambiguous.
    */
-  @Transactional(readOnly = true)
-  public BehavioralAnalysisResponse analyze(
-      BehavioralAnalysisRequest request, UUID excludeTransactionId) {
-    if (request.userId() == null) {
-      return new BehavioralAnalysisResponse(
-          null, "INSUFFICIENT_DATA", 0, null, null, List.of(),
-          "INSUFFICIENT_DATA", false);
+  public void updateProfileAfterOutcome(
+      UUID userId,
+      Transaction transaction,
+      OffsetDateTime asOf,
+      RecommendedAction recommendedAction) {
+    if (transaction == null) {
+      return;
     }
-
-    OffsetDateTime asOf = request.asOf() != null ? request.asOf() : OffsetDateTime.now();
-    List<Transaction> history = loadEligibleHistory(request.userId(), asOf, excludeTransactionId);
-    ProfileConfidence confidence = assessConfidence(history, request.userId());
-
-    List<BehavioralFindingDto> findings = new ArrayList<>();
-
-    if (confidence.status() == UserBehaviorProfile.ProfileStatus.INSUFFICIENT_DATA) {
-      return new BehavioralAnalysisResponse(
-          request.userId(),
-          "INSUFFICIENT_DATA",
-          history.size(),
-          null,
-          null,
-          findings,
-          "INSUFFICIENT_DATA",
-          false);
+    BehavioralOutcome outcome = outcomeFor(transaction.getStatus());
+    if (outcome == null) {
+      return;
     }
-
-    String requestCurrency = request.currency() != null ? request.currency() : "USD";
-    Map<String, AmountStats> amountStatsByCurrencyWindow = new HashMap<>();
-    for (BehavioralWindow window : BehavioralWindow.values()) {
-      List<Transaction> windowHistory =
-          history.stream()
-              .filter(t -> t.getTransactionTimestamp() != null
-                  && t.getTransactionTimestamp()
-                      .isAfter(asOf.minus(window.getDays(), ChronoUnit.DAYS)))
-              .filter(t -> requestCurrency.equals(t.getCurrency()))
-              .toList();
-      AmountStats stats = computeAmountStats(windowHistory);
-      if (stats != null && stats.count() > 0) {
-        amountStatsByCurrencyWindow.put(window.getLabel(), stats);
-      }
-    }
-
-    BehavioralWindow primaryWindow = selectPrimaryWindow(amountStatsByCurrencyWindow);
-    AmountStats primaryAmountStats = amountStatsByCurrencyWindow.get(primaryWindow.getLabel());
-
-    // Filter history to the primary window for all non-amount analyses
-    OffsetDateTime windowStart = asOf.minus(primaryWindow.getDays(), ChronoUnit.DAYS);
-    List<Transaction> windowHistory = history.stream()
-        .filter(t -> t.getTransactionTimestamp() != null
-            && t.getTransactionTimestamp().isAfter(windowStart))
-        .toList();
-
-    if (request.amount() != null
-        && primaryAmountStats != null
-        && primaryAmountStats.count() >= MIN_TRANSACTIONS_FOR_BASELINE) {
-      BehavioralFindingDto amountFinding =
-          analyzeAmountDeviation(
-              request.amount(),
-              primaryAmountStats,
-              primaryWindow.getLabel(),
-              confidence.status().toString(),
-              requestCurrency);
-      if (amountFinding != null) {
-        findings.add(amountFinding);
-      }
-    }
-
-    String userTimezone = profiles.findByUserId(request.userId())
-        .map(UserBehaviorProfile::getTimezone).orElse(null);
-
-    if (request.transactionTimestamp() != null
-        && confidence.sufficientForTime()) {
-      BehavioralFindingDto timeFinding =
-          analyzeTimeDeviation(
-              request.transactionTimestamp(),
-              windowHistory,
-              asOf,
-              confidence.status().toString(),
-              userTimezone,
-              primaryWindow.getLabel());
-      if (timeFinding != null) {
-        findings.add(timeFinding);
-      }
-    }
-
-    if (request.recipientId() != null && confidence.sufficientForRecipient()) {
-      BehavioralFindingDto recipientFinding =
-          analyzeRecipientDeviation(
-              request.userId(),
-              request.recipientId(),
-              request.amount(),
-              windowHistory,
-              asOf,
-              confidence.status().toString(),
-              primaryWindow.getLabel());
-      if (recipientFinding != null) {
-        findings.add(recipientFinding);
-      }
-    }
-
-    if (confidence.sufficientForFrequency()) {
-      BehavioralFindingDto frequencyFinding =
-          analyzeFrequencyAnomaly(windowHistory, asOf, confidence.status().toString());
-      if (frequencyFinding != null) {
-        findings.add(frequencyFinding);
-      }
-    }
-
-    if ((request.deviceId() != null || request.deviceFingerprint() != null)
-        && confidence.sufficientForDevice()) {
-      BehavioralFindingDto deviceFinding =
-          analyzeDeviceDeviation(
-              request.userId(),
-              request.deviceId(),
-              request.deviceFingerprint(),
-              windowHistory,
-              confidence.status().toString(),
-              primaryWindow.getLabel());
-      if (deviceFinding != null) {
-        findings.add(deviceFinding);
-      }
-    }
-
-    if (request.geoCountry() != null && confidence.sufficientForGeo()) {
-      BehavioralFindingDto geoFinding =
-          analyzeGeoDeviation(
-              request.userId(),
-              request.geoCountry(),
-              windowHistory,
-              asOf,
-              confidence.status().toString(),
-              primaryWindow.getLabel());
-      if (geoFinding != null) {
-        findings.add(geoFinding);
-      }
-    }
-
-    String overall = computeOverallDeviation(findings);
-
-    return new BehavioralAnalysisResponse(
-        request.userId(),
-        confidence.status().toString(),
-        history.size(),
-        null,
-        null,
-        findings,
-        overall,
-        true);
+    updateProfileAfterOutcome(
+        userId,
+        transaction,
+        asOf,
+        recommendedAction,
+        outcome,
+        false,
+        "LEGACY_LIFECYCLE");
   }
 
   /**
-   * Persist or update the user's behavioral profile after computing statistics.
-   * Uses optimistic locking via the profile's updated timestamp to prevent
-   * lost updates from concurrent transactions.
+   * Records one outcome and recomputes the baseline from eligible history.
+   *
+   * <p>Idempotency is enforced by the unique {@code (transaction, outcome)}
+   * ledger row, not by a mutable "last transaction" pointer. Each attempt runs
+   * in a fresh {@code REQUIRES_NEW} transaction with bounded retry on
+   * optimistic-lock and insertion races. A retry re-reads the profile and
+   * recomputes from raw eligible history, so duplicate delivery cannot double
+   * count.
+   *
+   * @param explicitlyVerified true only when a controlled VERIFY challenge was
+   *     satisfied. This is the one case where an otherwise-outlying completed
+   *     payment may enter the baseline.
    */
-  @Transactional
-  public void persistProfile(
+  public void updateProfileAfterOutcome(
       UUID userId,
-      List<Transaction> history,
+      Transaction transaction,
       OffsetDateTime asOf,
-      ProfileConfidence confidence,
-      AmountStats primaryAmountStats,
-      String requestCurrency,
-      String userTimezone) {
+      RecommendedAction recommendedAction,
+      BehavioralOutcome outcome,
+      boolean explicitlyVerified,
+      String source) {
+    if (userId == null || transaction == null || transaction.getId() == null || outcome == null) {
+      return;
+    }
+    OffsetDateTime effectiveAsOf = asOf != null ? asOf : OffsetDateTime.now();
+    String effectiveSource = source == null || source.isBlank() ? "UNKNOWN" : source;
 
-    UserBehaviorProfile profile = profiles.findByUserId(userId).orElseGet(() -> {
-      UserBehaviorProfile newProfile = new UserBehaviorProfile();
-      newProfile.setUser(entityManager.getReference(User.class, userId));
-      newProfile.setProfileVersion(1);
-      newProfile.setProfileStatus(confidence.status());
-      newProfile.setTransactionCount(history.size());
-      newProfile.setFirstObservedAt(history.isEmpty() ? null :
-          history.stream().map(Transaction::getTransactionTimestamp)
-              .min(Comparator.naturalOrder()).orElse(null));
-      newProfile.setLastUpdatedAt(asOf);
-      newProfile.setDataQualityScore(computeDataQuality(history.size(), confidence.status()));
-      newProfile.setCurrency(requestCurrency);
-      newProfile.setTimezone(userTimezone);
-      return newProfile;
-    });
+    if (outcomeEvents == null) {
+      applyOutcomeWithoutLedger(
+          userId, transaction, effectiveAsOf, recommendedAction, outcome, explicitlyVerified);
+      return;
+    }
 
-    // Update fields
+    int attempt = 0;
+    while (true) {
+      try {
+        Runnable task =
+            () ->
+                applyOutcome(
+                    userId,
+                    transaction,
+                    effectiveAsOf,
+                    recommendedAction,
+                    outcome,
+                    explicitlyVerified,
+                    effectiveSource);
+        if (requiresNewTransaction != null) {
+          requiresNewTransaction.executeWithoutResult(status -> task.run());
+        } else {
+          task.run();
+        }
+        return;
+      } catch (RuntimeException failure) {
+        if (failure instanceof DataIntegrityViolationException) {
+          if (outcomeEvents.existsByTransactionIdAndOutcome(transaction.getId(), outcome)) {
+            log.debug("Behavioral outcome already recorded (idempotent skip)");
+            return;
+          }
+          if (attempt < MAX_RETRIES) {
+            attempt++;
+            pauseBeforeRetry(attempt, failure);
+            continue;
+          }
+          log.warn(
+              "Behavioral outcome could not be recorded after {} attempts",
+              MAX_RETRIES + 1,
+              failure);
+          return;
+        }
+        if (isOptimisticLockFailure(failure)) {
+          if (attempt < MAX_RETRIES) {
+            attempt++;
+            pauseBeforeRetry(attempt, failure);
+            continue;
+          }
+          log.warn(
+              "Behavioral profile update failed after {} retries; profile remains slightly stale",
+              MAX_RETRIES,
+              failure);
+          return;
+        }
+        throw failure;
+      }
+    }
+  }
+
+  private void applyOutcome(
+      UUID userId,
+      Transaction transaction,
+      OffsetDateTime asOf,
+      RecommendedAction recommendedAction,
+      BehavioralOutcome outcome,
+      boolean explicitlyVerified,
+      String source) {
+    if (outcomeEvents.findByTransactionIdAndOutcome(transaction.getId(), outcome).isPresent()) {
+      return;
+    }
+
+    boolean learnable =
+        outcome == BehavioralOutcome.COMPLETED
+            && determineLearnable(
+                userId, transaction, asOf, recommendedAction, explicitlyVerified);
+
+    BehavioralOutcomeEvent event = new BehavioralOutcomeEvent();
+    event.setTransaction(transaction);
+    event.setOutcome(outcome);
+    event.setLearnable(learnable);
+    event.setSource(source);
+    event.setRecommendedAction(recommendedAction);
+    event.setOccurredAt(asOf);
+    outcomeEvents.saveAndFlush(event);
+
+    if (outcome == BehavioralOutcome.COMPLETED) {
+      recomputeProfile(userId, transaction, asOf);
+    } else if (isExclusionOutcome(outcome) && profiles.existsByUserId(userId)) {
+      // A refund/reversal/dispute removes a previously learned payment.
+      recomputeProfile(userId, transaction, asOf);
+    }
+  }
+
+  private void applyOutcomeWithoutLedger(
+      UUID userId,
+      Transaction transaction,
+      OffsetDateTime asOf,
+      RecommendedAction recommendedAction,
+      BehavioralOutcome outcome,
+      boolean explicitlyVerified) {
+    if (outcome != BehavioralOutcome.COMPLETED) {
+      return;
+    }
+    UserBehaviorProfile existing = profiles.findByUserId(userId).orElse(null);
+    if (existing != null
+        && transaction.getId().equals(existing.getLastIncludedTransactionId())) {
+      return;
+    }
+    if (!determineLearnable(userId, transaction, asOf, recommendedAction, explicitlyVerified)) {
+      return;
+    }
+    recomputeProfile(userId, transaction, asOf);
+  }
+
+  private boolean determineLearnable(
+      UUID userId,
+      Transaction transaction,
+      OffsetDateTime asOf,
+      RecommendedAction recommendedAction,
+      boolean explicitlyVerified) {
+    if (transaction.getStatus() != TransactionStatus.COMPLETED) {
+      return false;
+    }
+    if (recommendedAction == null || recommendedAction == RecommendedAction.STOP) {
+      return false;
+    }
+    if (recommendedAction == RecommendedAction.VERIFY && !explicitlyVerified) {
+      return false;
+    }
+    if (outcomeEvents != null) {
+      List<BehavioralOutcomeEvent> events = outcomeEvents.findByTransactionId(transaction.getId());
+      boolean excluded =
+          events.stream()
+              .anyMatch(event -> !event.isLearnable() || isExclusionOutcome(event.getOutcome()));
+      if (excluded) {
+        return false;
+      }
+    }
+    // Outliers are not learned on trust: only an explicit VERIFY challenge can
+    // admit an abrupt amount change. Gradual changes stay within the threshold.
+    return explicitlyVerified || !isPoisoningOutlier(userId, transaction, asOf);
+  }
+
+  private boolean isPoisoningOutlier(
+      UUID userId, Transaction transaction, OffsetDateTime asOf) {
+    if (transaction.getAmount() == null
+        || transaction.getCurrency() == null
+        || transaction.getCurrency().isBlank()) {
+      return false;
+    }
+    List<Transaction> history =
+        loadEligibleHistory(userId, asOf, transaction.getId(), excludedTransactionIds(userId));
+    List<Transaction> currencyHistory =
+        history.stream()
+            .filter(t -> transaction.getCurrency().equalsIgnoreCase(t.getCurrency()))
+            .toList();
+    if (currencyHistory.size() < MIN_TRANSACTIONS_FOR_BASELINE) {
+      return false;
+    }
+    AmountStats stats = computeAmountStats(currencyHistory);
+    if (stats == null || stats.median() == null || stats.median().compareTo(BigDecimal.ZERO) <= 0) {
+      return false;
+    }
+    if (stats.mad() != null && stats.mad().compareTo(ZERO_MAD_THRESHOLD) > 0) {
+      BigDecimal modifiedZScore =
+          transaction
+              .getAmount()
+              .subtract(stats.median())
+              .abs()
+              .multiply(new BigDecimal("0.6745"))
+              .divide(stats.mad(), 4, RoundingMode.HALF_UP);
+      return modifiedZScore.compareTo(POISONING_MODIFIED_Z_THRESHOLD) > 0;
+    }
+    BigDecimal ratio =
+        transaction.getAmount().divide(stats.median(), 4, RoundingMode.HALF_UP);
+    return ratio.compareTo(POISONING_RATIO_THRESHOLD) > 0
+        || ratio.compareTo(BigDecimal.ONE.divide(
+                POISONING_RATIO_THRESHOLD, 4, RoundingMode.HALF_UP))
+            < 0;
+  }
+
+  private void recomputeProfile(
+      UUID userId, Transaction transaction, OffsetDateTime asOf) {
+    UserBehaviorProfile profile =
+        profiles
+            .findByUserId(userId)
+            .orElseGet(
+                () -> {
+                  UserBehaviorProfile newProfile = new UserBehaviorProfile();
+                  newProfile.setUser(entityManager.getReference(User.class, userId));
+                  newProfile.setProfileVersion(1);
+                  newProfile.setProfileStatus(UserBehaviorProfile.ProfileStatus.INSUFFICIENT_DATA);
+                  newProfile.setTransactionCount(0);
+                  newProfile.setLastUpdatedAt(asOf);
+                  newProfile.setDataQualityScore(BigDecimal.ZERO);
+                  newProfile.setCurrency(transaction.getCurrency());
+                  return newProfile;
+                });
+
+    Set<UUID> excluded = excludedTransactionIds(userId);
+    List<Transaction> history = loadEligibleHistory(userId, asOf, null, excluded);
+    ProfileConfidence confidence = assessConfidence(history, userId);
+    String currency =
+        transaction.getCurrency() != null
+            ? transaction.getCurrency()
+            : profile.getCurrency();
+
     profile.setProfileVersion(profile.getProfileVersion() + 1);
     profile.setProfileStatus(confidence.status());
     profile.setTransactionCount(history.size());
     profile.setLastUpdatedAt(asOf);
     profile.setDataQualityScore(computeDataQuality(history.size(), confidence.status()));
-    profile.setCurrency(requestCurrency);
-    profile.setTimezone(userTimezone);
+    profile.setCurrency(currency);
+    profile.setFirstObservedAt(
+        history.stream()
+            .map(Transaction::getTransactionTimestamp)
+            .filter(java.util.Objects::nonNull)
+            .min(Comparator.naturalOrder())
+            .orElse(null));
 
-    if (primaryAmountStats != null) {
-      profile.setAmountMin(primaryAmountStats.min());
-      profile.setAmountMax(primaryAmountStats.max());
-      profile.setAmountMean(primaryAmountStats.mean());
-      profile.setAmountMedian(primaryAmountStats.median());
-      profile.setAmountStddev(primaryAmountStats.stddev());
-      profile.setAmountMad(primaryAmountStats.mad());
-      profile.setAmountP90(primaryAmountStats.p90());
-      profile.setAmountP95(primaryAmountStats.p95());
+    List<Transaction> currencyHistory =
+        history.stream()
+            .filter(t -> currency == null || currency.equalsIgnoreCase(t.getCurrency()))
+            .toList();
+    AmountStats stats = computeAmountStats(currencyHistory);
+    if (stats != null) {
+      profile.setAmountMin(stats.min());
+      profile.setAmountMax(stats.max());
+      profile.setAmountMean(stats.mean());
+      profile.setAmountMedian(stats.median());
+      profile.setAmountStddev(stats.stddev());
+      profile.setAmountMad(stats.mad());
+      profile.setAmountP90(stats.p90());
+      profile.setAmountP95(stats.p95());
+    } else {
+      profile.setAmountMin(null);
+      profile.setAmountMax(null);
+      profile.setAmountMean(null);
+      profile.setAmountMedian(null);
+      profile.setAmountStddev(null);
+      profile.setAmountMad(null);
+      profile.setAmountP90(null);
+      profile.setAmountP95(null);
     }
 
-    // Frequency stats
-    if (!history.isEmpty()) {
+    if (history.isEmpty()) {
+      profile.setFrequencyPerDay(BigDecimal.ZERO);
+      profile.setFrequencyPerWeek(BigDecimal.ZERO);
+      profile.setFrequencyPerHour(BigDecimal.ZERO);
+      profile.setAvgIntervalMinutes(null);
+      profile.setPeakHour(null);
+      profile.setNightPaymentRatio(BigDecimal.ZERO);
+      profile.setWeekendPaymentRatio(BigDecimal.ZERO);
+    } else {
       OffsetDateTime firstTx = history.get(0).getTransactionTimestamp();
       long daysSpan = Math.max(1, ChronoUnit.DAYS.between(firstTx, asOf) + 1);
       profile.setFrequencyPerDay(
           BigDecimal.valueOf((double) history.size() / daysSpan)
               .setScale(4, RoundingMode.HALF_UP));
       profile.setFrequencyPerWeek(
-          profile.getFrequencyPerDay().multiply(BigDecimal.valueOf(7))
+          profile
+              .getFrequencyPerDay()
+              .multiply(BigDecimal.valueOf(7))
               .setScale(4, RoundingMode.HALF_UP));
       long totalMinutes = ChronoUnit.MINUTES.between(firstTx, asOf);
-      if (totalMinutes > 0 && history.size() > 1) {
-        profile.setAvgIntervalMinutes(
-            BigDecimal.valueOf((double) totalMinutes / (history.size() - 1))
-                .setScale(4, RoundingMode.HALF_UP));
-      }
+      profile.setAvgIntervalMinutes(
+          totalMinutes > 0 && history.size() > 1
+              ? BigDecimal.valueOf((double) totalMinutes / (history.size() - 1))
+                  .setScale(4, RoundingMode.HALF_UP)
+              : null);
 
-      // Peak hour from history
       Map<Integer, Long> hourCounts = new HashMap<>();
       for (Transaction t : history) {
         OffsetDateTime ts = t.getTransactionTimestamp();
         if (ts != null) {
-          int h = ts.getHour();
-          hourCounts.merge(h, 1L, Long::sum);
+          hourCounts.merge(ts.getHour(), 1L, Long::sum);
         }
       }
-      Integer peakHour = hourCounts.entrySet().stream()
-          .max(Map.Entry.comparingByValue())
-          .map(Map.Entry::getKey)
-          .orElse(null);
-      profile.setPeakHour(peakHour);
-
-      long nightCount = hourCounts.entrySet().stream()
-          .filter(e -> e.getKey() >= 0 && e.getKey() <= 5)
-          .mapToLong(Map.Entry::getValue)
-          .sum();
+      profile.setPeakHour(
+          hourCounts.entrySet().stream()
+              .max(Map.Entry.comparingByValue())
+              .map(Map.Entry::getKey)
+              .orElse(null));
+      long nightCount =
+          hourCounts.entrySet().stream()
+              .filter(e -> e.getKey() >= 0 && e.getKey() <= 5)
+              .mapToLong(Map.Entry::getValue)
+              .sum();
       profile.setNightPaymentRatio(
-          history.size() > 0
-              ? BigDecimal.valueOf((double) nightCount / history.size())
-                  .setScale(4, RoundingMode.HALF_UP)
-              : BigDecimal.ZERO);
-
-      long weekendCount = hourCounts.entrySet().stream()
-          .flatMap(e -> {
-            // Need day-of-week, not hour. Re-derive from transactions.
-            return java.util.stream.Stream.of(
-                history.stream()
-                    .filter(t -> t.getTransactionTimestamp() != null
-                        && t.getTransactionTimestamp().getDayOfWeek()
-                            .getValue() >= 6)
-                    .count());
-          })
-          .findFirst()
-          .orElse(0L);
-      // Simpler: count weekend transactions directly
-      long weekendTx = history.stream()
-          .filter(t -> t.getTransactionTimestamp() != null
-              && (t.getTransactionTimestamp().getDayOfWeek().getValue() >= 6))
-          .count();
+          BigDecimal.valueOf((double) nightCount / history.size())
+              .setScale(4, RoundingMode.HALF_UP));
+      long weekendTx =
+          history.stream()
+              .filter(
+                  t ->
+                      t.getTransactionTimestamp() != null
+                          && t.getTransactionTimestamp().getDayOfWeek().getValue() >= 6)
+              .count();
       profile.setWeekendPaymentRatio(
-          history.size() > 0
-              ? BigDecimal.valueOf((double) weekendTx / history.size())
-                  .setScale(4, RoundingMode.HALF_UP)
-              : BigDecimal.ZERO);
-    }
-
-    // Recipient stats
-    int uniqueRecipients = (int) history.stream()
-        .map(Transaction::getRecipient)
-        .filter(java.util.Objects::nonNull)
-        .map(r -> r.getId())
-        .distinct()
-        .count();
-    profile.setUniqueRecipientCount(uniqueRecipients);
-
-    long establishedRecipientCount = history.stream()
-        .map(Transaction::getRecipient)
-        .filter(java.util.Objects::nonNull)
-        .map(r -> r.getId())
-        .distinct()
-        .filter(rid -> history.stream()
-            .filter(t -> t.getRecipient() != null && rid.equals(t.getRecipient().getId()))
-            .count() >= 3)
-        .count();
-    profile.setEstablishedRecipientCount((int) establishedRecipientCount);
-
-    if (uniqueRecipients > 0) {
-      profile.setNewRecipientRatio(
-          BigDecimal.valueOf((double) (uniqueRecipients - establishedRecipientCount)
-              / uniqueRecipients)
+          BigDecimal.valueOf((double) weekendTx / history.size())
               .setScale(4, RoundingMode.HALF_UP));
     }
 
-    // Device stats
-    int distinctDevices = (int) history.stream()
-        .map(Transaction::getDeviceId)
-        .filter(java.util.Objects::nonNull)
-        .distinct()
-        .count();
+    int uniqueRecipients =
+        (int)
+            history.stream()
+                .map(Transaction::getRecipient)
+                .filter(r -> r != null && r.getId() != null)
+                .map(Recipient::getId)
+                .distinct()
+                .count();
+    profile.setUniqueRecipientCount(uniqueRecipients);
+
+    long establishedRecipientCount =
+        history.stream()
+            .map(Transaction::getRecipient)
+            .filter(r -> r != null && r.getId() != null)
+            .map(Recipient::getId)
+            .distinct()
+            .filter(
+                rid ->
+                    history.stream()
+                            .filter(t -> t.getRecipient() != null && rid.equals(t.getRecipient().getId()))
+                            .count()
+                        >= 3)
+            .count();
+    profile.setEstablishedRecipientCount((int) establishedRecipientCount);
+    profile.setNewRecipientRatio(
+        uniqueRecipients > 0
+            ? BigDecimal.valueOf(
+                    (double) (uniqueRecipients - establishedRecipientCount) / uniqueRecipients)
+                .setScale(4, RoundingMode.HALF_UP)
+            : BigDecimal.ZERO);
+
+    int distinctDevices =
+        (int)
+            history.stream()
+                .map(Transaction::getDeviceId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .count();
     profile.setDeviceCount(distinctDevices);
 
-    // Geo stats
-    int distinctCountries = (int) history.stream()
-        .map(Transaction::getGeoCountry)
-        .filter(java.util.Objects::nonNull)
-        .map(String::toUpperCase)
-        .distinct()
-        .count();
+    int distinctCountries =
+        (int)
+            history.stream()
+                .map(Transaction::getGeoCountry)
+                .filter(java.util.Objects::nonNull)
+                .map(String::toUpperCase)
+                .distinct()
+                .count();
     profile.setGeoCountryCount(distinctCountries);
+
+    profile.setLastIncludedTransactionId(
+        history.isEmpty()
+            ? null
+            : history.get(history.size() - 1).getId());
 
     profiles.saveAndFlush(profile);
 
-    // Persist sub-tables
+    // Rebuild dimension tables from scratch so excluded/refunded payments do
+    // not leave stale recipient/hour/geo/device counts behind.
+    recipientBehaviors.deleteByUserId(userId);
+    hourlyBehaviors.deleteByUserId(userId);
+    geoBehaviors.deleteByUserId(userId);
+    deviceBehaviors.deleteByUserId(userId);
+    recipientBehaviors.flush();
+    hourlyBehaviors.flush();
+    geoBehaviors.flush();
+    deviceBehaviors.flush();
+
     persistRecipientBehaviors(userId, history);
     persistHourlyBehaviors(userId, history);
     persistGeoBehaviors(userId, history);
     persistDeviceBehaviors(userId, history);
+  }
+
+  private static boolean isExclusionOutcome(BehavioralOutcome outcome) {
+    return outcome == BehavioralOutcome.REFUNDED
+        || outcome == BehavioralOutcome.REVERSED
+        || outcome == BehavioralOutcome.DISPUTED;
+  }
+
+  private static BehavioralOutcome outcomeFor(TransactionStatus status) {
+    if (status == null) {
+      return null;
+    }
+    return switch (status) {
+      case COMPLETED -> BehavioralOutcome.COMPLETED;
+      case FAILED -> BehavioralOutcome.FAILED;
+      case CANCELLED -> BehavioralOutcome.CANCELLED;
+      default -> null;
+    };
+  }
+
+  private Set<UUID> excludedTransactionIds(UUID userId) {
+    if (outcomeEvents == null) {
+      return Set.of();
+    }
+    Set<UUID> excluded = new HashSet<>(outcomeEvents.findNonLearnableTransactionIds(userId));
+    excluded.addAll(
+        outcomeEvents.findTransactionIdsByOutcomeIn(
+            userId,
+            List.of(
+                BehavioralOutcome.REFUNDED,
+                BehavioralOutcome.REVERSED,
+                BehavioralOutcome.DISPUTED)));
+    return excluded;
+  }
+
+  private static boolean isOptimisticLockFailure(Throwable failure) {
+    for (Throwable current = failure; current != null; current = current.getCause()) {
+      if (current instanceof ObjectOptimisticLockingFailureException
+          || current instanceof StaleObjectStateException
+          || current instanceof StaleStateException
+          || current.getClass().getName().contains("OptimisticLock")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static void pauseBeforeRetry(int attempt, RuntimeException failure) {
+    try {
+      Thread.sleep(RETRY_BACKOFF_MILLIS * attempt);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      log.debug("Interrupted while waiting to retry behavioral profile update", failure);
+    }
+  }
+
+  private AmountStats primaryAmountStats(List<Transaction> history) {
+    if (history.isEmpty()) {
+      return null;
+    }
+    return computeAmountStats(history);
   }
 
   private void persistRecipientBehaviors(UUID userId, List<Transaction> history) {
@@ -767,10 +987,17 @@ public class BehavioralProfileService {
 
   /**
    * Loads eligible historical transactions: COMPLETED only, before the
-   * asOf timestamp, owner-scoped, bounded to avoid unbounded scans.
+   * asOf timestamp, owner-scoped, bounded to avoid unbounded scans, and with
+   * every non-learnable ledger outcome excluded.
    */
   private List<Transaction> loadEligibleHistory(
       UUID userId, OffsetDateTime asOf, UUID excludeTransactionId) {
+    return loadEligibleHistory(
+        userId, asOf, excludeTransactionId, excludedTransactionIds(userId));
+  }
+
+  private List<Transaction> loadEligibleHistory(
+      UUID userId, OffsetDateTime asOf, UUID excludeTransactionId, Set<UUID> excludedTransactionIds) {
     if (userId == null || transactions == null) {
       return List.of();
     }
@@ -780,7 +1007,12 @@ public class BehavioralProfileService {
         .filter(t -> t.getStatus() == TransactionStatus.COMPLETED)
         .filter(t -> t.getTransactionTimestamp() != null)
         .filter(t -> t.getTransactionTimestamp().isBefore(asOf))
-        .filter(t -> excludeTransactionId == null || !t.getId().equals(excludeTransactionId))
+        .filter(t -> excludeTransactionId == null || !excludeTransactionId.equals(t.getId()))
+        .filter(
+            t ->
+                excludedTransactionIds == null
+                    || t.getId() == null
+                    || !excludedTransactionIds.contains(t.getId()))
         .sorted(Comparator.comparing(Transaction::getTransactionTimestamp))
         .toList();
   }

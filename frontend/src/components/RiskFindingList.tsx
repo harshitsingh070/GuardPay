@@ -29,8 +29,21 @@ export default function RiskFindingList({ findings }: { findings: RiskFinding[] 
                   <span className="ml-1 rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-bold text-red-800">
                     +{finding.points}
                   </span>
+                  {finding.severity !== null && finding.severity !== undefined && (
+                    <span className="ml-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-800">
+                      Behavioral · {finding.severity}
+                    </span>
+                  )}
                 </p>
                 <p className="text-sm text-muted-foreground">{finding.description}</p>
+                {finding.evidence !== null && finding.evidence !== undefined && (
+                  <p className="mt-1 text-xs text-muted-foreground">{finding.evidence}</p>
+                )}
+                {finding.confidence !== null && finding.confidence !== undefined && (
+                  <p className="mt-1 text-xs font-medium text-guardpay-muted">
+                    Confidence {Math.round(finding.confidence * 100)}%
+                  </p>
+                )}
               </div>
             </li>
           ))}

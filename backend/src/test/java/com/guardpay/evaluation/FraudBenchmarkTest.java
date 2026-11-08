@@ -25,7 +25,7 @@ class FraudBenchmarkTest {
 
     BenchmarkReport report = new FraudBenchmarkRunner().run(dataset, output);
 
-    assertEquals(54, report.scenarioCount());
+    assertEquals(66, report.scenarioCount());
     assertTrue(report.failures().isEmpty(), String.join("\n", report.failures()));
     assertTrue(Files.exists(output.resolve("report.json")));
     assertTrue(Files.exists(output.resolve("report.md")));
@@ -65,26 +65,35 @@ class FraudBenchmarkTest {
     BenchmarkMetrics deterministic =
         report.metrics().get(BenchmarkMode.DETERMINISTIC_ONLY.name());
     assertNotNull(deterministic);
-    assertEquals(24, deterministic.truePositives());
-    assertEquals(2, deterministic.falseNegatives());
+    assertNotNull(
+        report
+            .behavioralComparison()
+            .get(BenchmarkMode.DETERMINISTIC_ONLY.name() + "_WITH_BEHAVIORAL"));
+    assertNotNull(
+        report
+            .behavioralComparison()
+            .get(BenchmarkMode.DETERMINISTIC_ONLY.name() + "_WITHOUT_BEHAVIORAL"));
+    assertEquals(27, deterministic.truePositives());
+    assertEquals(4, deterministic.falseNegatives());
     assertEquals(8, deterministic.falsePositives());
-    assertEquals(20, deterministic.trueNegatives());
-    assertEquals(24.0 / 26.0, deterministic.recall(), DELTA);
-    assertEquals(24.0 / 32.0, deterministic.precision(), DELTA);
-    assertEquals(48.0 / 58.0, deterministic.f1(), DELTA);
-    assertEquals(44.0 / 54.0, deterministic.classificationAccuracy(), DELTA);
+    assertEquals(27, deterministic.trueNegatives());
+    assertEquals(27.0 / 31.0, deterministic.recall(), DELTA);
+    assertEquals(27.0 / 35.0, deterministic.precision(), DELTA);
+    assertEquals(54.0 / 66.0, deterministic.f1(), DELTA);
+    assertEquals(54.0 / 66.0, deterministic.classificationAccuracy(), DELTA);
+    assertEquals(54.0 / 66.0, deterministic.classificationAccuracy(), DELTA);
     assertEquals(0, deterministic.legitimateStopped());
     assertEquals(1.0, deterministic.exactActionAccuracy(), DELTA);
 
     BenchmarkMetrics validatedAi = report.metrics().get(BenchmarkMode.VALIDATED_AI.name());
     assertNotNull(validatedAi);
-    assertEquals(26, validatedAi.truePositives());
-    assertEquals(0, validatedAi.falseNegatives());
+    assertEquals(29, validatedAi.truePositives());
+    assertEquals(2, validatedAi.falseNegatives());
     assertEquals(9, validatedAi.falsePositives());
-    assertEquals(19, validatedAi.trueNegatives());
-    assertEquals(1.0, validatedAi.recall(), DELTA);
-    assertEquals(26.0 / 35.0, validatedAi.precision(), DELTA);
-    assertEquals(45.0 / 54.0, validatedAi.classificationAccuracy(), DELTA);
+    assertEquals(26, validatedAi.trueNegatives());
+    assertEquals(29.0 / 31.0, validatedAi.recall(), DELTA);
+    assertEquals(29.0 / 38.0, validatedAi.precision(), DELTA);
+    assertEquals(55.0 / 66.0, validatedAi.classificationAccuracy(), DELTA);
     assertEquals(0, validatedAi.legitimateStopped());
 
     assertEquals(64, report.datasetSha256().length());
@@ -111,10 +120,10 @@ class FraudBenchmarkTest {
     assertEquals(39, baseline.lowMax());
     assertEquals(69, baseline.mediumMax());
     assertEquals(84, baseline.highMax());
-    assertEquals(24, baseline.truePositives());
-    assertEquals(2, baseline.falseNegatives());
+    assertEquals(27, baseline.truePositives());
+    assertEquals(4, baseline.falseNegatives());
     assertEquals(8, baseline.falsePositives());
-    assertEquals(20, baseline.trueNegatives());
+    assertEquals(27, baseline.trueNegatives());
     assertTrue(baseline.baseline());
     assertFalse("n/a".equals(thresholds.best().get("recall")));
     assertFalse("n/a".equals(thresholds.best().get("f1")));
@@ -137,8 +146,8 @@ class FraudBenchmarkTest {
         report.recipientComparison().get("DETERMINISTIC_ONLY_BASELINE");
     assertNotNull(recipient);
     assertNotNull(recipientBaseline);
-    assertEquals(24, recipient.metrics().truePositives());
-    assertEquals(23, recipientBaseline.metrics().truePositives());
+    assertEquals(27, recipient.metrics().truePositives());
+    assertEquals(26, recipientBaseline.metrics().truePositives());
     assertEquals(1, recipient.recipientMetrics().amountAnomalyDetected());
     assertEquals(0, recipientBaseline.recipientMetrics().amountAnomalyDetected());
     assertEquals(0, recipient.recipientMetrics().knownRecipientFalseNew());
@@ -147,6 +156,7 @@ class FraudBenchmarkTest {
 
     String markdown = Files.readString(output.resolve("report.md"));
     assertTrue(markdown.contains("## Threshold analysis"));
+    assertTrue(markdown.contains("## Behavioral coverage"));
     assertTrue(markdown.contains("## Recipient intelligence comparison"));
     assertTrue(markdown.contains("Best by metric"));
     assertTrue(markdown.contains("Signal dimensions are cross-cutting"));
@@ -216,6 +226,17 @@ class FraudBenchmarkTest {
         new FraudBenchmarkRunner().run(dataset, Path.of("target", "fraud-benchmark-repro-b"));
 
     assertEquals(first.datasetSha256(), second.datasetSha256());
+    assertEquals(first.behavioralComparison().keySet(), second.behavioralComparison().keySet());
+    for (String configuration : first.behavioralComparison().keySet()) {
+      BenchmarkMetrics firstBehavioral = first.behavioralComparison().get(configuration);
+      BenchmarkMetrics secondBehavioral = second.behavioralComparison().get(configuration);
+      assertEquals(firstBehavioral.truePositives(), secondBehavioral.truePositives());
+      assertEquals(firstBehavioral.falseNegatives(), secondBehavioral.falseNegatives());
+      assertEquals(firstBehavioral.falsePositives(), secondBehavioral.falsePositives());
+      assertEquals(firstBehavioral.trueNegatives(), secondBehavioral.trueNegatives());
+      assertEquals(firstBehavioral.precision(), secondBehavioral.precision());
+      assertEquals(firstBehavioral.recall(), secondBehavioral.recall());
+    }
     assertEquals(first.categories(), second.categories());
     assertEquals(first.signalDimensions(), second.signalDimensions());
     assertEquals(first.thresholdAnalysis(), second.thresholdAnalysis());

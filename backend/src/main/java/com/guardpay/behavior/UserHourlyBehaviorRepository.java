@@ -15,15 +15,17 @@ public interface UserHourlyBehaviorRepository
 
   Optional<UserHourlyBehavior> findByUserIdAndHourOfDay(UUID userId, int hourOfDay);
 
+  void deleteByUserId(UUID userId);
+
   List<UserHourlyBehavior> findByUserIdOrderByHourOfDayAsc(
       UUID userId, Pageable pageable);
 
   @Query(
       """
-      select sum(transaction_count) from UserHourlyBehavior
-      where user.id = :userId
-        and hour_of_day >= :startHour
-        and hour_of_day <= :endHour
+      select sum(h.transactionCount) from UserHourlyBehavior h
+      where h.user.id = :userId
+        and h.hourOfDay >= :startHour
+        and h.hourOfDay <= :endHour
       """)
   Long countTransactionsInHours(
       @Param("userId") UUID userId,

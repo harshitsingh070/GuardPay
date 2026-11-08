@@ -3,6 +3,7 @@ package com.guardpay.payment;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guardpay.alert.AlertService;
+import com.guardpay.behavior.BehavioralOutcomeService;
 import com.guardpay.merchant.Merchant;
 import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
@@ -55,6 +56,7 @@ public class GuardedPaymentCompletionService {
   private final GuardedPaymentLock lock;
   private final PaymentVerificationService verificationService;
   private final AlertService alertService;
+  private final BehavioralOutcomeService behavioralOutcomes;
 
   /** Legacy/test constructor: alerts are not recorded. */
   public GuardedPaymentCompletionService(
@@ -73,6 +75,28 @@ public class GuardedPaymentCompletionService {
         idempotency,
         lock,
         verificationService,
+        null,
+        null);
+  }
+
+  public GuardedPaymentCompletionService(
+      PayPalOrderService orderService,
+      TransactionRepository transactions,
+      PaymentContextRepository contexts,
+      RiskAssessmentRepository assessments,
+      GuardedPaymentIdempotencyRepository idempotency,
+      GuardedPaymentLock lock,
+      PaymentVerificationService verificationService,
+      AlertService alertService) {
+    this(
+        orderService,
+        transactions,
+        contexts,
+        assessments,
+        idempotency,
+        lock,
+        verificationService,
+        alertService,
         null);
   }
 
@@ -85,7 +109,8 @@ public class GuardedPaymentCompletionService {
       GuardedPaymentIdempotencyRepository idempotency,
       GuardedPaymentLock lock,
       PaymentVerificationService verificationService,
-      AlertService alertService) {
+      AlertService alertService,
+      BehavioralOutcomeService behavioralOutcomes) {
     this.orderService = orderService;
     this.transactions = transactions;
     this.contexts = contexts;
@@ -94,6 +119,7 @@ public class GuardedPaymentCompletionService {
     this.lock = lock;
     this.verificationService = verificationService;
     this.alertService = alertService;
+    this.behavioralOutcomes = behavioralOutcomes;
   }
 
   @Transactional
@@ -115,6 +141,9 @@ public class GuardedPaymentCompletionService {
     }
 
     Transaction transaction = storeRecords(dto, user, recipient, merchant, amount, risk);
+    if (behavioralOutcomes != null) {
+      behavioralOutcomes.recordAfterCommit(transaction, "GUARDED_DECISION");
+    }
 
     if (risk.recommendedAction() != RecommendedAction.ALLOW) {
       log.info("Guarded payment blocked before PayPal order (action={})", risk.recommendedAction());

@@ -24,6 +24,15 @@ export interface RiskFinding {
   description: string;
   points: number;
   triggered: boolean;
+  /** Present when the finding came from adaptive behavioral profiling. */
+  severity?: string | null;
+  confidence?: number | null;
+  deviationRatio?: number | null;
+  observedValue?: number | null;
+  expectedValue?: number | null;
+  profileWindow?: string | null;
+  contributingFactors?: string[] | null;
+  evidence?: string | null;
 }
 
 export interface RiskEvaluationResponse {

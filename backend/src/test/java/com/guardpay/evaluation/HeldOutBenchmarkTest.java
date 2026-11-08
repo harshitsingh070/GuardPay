@@ -38,7 +38,7 @@ class HeldOutBenchmarkTest {
 
     assertEquals(BenchmarkDatasetRole.DEV, dev.datasetRole());
     assertEquals(BenchmarkDatasetRole.HELD_OUT, heldOut.datasetRole());
-    assertEquals(54, dev.scenarioCount());
+    assertEquals(66, dev.scenarioCount());
     assertEquals(32, heldOut.scenarioCount());
     assertNotEquals(dev.datasetSha256(), heldOut.datasetSha256());
     assertTrue(dev.failures().isEmpty(), String.join("\n", dev.failures()));
@@ -112,7 +112,7 @@ class HeldOutBenchmarkTest {
     assertEquals(dev.datasetSha256(), comparison.devDatasetSha256());
     assertEquals(heldOut.datasetSha256(), comparison.heldOutDatasetSha256());
     assertEquals(
-        -2.0,
+        -4.0,
         comparison
             .modes()
             .get(BenchmarkMode.DETERMINISTIC_ONLY.name())

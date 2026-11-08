@@ -58,6 +58,7 @@ public final class FraudBenchmarkRunner {
 
     String datasetSha256 = sha256(datasetPath);
     Map<String, BenchmarkMetrics> metrics = new LinkedHashMap<>();
+    Map<String, BenchmarkMetrics> behavioralComparison = new LinkedHashMap<>();
     Map<String, Map<String, CategoryMetrics>> categories = new LinkedHashMap<>();
     Map<String, Map<String, CategoryMetrics>> signalDimensions = new LinkedHashMap<>();
     Map<String, RecipientComparison> recipientComparison = new LinkedHashMap<>();
@@ -68,13 +69,20 @@ public final class FraudBenchmarkRunner {
     List<ThresholdConfiguration> thresholdConfigurations = ThresholdConfiguration.defaults();
 
     for (BenchmarkMode mode : BenchmarkMode.values()) {
-      List<BenchmarkResult> modeResults = runMode(scenarios, mode, true, failures);
+      List<BenchmarkResult> modeResults = runMode(scenarios, mode, true, true, failures);
       results.put(mode.name(), List.copyOf(modeResults));
 
       BenchmarkMetrics modeMetrics = BenchmarkMetrics.from(modeResults);
       metrics.put(mode.name(), modeMetrics);
+      behavioralComparison.put(mode.name() + "_WITH_BEHAVIORAL", modeMetrics);
 
-      List<BenchmarkResult> baselineResults = runMode(scenarios, mode, false, failures);
+      List<BenchmarkResult> withoutBehavioralResults =
+          runMode(scenarios, mode, true, false, failures);
+      behavioralComparison.put(
+          mode.name() + "_WITHOUT_BEHAVIORAL",
+          BenchmarkMetrics.from(withoutBehavioralResults));
+
+      List<BenchmarkResult> baselineResults = runMode(scenarios, mode, false, true, failures);
       recipientComparison.put(
           mode.name() + "_BASELINE",
           new RecipientComparison(
@@ -124,6 +132,7 @@ public final class FraudBenchmarkRunner {
             role,
             scenarios.size(),
             immutable(metrics),
+            immutable(behavioralComparison),
             immutable(categories),
             immutable(signalDimensions),
             immutable(recipientComparison),
@@ -192,13 +201,15 @@ public final class FraudBenchmarkRunner {
       List<BenchmarkScenario> scenarios,
       BenchmarkMode mode,
       boolean recipientIntelligence,
+      boolean behavioralAnalysis,
       List<String> failures) {
     List<BenchmarkResult> results = new ArrayList<>();
     for (BenchmarkScenario scenario : scenarios) {
       Expected expected = expectedFor(scenario, mode);
       try {
         BenchmarkHarness.Result harnessResult =
-            new BenchmarkHarness().evaluate(scenario, mode, recipientIntelligence);
+            new BenchmarkHarness()
+                .evaluate(scenario, mode, recipientIntelligence, behavioralAnalysis);
         AutomaticEvaluationResponseDto response = harnessResult.response();
         List<String> actualSignals =
             response.findings().stream()
@@ -235,7 +246,10 @@ public final class FraudBenchmarkRunner {
                 null));
       } catch (RuntimeException ex) {
         String error = ex.getClass().getSimpleName() + ": " + safeMessage(ex);
-        String configuration = mode.name() + (recipientIntelligence ? "" : "_BASELINE");
+        String configuration =
+            mode.name()
+                + (recipientIntelligence ? "" : "_BASELINE")
+                + (behavioralAnalysis ? "" : "_NO_BEHAVIORAL");
         failures.add(configuration + ":" + scenario.id() + ":" + error);
         results.add(
             new BenchmarkResult(

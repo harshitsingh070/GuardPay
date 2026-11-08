@@ -15,6 +15,8 @@ public interface UserGeoBehaviorRepository
 
   Optional<UserGeoBehavior> findByUserIdAndGeoCountry(UUID userId, String geoCountry);
 
+  void deleteByUserId(UUID userId);
+
   List<UserGeoBehavior> findByUserIdOrderByTransactionCountDesc(
       UUID userId, Pageable pageable);
 }

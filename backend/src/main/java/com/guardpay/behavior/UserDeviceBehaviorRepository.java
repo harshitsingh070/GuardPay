@@ -16,14 +16,16 @@ public interface UserDeviceBehaviorRepository
   Optional<UserDeviceBehavior> findByUserIdAndDeviceIdAndDeviceFingerprint(
       UUID userId, UUID deviceId, String deviceFingerprint);
 
+  void deleteByUserId(UUID userId);
+
   List<UserDeviceBehavior> findByUserIdOrderByTransactionCountDesc(
       UUID userId, Pageable pageable);
 
   @Query(
       """
-      select count(distinct device_id) from UserDeviceBehavior
-      where user.id = :userId
-        and device_id is not null
+      select count(distinct d.deviceId) from UserDeviceBehavior d
+      where d.user.id = :userId
+        and d.deviceId is not null
       """)
   Long countDistinctDevices(@Param("userId") UUID userId);
 }

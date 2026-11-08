@@ -4,6 +4,7 @@ import com.guardpay.payment.GuardedPaymentStatus;
 import com.guardpay.payment.PaymentVerificationRepository;
 import com.guardpay.payment.VerificationStatus;
 import com.guardpay.alert.AlertService;
+import com.guardpay.behavior.BehavioralOutcomeService;
 import com.guardpay.paypal.client.PayPalClient;
 import com.guardpay.paypal.dto.CaptureOrderResponseDto;
 import com.guardpay.paypal.dto.CreatedPaypalOrder;
@@ -53,6 +54,7 @@ public class PayPalOrderService {
   private final RiskAssessmentRepository assessments;
   private final PaymentVerificationRepository verifications;
   private final AlertService alertService;
+  private final BehavioralOutcomeService behavioralOutcomes;
 
   /** Legacy/test constructor: large-capture alerts are not recorded. */
   public PayPalOrderService(
@@ -60,7 +62,22 @@ public class PayPalOrderService {
       TransactionRepository transactions,
       RiskAssessmentRepository assessments,
       PaymentVerificationRepository verifications) {
-    this(payPalClient, transactions, assessments, verifications, null);
+    this(payPalClient, transactions, assessments, verifications, null, null);
+  }
+
+  public PayPalOrderService(
+      PayPalClient payPalClient,
+      TransactionRepository transactions,
+      RiskAssessmentRepository assessments,
+      PaymentVerificationRepository verifications,
+      AlertService alertService) {
+    this(
+        payPalClient,
+        transactions,
+        assessments,
+        verifications,
+        alertService,
+        null);
   }
 
   @org.springframework.beans.factory.annotation.Autowired
@@ -69,12 +86,14 @@ public class PayPalOrderService {
       TransactionRepository transactions,
       RiskAssessmentRepository assessments,
       PaymentVerificationRepository verifications,
-      AlertService alertService) {
+      AlertService alertService,
+      BehavioralOutcomeService behavioralOutcomes) {
     this.payPalClient = payPalClient;
     this.transactions = transactions;
     this.assessments = assessments;
     this.verifications = verifications;
     this.alertService = alertService;
+    this.behavioralOutcomes = behavioralOutcomes;
   }
 
   /**
@@ -194,6 +213,9 @@ public class PayPalOrderService {
             ? TransactionStatus.COMPLETED
             : TransactionStatus.FAILED);
     transactions.save(transaction);
+    if (behavioralOutcomes != null) {
+      behavioralOutcomes.recordAfterCommit(transaction, "PAYPAL_CAPTURE");
+    }
     if (alertService != null) {
       alertService.recordLargeCapture(transaction);
     }

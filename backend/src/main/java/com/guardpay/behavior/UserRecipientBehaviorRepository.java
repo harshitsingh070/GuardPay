@@ -19,6 +19,8 @@ public interface UserRecipientBehaviorRepository
   Optional<UserRecipientBehavior> findByUserIdAndRecipientId(
       UUID userId, UUID recipientId);
 
+  void deleteByUserId(UUID userId);
+
   @Query(
       """
       select r from UserRecipientBehavior r

@@ -89,8 +89,23 @@ export default function DecisionPanel({ result }: { result: GuardedPaymentRespon
                 className="flex items-start justify-between gap-3 rounded-lg border bg-background/70 p-3 text-sm"
               >
                 <div>
-                  <p className="font-medium">{finding.title}</p>
+                  <p className="font-medium">
+                    {finding.title}
+                    {finding.severity !== null && finding.severity !== undefined && (
+                      <span className="ml-1.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800">
+                        Behavioral
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-muted-foreground">{finding.description}</p>
+                  {finding.evidence !== null && finding.evidence !== undefined && (
+                    <p className="mt-1 text-xs text-muted-foreground">{finding.evidence}</p>
+                  )}
+                  {finding.confidence !== null && finding.confidence !== undefined && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Confidence {Math.round(finding.confidence * 100)}%
+                    </p>
+                  )}
                 </div>
                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold">
                   +{finding.points}

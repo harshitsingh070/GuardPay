@@ -3,6 +3,8 @@ package com.guardpay.paypal.webhook;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.guardpay.behavior.BehavioralOutcome;
+import com.guardpay.behavior.BehavioralOutcomeService;
 import com.guardpay.paypal.webhook.dto.PayPalWebhookEventDto;
 import com.guardpay.paypal.webhook.dto.WebhookAckResponse;
 import com.guardpay.transaction.Transaction;
@@ -38,16 +40,28 @@ public class PayPalWebhookService {
   private final PayPalWebhookEventRepository events;
   private final TransactionRepository transactions;
   private final ObjectMapper objectMapper;
+  private final BehavioralOutcomeService behavioralOutcomes;
 
   public PayPalWebhookService(
       PayPalWebhookVerifier verifier,
       PayPalWebhookEventRepository events,
       TransactionRepository transactions,
       ObjectMapper objectMapper) {
+    this(verifier, events, transactions, objectMapper, null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public PayPalWebhookService(
+      PayPalWebhookVerifier verifier,
+      PayPalWebhookEventRepository events,
+      TransactionRepository transactions,
+      ObjectMapper objectMapper,
+      BehavioralOutcomeService behavioralOutcomes) {
     this.verifier = verifier;
     this.events = events;
     this.transactions = transactions;
     this.objectMapper = objectMapper;
+    this.behavioralOutcomes = behavioralOutcomes;
   }
 
   @Transactional
@@ -105,10 +119,12 @@ public class PayPalWebhookService {
       case "PAYMENT.CAPTURE.PENDING" -> syncCapture(resource, TransactionStatus.PENDING);
       case "PAYMENT.CAPTURE.COMPLETED" -> syncCapture(resource, TransactionStatus.COMPLETED);
       case "PAYMENT.CAPTURE.DENIED" -> syncCapture(resource, TransactionStatus.FAILED);
-      case "PAYMENT.CAPTURE.REFUNDED" -> {
-        log.info("PayPal refund event acknowledged without state change");
-        yield WebhookProcessingStatus.IGNORED;
-      }
+      case "PAYMENT.CAPTURE.REFUNDED" ->
+          recordExclusion(resource, BehavioralOutcome.REFUNDED);
+      case "PAYMENT.CAPTURE.REVERSED" ->
+          recordExclusion(resource, BehavioralOutcome.REVERSED);
+      case "PAYMENT.CAPTURE.DISPUTED", "CUSTOMER.DISPUTE.CREATED" ->
+          recordExclusion(resource, BehavioralOutcome.DISPUTED);
       default -> {
         log.info("Unknown PayPal event type acknowledged without effect (type={})", eventType);
         yield WebhookProcessingStatus.IGNORED;
@@ -169,6 +185,7 @@ public class PayPalWebhookService {
           "PayPal webhook would regress capture state ({} -> {}); keeping current state",
           current.getStatus(),
           status);
+      recordBehavioralOutcome(current);
       return WebhookProcessingStatus.PROCESSED;
     }
     if (current.getPaypalCaptureId() == null) {
@@ -176,7 +193,58 @@ public class PayPalWebhookService {
     }
     current.setStatus(status);
     transactions.save(current);
+    recordBehavioralOutcome(current);
     return WebhookProcessingStatus.PROCESSED;
+  }
+
+  /**
+   * Refunds, reversals, and disputes do not change the original transaction
+   * status (there is no separate status for them), but they must remove the
+   * payment from the learned baseline.
+   */
+  private WebhookProcessingStatus recordExclusion(
+      PayPalWebhookEventDto.PayPalWebhookResource resource, BehavioralOutcome outcome) {
+    Optional<Transaction> transaction = resolveCaptureTransaction(resource);
+    if (transaction.isEmpty()) {
+      log.info("PayPal exclusion event for unknown payment ignored (outcome={})", outcome);
+      return WebhookProcessingStatus.IGNORED;
+    }
+    if (behavioralOutcomes != null) {
+      behavioralOutcomes.recordExclusionAfterCommit(
+          transaction.get(), outcome, "PAYPAL_WEBHOOK:" + outcome.name());
+    }
+    log.info("PayPal exclusion event recorded for behavioral baseline (outcome={})", outcome);
+    return WebhookProcessingStatus.PROCESSED;
+  }
+
+  private Optional<Transaction> resolveCaptureTransaction(
+      PayPalWebhookEventDto.PayPalWebhookResource resource) {
+    String captureId = resource.id();
+    if (captureId != null && !captureId.isBlank()) {
+      Optional<Transaction> byCapture = transactions.findByPaypalCaptureId(captureId);
+      if (byCapture.isPresent()) {
+        return byCapture;
+      }
+    }
+    String orderId = relatedOrderId(resource.supplementaryData());
+    if (orderId != null && !orderId.isBlank()) {
+      return transactions.findByPaypalOrderId(orderId);
+    }
+    if (captureId != null && !captureId.isBlank()) {
+      return transactions.findByPaypalOrderId(captureId);
+    }
+    return Optional.empty();
+  }
+
+  private void recordBehavioralOutcome(Transaction transaction) {
+    if (behavioralOutcomes == null) {
+      return;
+    }
+    if (transaction.getStatus() == TransactionStatus.COMPLETED
+        || transaction.getStatus() == TransactionStatus.FAILED
+        || transaction.getStatus() == TransactionStatus.CANCELLED) {
+      behavioralOutcomes.recordAfterCommit(transaction, "PAYPAL_WEBHOOK");
+    }
   }
 
   /**

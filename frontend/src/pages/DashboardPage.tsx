@@ -28,7 +28,6 @@ import {
   enrollTotp,
   getAiEnabled,
   getBehavioralProfile,
-  getBehavioralSummary,
   getDashboardSummary,
   getTotpStatus,
   setAiEnabled,
@@ -529,7 +528,7 @@ export default function DashboardPage() {
             <div className="gp-card mt-6 p-6 text-center text-guardpay-muted text-sm">
               No behavioral profile available yet. Complete payments to build your baseline.
             </div>
-          )
+          )}
 
           <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="gp-card p-5 sm:p-6">

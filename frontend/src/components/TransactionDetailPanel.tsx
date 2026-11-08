@@ -145,8 +145,18 @@ export default function TransactionDetailPanel({
                         key={finding.code}
                         className="rounded-lg border border-white/70 bg-white/70 p-2.5"
                       >
-                        <p className="font-semibold">{finding.title}</p>
+                        <p className="font-semibold">
+                          {finding.title}
+                          {finding.severity !== null && finding.severity !== undefined && (
+                            <span className="ml-1.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800">
+                              Behavioral
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-guardpay-muted">{finding.description}</p>
+                        {finding.evidence !== null && finding.evidence !== undefined && (
+                          <p className="mt-1 text-xs text-guardpay-muted">{finding.evidence}</p>
+                        )}
                       </li>
                     ))}
                 </ul>
