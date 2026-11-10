@@ -155,11 +155,13 @@ A single AI social finding is not enough by itself; the five AI social codes
 1. Start at `0`.
 2. Evaluate all 20 signals in fixed order.
 3. Add the points of each triggered signal.
-4. If `BLOCKLISTED_RECIPIENT` fired, set the score to `100`.
-5. Otherwise cap at `100` (`score = min(total, 100)`).
-6. Map the score to level and action.
-7. Return every finding, including non-triggered ones, plus the explanation and
-   automatic signal evidence.
+4. Add the bounded correlation contribution (section 10, `0`–`25` points).
+   Correlation can only raise the score; it never lowers it.
+5. If `BLOCKLISTED_RECIPIENT` fired, set the score to `100`.
+6. Otherwise cap at `100` (`score = min(total, 100)`).
+7. Map the score to level and action.
+8. Return every finding, including non-triggered ones, plus the explanation,
+   automatic signal evidence, and correlation findings.
 
 Identical validated inputs produce identical scores and decisions.
 
@@ -231,7 +233,104 @@ Cold-start handling: users with fewer than 5 completed transactions are marked
 `INSUFFICIENT_DATA` and receive no artificial risk inflation. Profiles become
 `ESTABLISHED` at 20+ transactions with adequate data coverage.
 
-## 10. Explanation output
+## 10. Signal correlation
+
+The correlation layer (`com.guardpay.risk.correlation`) detects suspicious
+*combinations* of individually weak or moderate signals. It is a bounded,
+deterministic, explainable evidence source layered on top of the existing
+signals. The `DeterministicRiskEngine` remains the only decision authority:
+correlation contributes points, never a level or action.
+
+### 10.1 Pipeline
+
+1. `AutomaticRiskEvaluationService` collects the normal `PaymentSignal`s.
+2. `CorrelationSignalNormalizer` converts the available signals into
+   `CorrelationSignal`s, mapping each to an `EvidenceFamily` and dropping
+   duplicates by signal code.
+3. `CorrelationRuleRegistry` holds the versioned rule catalogue.
+4. `RiskCorrelationEngine` evaluates every rule against the normalized signals,
+   resolves overlap, scores the matches, and returns a `CorrelationResult`.
+5. The engine adds the contribution and caps the score at `100`.
+6. The response and persistence layer carry `correlationFindings`,
+   `correlationStatus`, and `correlationContribution`.
+
+Correlation failures are isolated: any exception returns
+`CorrelationResult.unavailable()` and the deterministic decision proceeds
+unchanged. Missing or unavailable evidence is `UNKNOWN`/`UNAVAILABLE`, never
+treated as suspicious.
+
+### 10.2 Evidence families
+
+Signals are grouped so that correlation rewards independent evidence rather than
+repeated observations from one source: `AMOUNT`, `RECIPIENT`, `DEVICE`,
+`GEOLOCATION`, `NETWORK`, `VELOCITY`, `CONTENT`, `SOCIAL_ENGINEERING`, `TIME`,
+`CALL`, `BLOCKLIST`, `MERCHANT`, and `BEHAVIORAL_AGGREGATE`.
+
+### 10.3 Enabled rule catalogue (version `1.0`)
+
+| Code | Category | Required families | Weight |
+|---|---|---|---:|
+| `ACCOUNT_TAKEOVER_COMBO` | Account takeover | Device + network/geo + new recipient | 0.95 |
+| `ACCOUNT_TAKEOVER_VELOCITY_COMBO` | Account takeover | Device/geo + velocity | 0.9 |
+| `ACCOUNT_TAKEOVER_ATTEMPT_COMBO` | Account takeover | New device + repeated attempts | 0.9 |
+| `SOCIAL_ENGINEERING_CALL_COMBO` | Social engineering | Call + recipient + content/social | 1.0 |
+| `SOCIAL_ENGINEERING_RECIPIENT_COMBO` | Social engineering | Recipient + amount + social | 1.0 |
+| `PHISHING_CONTENT_COMBO` | Social engineering | Content + content + social | 0.95 |
+| `VELOCITY_AMOUNT_COMBO` | Velocity/structuring | Velocity + amount | 0.85 |
+| `SPLIT_PAYMENT_RECIPIENT_COMBO` | Velocity/structuring | Split payment + recipient anomaly | 0.9 |
+| `NEW_RECIPIENT_AMOUNT_COMBO` | Counterparty | New recipient + amount anomaly | 0.8 |
+| `VPN_DEVICE_GEO_COMBO` | Network | VPN/proxy + new device/geo | 0.85 |
+| `AMOUNT_TIME_FREQUENCY_COMBO` | Behavioral | Amount + time + frequency deviation | 0.85 |
+| `AMOUNT_RECIPIENT_GEO_COMBO` | Behavioral | Amount + recipient + geographic deviation | 0.85 |
+| `BEHAVIORAL_MULTI_DIMENSION_COMBO` | Behavioral | Two or more behavioral deviations | 0.8 |
+
+Each rule declares a minimum interaction strength (`0.12` by default) and a
+minimum per-signal confidence (`0.5` by default). A rule fires only when every
+required family is satisfied by an available signal.
+
+### 10.4 Documented but unsupported correlations
+
+These combinations are intentionally not implemented because the current data
+sources do not provide the required evidence: `MULTIPLE_NEW_RECIPIENTS_VELOCITY`,
+`REPEATED_FAILED_ATTEMPTS`, `DATACENTER_ASN_VELOCITY`,
+`AMOUNT_ESCALATION_SEQUENCE`, `MULTIPLE_RECIPIENT_CHANGES`,
+`SHORT_TIME_INTERVAL_CHANGES`, and `RECIPIENT_HISTORY_MULTI_ANOMALY`. They are
+recorded in the registry as `UnsupportedCorrelation` entries so the gap is
+explicit rather than silently scored.
+
+### 10.5 Scoring
+
+For each matched rule, with signal strengths `strength = 0.5*severity +
+0.3*confidence + 0.2*(points/25)`:
+
+- `Q = geometricMean(strengths) * independenceFactor`, where
+  `independenceFactor = 0.5 + 0.5 * distinctFamilies / requiredSignals`;
+- `C = noisyOR(max confidence per evidence family)`;
+- `I_r = weight * Q * C * freshness` (freshness is `1.0` for current evidence);
+- aggregate `S = 1 - product(1 - I_r)`;
+- `points = round(S * maxContributionPoints)`.
+
+The default `maxContributionPoints` is `25`. Points are allocated across the
+firing rules proportionally, capped per family (`familyContributionCap=12`), and
+rounded with largest-remainder so the sum of `contributionPoints` exactly equals
+the reported contribution.
+
+Overlap resolution runs first: rules are ordered by interaction strength,
+duplicate participating-signal sets are dropped, and rules whose evidence
+overlaps a stronger rule by at least `overlapThreshold=0.6` are multiplied by
+`dependencyDiscount=0.5` and flagged `overlapDiscounted`.
+
+### 10.6 Bounds and guarantees
+
+- Correlation adds `0`–`25` nominal points; the final score still caps at `100`.
+- It never lowers the score, never changes an action downward, and never
+  overrides a hard block.
+- AI cannot inject correlation rules or set correlation points; AI signals are
+  only evidence inputs to the deterministic rules.
+- The contribution is reported separately from the base signal total so the
+  explanation can attribute every point.
+
+## 11. Explanation output
 
 Every guarded assessment returns and persists:
 
@@ -239,23 +338,27 @@ Every guarded assessment returns and persists:
 - human-readable explanation;
 - per-signal evidence with source and reason codes;
 - full engine findings, including which signals did and did not fire;
-- AI status.
+- AI status;
+- correlation findings, their evidence, and their point contribution, when the
+  correlation layer produced a match.
 
 Language rules: "potential scam / high-risk payment / possible impersonation";
 never "definitely fraud" and never "94% probability of fraud".
 
-## 10. Persistence
+## 12. Persistence
 
 Guarded payments persist the transaction, payment context, risk assessment, and
 findings. `risk_assessment_findings` keeps decisions explainable after the fact.
-Transaction detail serves the stored assessment and verification outcome.
+`risk_assessments` also stores `correlation_findings` (JSON), `correlation_status`,
+and `correlation_contribution` (see migration `V28`). Transaction detail serves
+the stored assessment, correlation evidence, and verification outcome.
 
 The automatic evaluation endpoint (`POST /api/risk/evaluate-automatic`) is
 read-only for history and does not persist an assessment. The legacy
 `POST /api/risk/evaluate` path takes explicit booleans for regression/tooling
 and is not used by the guarded flow.
 
-## 11. Testing and benchmark coverage
+## 13. Testing and benchmark coverage
 
 - Unit tests cover weight math, capping, blocklist override, and boundaries at
   39/40, 69/70, and 84/85.
@@ -264,6 +367,12 @@ and is not used by the guarded flow.
   geo/travel rules, and missing-context thresholds.
 - AI adapter tests cover the controlled vocabulary, confidence gate, social-code
   collapsing, and rejection of deterministic-assertion codes.
+- Correlation unit tests cover normalization, family mapping, rule matching,
+  overlap resolution, scoring bounds, and failure isolation.
+- `CorrelationScenarioBenchmarkTest` runs a dedicated scenario set
+  (`fraud-benchmark/correlation/correlation-scenarios.jsonl`) and asserts that
+  correlation never lowers a score, never weakens an action, escalates the
+  intended combinations, and reports an exact, bounded contribution.
 - The synthetic fraud benchmark (`docs/fraud-benchmark.md`) runs the real
   collector and engine with mocked repositories; it reports regression metrics,
   never real-world accuracy.

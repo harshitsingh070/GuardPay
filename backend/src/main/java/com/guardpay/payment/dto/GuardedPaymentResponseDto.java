@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.guardpay.payment.GuardedPaymentStatus;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
+import com.guardpay.risk.correlation.dto.CorrelationFindingDto;
 import com.guardpay.risk.dto.RiskFindingDto;
 import com.guardpay.risk.signal.dto.PaymentSignalDto;
 import java.util.List;
@@ -29,7 +30,38 @@ public record GuardedPaymentResponseDto(
       List<PaymentSignalDto> automaticSignals,
       List<RiskFindingDto> findings,
       String aiStatus,
-      String behavioralProfileStatus) {}
+      String behavioralProfileStatus,
+      List<CorrelationFindingDto> correlationFindings,
+      String correlationStatus) {
+
+    public GuardedRiskDto {
+      correlationFindings =
+          correlationFindings == null ? List.of() : List.copyOf(correlationFindings);
+    }
+
+    /** Pre-correlation contract for callers that do not run the correlation layer. */
+    public GuardedRiskDto(
+        int score,
+        RiskLevel riskLevel,
+        RecommendedAction recommendedAction,
+        String explanation,
+        List<PaymentSignalDto> automaticSignals,
+        List<RiskFindingDto> findings,
+        String aiStatus,
+        String behavioralProfileStatus) {
+      this(
+          score,
+          riskLevel,
+          recommendedAction,
+          explanation,
+          automaticSignals,
+          findings,
+          aiStatus,
+          behavioralProfileStatus,
+          List.of(),
+          "UNAVAILABLE");
+    }
+  }
 
   public record GuardedPaypalOrderDto(String orderId, String approvalUrl) {}
 }

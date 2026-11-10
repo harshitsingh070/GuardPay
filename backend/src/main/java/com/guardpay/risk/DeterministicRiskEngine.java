@@ -1,5 +1,7 @@
 package com.guardpay.risk;
 
+import com.guardpay.risk.correlation.CorrelationFinding;
+import com.guardpay.risk.correlation.CorrelationResult;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +40,17 @@ public class DeterministicRiskEngine {
   public static final int REPEATED_ATTEMPT_WINDOW_MINUTES = 10;
 
   public RiskEvaluationResult evaluate(RiskEvaluationRequest request) {
+    return evaluate(request, null);
+  }
+
+  /**
+   * Evaluates the deterministic signals and, when supplied, adds the bounded
+   * contribution of the correlation layer. Correlation can only raise the
+   * score; a hard block (blocklisted recipient) still forces the maximum.
+   * The engine remains the sole decision authority.
+   */
+  public RiskEvaluationResult evaluate(
+      RiskEvaluationRequest request, CorrelationResult correlation) {
     Objects.requireNonNull(request, "request must not be null");
 
     List<RiskFinding> findings = new ArrayList<>();
@@ -73,8 +86,15 @@ public class DeterministicRiskEngine {
     findings.add(finding(RiskSignal.OVERALL_BEHAVIOR_DEVIATION, request.overallBehaviorDeviation()));
 
     int total = findings.stream().filter(RiskFinding::triggered).mapToInt(RiskFinding::points).sum();
+    int correlationPoints =
+        correlation == null ? 0 : Math.max(0, correlation.contributionPoints());
+    List<CorrelationFinding> correlationFindings =
+        correlation == null ? List.of() : correlation.findings();
     boolean hardBlocked = request.blocklistedRecipient();
-    int score = hardBlocked ? RiskLevels.MAX_SCORE : Math.min(total, RiskLevels.MAX_SCORE);
+    int score =
+        hardBlocked
+            ? RiskLevels.MAX_SCORE
+            : Math.min(total + correlationPoints, RiskLevels.MAX_SCORE);
     RiskLevel riskLevel = RiskLevels.levelFor(score);
 
     return new RiskEvaluationResult(
@@ -82,7 +102,9 @@ public class DeterministicRiskEngine {
         riskLevel,
         RiskLevels.actionFor(riskLevel),
         List.copyOf(findings),
-        buildExplanation(findings, hardBlocked));
+        buildExplanation(findings, hardBlocked, correlationFindings),
+        correlationFindings,
+        correlationPoints);
   }
 
   private boolean isLargeAmount(RiskEvaluationRequest request) {
@@ -98,16 +120,31 @@ public class DeterministicRiskEngine {
     return new RiskFinding(signal.code(), signal.title(), signal.description(), signal.points(), triggered);
   }
 
-  private String buildExplanation(List<RiskFinding> findings, boolean hardBlocked) {
-    List<String> reasons =
-        findings.stream().filter(RiskFinding::triggered).map(RiskFinding::description).toList();
+  private String buildExplanation(
+      List<RiskFinding> findings,
+      boolean hardBlocked,
+      List<CorrelationFinding> correlationFindings) {
     if (hardBlocked) {
       return "GuardPay blocked this payment because the recipient is on your fraud blocklist.";
     }
+    List<String> reasons =
+        findings.stream().filter(RiskFinding::triggered).map(RiskFinding::description).toList();
+    String explanation;
     if (reasons.isEmpty()) {
-      return "No unusual risk signals were detected for this payment.";
+      explanation = "No unusual risk signals were detected for this payment.";
+    } else {
+      explanation =
+          "GuardPay flagged this payment for the following reasons: "
+              + reasons.stream().collect(Collectors.joining(" "));
     }
-    return "GuardPay flagged this payment for the following reasons: "
-        + reasons.stream().collect(Collectors.joining(" "));
+    if (!correlationFindings.isEmpty()) {
+      String combinations =
+          correlationFindings.stream()
+              .map(CorrelationFinding::title)
+              .collect(Collectors.joining("; "));
+      explanation +=
+          " Correlated signals also raised the score: " + combinations + ".";
+    }
+    return explanation;
   }
 }

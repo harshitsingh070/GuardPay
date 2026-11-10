@@ -2,6 +2,7 @@ package com.guardpay.risk.signal.dto;
 
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
+import com.guardpay.risk.correlation.dto.CorrelationFindingDto;
 import com.guardpay.risk.dto.RiskFindingDto;
 import java.util.List;
 
@@ -11,6 +12,8 @@ import java.util.List;
  * the client as a risk verdict. {@code aiStatus} is one of
  * {@code NOT_REQUESTED}, {@code AVAILABLE}, {@code UNAVAILABLE}.
  * {@code behavioralProfileStatus} is one of {@code AVAILABLE}, {@code INSUFFICIENT_DATA}, {@code UNAVAILABLE}.
+ * {@code correlationStatus} is one of {@code AVAILABLE}, {@code NO_MATCH},
+ * {@code NO_SIGNALS}, {@code UNAVAILABLE}.
  */
 public record AutomaticEvaluationResponseDto(
     int score,
@@ -20,4 +23,35 @@ public record AutomaticEvaluationResponseDto(
     List<PaymentSignalDto> automaticSignals,
     List<RiskFindingDto> findings,
     String aiStatus,
-    String behavioralProfileStatus) {}
+    String behavioralProfileStatus,
+    List<CorrelationFindingDto> correlationFindings,
+    String correlationStatus) {
+
+  public AutomaticEvaluationResponseDto {
+    correlationFindings =
+        correlationFindings == null ? List.of() : List.copyOf(correlationFindings);
+  }
+
+  /** Pre-correlation contract for callers that do not run the correlation layer. */
+  public AutomaticEvaluationResponseDto(
+      int score,
+      RiskLevel riskLevel,
+      RecommendedAction recommendedAction,
+      String explanation,
+      List<PaymentSignalDto> automaticSignals,
+      List<RiskFindingDto> findings,
+      String aiStatus,
+      String behavioralProfileStatus) {
+    this(
+        score,
+        riskLevel,
+        recommendedAction,
+        explanation,
+        automaticSignals,
+        findings,
+        aiStatus,
+        behavioralProfileStatus,
+        List.of(),
+        "UNAVAILABLE");
+  }
+}

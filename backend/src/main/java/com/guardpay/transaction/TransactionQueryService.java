@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guardpay.payment.PaymentVerificationRepository;
 import com.guardpay.risk.RiskAssessment;
 import com.guardpay.risk.RiskAssessmentRepository;
+import com.guardpay.risk.correlation.dto.CorrelationFindingDto;
 import com.guardpay.risk.dto.RiskFindingDto;
 import com.guardpay.transaction.dto.RiskAssessmentViewDto;
 import com.guardpay.transaction.dto.TransactionDetailDto;
@@ -101,7 +102,10 @@ public class TransactionQueryService {
                 latest.getRecommendedAction(),
                 latest.getExplanation(),
                 parseFindings(latest.getFindings()),
-                latest.getCreatedAt());
+                latest.getCreatedAt(),
+                parseCorrelationFindings(latest.getCorrelationFindings()),
+                latest.getCorrelationStatus(),
+                latest.getCorrelationContribution());
     return new TransactionDetailDto(
         transaction.getId(),
         transaction.getAmount(),
@@ -148,6 +152,17 @@ public class TransactionQueryService {
     }
     try {
       return JSON.readValue(findings, new TypeReference<List<RiskFindingDto>>() {});
+    } catch (JsonProcessingException unreadable) {
+      return List.of();
+    }
+  }
+
+  private static List<CorrelationFindingDto> parseCorrelationFindings(String findings) {
+    if (findings == null || findings.isBlank()) {
+      return List.of();
+    }
+    try {
+      return JSON.readValue(findings, new TypeReference<List<CorrelationFindingDto>>() {});
     } catch (JsonProcessingException unreadable) {
       return List.of();
     }

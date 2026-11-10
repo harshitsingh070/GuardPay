@@ -1,4 +1,9 @@
-import type { RecommendedAction, RiskFinding, RiskLevel } from '@/types/risk';
+import type {
+  CorrelationFinding,
+  RecommendedAction,
+  RiskFinding,
+  RiskLevel,
+} from '@/types/risk';
 import type { VerificationStatus } from '@/types/payment';
 
 // Transaction history contracts. Every value is produced by the backend; the
@@ -40,6 +45,9 @@ export interface RiskAssessmentView {
   explanation: string | null;
   findings: RiskFinding[];
   createdAt: string | null;
+  correlationFindings: CorrelationFinding[];
+  correlationStatus: string | null;
+  correlationContribution: number;
 }
 
 export interface TransactionDetail {

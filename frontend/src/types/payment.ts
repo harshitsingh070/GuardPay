@@ -1,4 +1,9 @@
-import type { RecommendedAction, RiskFinding, RiskLevel } from '@/types/risk';
+import type {
+  CorrelationFinding,
+  RecommendedAction,
+  RiskFinding,
+  RiskLevel,
+} from '@/types/risk';
 
 // Guarded payment contracts — business context in, server decision out.
 // No risk fields exist on the request: the backend derives every signal.
@@ -76,6 +81,9 @@ export interface GuardedPaymentResponse {
     }[];
     findings: RiskFinding[];
     aiStatus: string;
+    behavioralProfileStatus?: string;
+    correlationFindings: CorrelationFinding[];
+    correlationStatus: string;
   };
   paymentStatus: GuardedPaymentStatus;
   paypalOrder: GuardedPaypalOrder | null;

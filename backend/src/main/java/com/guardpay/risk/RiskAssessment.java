@@ -52,12 +52,48 @@ public class RiskAssessment extends BaseEntity {
   @Column(name = "findings", columnDefinition = "TEXT")
   private String findings;
 
+  /** JSON array of correlation findings (audit/display only). */
+  @Column(name = "correlation_findings", columnDefinition = "TEXT")
+  private String correlationFindings;
+
+  /** Correlation status at decision time (AVAILABLE, NO_MATCH, ...). */
+  @Column(name = "correlation_status", length = 16)
+  private String correlationStatus;
+
+  /** Points the correlation layer added to the score. */
+  @Column(name = "correlation_contribution", nullable = false)
+  private int correlationContribution;
+
   public String getFindings() {
     return findings;
   }
 
   public void setFindings(String findings) {
     this.findings = findings;
+  }
+
+  public String getCorrelationFindings() {
+    return correlationFindings;
+  }
+
+  public void setCorrelationFindings(String correlationFindings) {
+    this.correlationFindings = correlationFindings;
+  }
+
+  public String getCorrelationStatus() {
+    return correlationStatus;
+  }
+
+  public void setCorrelationStatus(String correlationStatus) {
+    this.correlationStatus = correlationStatus;
+  }
+
+  public int getCorrelationContribution() {
+    return correlationContribution;
+  }
+
+  public void setCorrelationContribution(int correlationContribution) {
+    this.correlationContribution = correlationContribution;
   }
 
   public Transaction getTransaction() {

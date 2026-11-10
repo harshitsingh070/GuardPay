@@ -77,7 +77,12 @@ public class AdaptiveBehavioralAnalyzer {
               reason,
               finding.evidence(),
               finding.severity(),
-              finding.confidence()));
+              finding.confidence(),
+              finding.deviationRatio(),
+              finding.observedValue(),
+              finding.expectedValue(),
+              finding.profileWindow(),
+              finding.contributingFactors()));
     }
 
     // Overall behavioral deviation signal: fires when multiple anomalies co-occur
@@ -93,7 +98,15 @@ public class AdaptiveBehavioralAnalyzer {
               null,
               "Multiple behavioral anomalies detected across amount, time, recipient, device, or location dimensions.",
               BehavioralSeverityMap.toSeverity(response.overallBehavioralDeviation()),
-              0.75));
+              0.75,
+              null,
+              null,
+              null,
+              null,
+              signals.stream()
+                  .filter(PaymentSignal::detected)
+                  .map(signal -> signal.type().name())
+                  .toList()));
     }
 
     return List.copyOf(signals);

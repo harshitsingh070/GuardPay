@@ -59,6 +59,7 @@ public final class FraudBenchmarkRunner {
     String datasetSha256 = sha256(datasetPath);
     Map<String, BenchmarkMetrics> metrics = new LinkedHashMap<>();
     Map<String, BenchmarkMetrics> behavioralComparison = new LinkedHashMap<>();
+    Map<String, BenchmarkMetrics> correlationComparison = new LinkedHashMap<>();
     Map<String, Map<String, CategoryMetrics>> categories = new LinkedHashMap<>();
     Map<String, Map<String, CategoryMetrics>> signalDimensions = new LinkedHashMap<>();
     Map<String, RecipientComparison> recipientComparison = new LinkedHashMap<>();
@@ -75,6 +76,13 @@ public final class FraudBenchmarkRunner {
       BenchmarkMetrics modeMetrics = BenchmarkMetrics.from(modeResults);
       metrics.put(mode.name(), modeMetrics);
       behavioralComparison.put(mode.name() + "_WITH_BEHAVIORAL", modeMetrics);
+
+      List<BenchmarkResult> withCorrelationResults =
+          runMode(scenarios, mode, true, true, new ArrayList<>(), true);
+      correlationComparison.put(
+          mode.name() + "_WITH_CORRELATION",
+          BenchmarkMetrics.from(withCorrelationResults));
+      correlationComparison.put(mode.name() + "_WITHOUT_CORRELATION", modeMetrics);
 
       List<BenchmarkResult> withoutBehavioralResults =
           runMode(scenarios, mode, true, false, failures);
@@ -133,6 +141,7 @@ public final class FraudBenchmarkRunner {
             scenarios.size(),
             immutable(metrics),
             immutable(behavioralComparison),
+            immutable(correlationComparison),
             immutable(categories),
             immutable(signalDimensions),
             immutable(recipientComparison),
@@ -203,13 +212,29 @@ public final class FraudBenchmarkRunner {
       boolean recipientIntelligence,
       boolean behavioralAnalysis,
       List<String> failures) {
+    return runMode(scenarios, mode, recipientIntelligence, behavioralAnalysis, failures, false);
+  }
+
+  private static List<BenchmarkResult> runMode(
+      List<BenchmarkScenario> scenarios,
+      BenchmarkMode mode,
+      boolean recipientIntelligence,
+      boolean behavioralAnalysis,
+      List<String> failures,
+      boolean correlation) {
     List<BenchmarkResult> results = new ArrayList<>();
     for (BenchmarkScenario scenario : scenarios) {
       Expected expected = expectedFor(scenario, mode);
       try {
         BenchmarkHarness.Result harnessResult =
             new BenchmarkHarness()
-                .evaluate(scenario, mode, recipientIntelligence, behavioralAnalysis);
+                .evaluate(
+                    scenario,
+                    mode,
+                    recipientIntelligence,
+                    behavioralAnalysis,
+                    Set.of(),
+                    correlation);
         AutomaticEvaluationResponseDto response = harnessResult.response();
         List<String> actualSignals =
             response.findings().stream()

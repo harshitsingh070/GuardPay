@@ -253,6 +253,9 @@ public class GuardedPaymentCompletionService {
     assessment.setRecommendedAction(risk.recommendedAction());
     assessment.setExplanation(risk.explanation());
     assessment.setFindings(serializeFindings(risk));
+    assessment.setCorrelationFindings(serializeCorrelationFindings(risk));
+    assessment.setCorrelationStatus(risk.correlationStatus());
+    assessment.setCorrelationContribution(correlationContribution(risk));
     assessments.save(assessment);
 
     if (alertService != null) {
@@ -272,6 +275,28 @@ public class GuardedPaymentCompletionService {
       log.warn("Risk findings could not be serialized; storing none");
       return null;
     }
+  }
+
+  /** Correlation findings are audit/display data: failure never blocks the payment. */
+  private static String serializeCorrelationFindings(AutomaticEvaluationResponseDto risk) {
+    if (risk.correlationFindings() == null || risk.correlationFindings().isEmpty()) {
+      return null;
+    }
+    try {
+      return JSON.writeValueAsString(risk.correlationFindings());
+    } catch (JsonProcessingException notSerializable) {
+      log.warn("Correlation findings could not be serialized; storing none");
+      return null;
+    }
+  }
+
+  private static int correlationContribution(AutomaticEvaluationResponseDto risk) {
+    if (risk.correlationFindings() == null) {
+      return 0;
+    }
+    return risk.correlationFindings().stream()
+        .mapToInt(finding -> finding.contributionPoints())
+        .sum();
   }
 
   private static boolean flag(AutomaticEvaluationResponseDto risk, PaymentSignalType type) {
@@ -306,7 +331,9 @@ public class GuardedPaymentCompletionService {
             risk.automaticSignals(),
             risk.findings(),
             risk.aiStatus(),
-            risk.behavioralProfileStatus()),
+            risk.behavioralProfileStatus(),
+            risk.correlationFindings(),
+            risk.correlationStatus()),
         status,
         paypalOrder,
         verification);

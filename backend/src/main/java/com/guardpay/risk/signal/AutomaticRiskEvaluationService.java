@@ -5,6 +5,9 @@ import com.guardpay.behavior.dto.BehavioralAnalysisRequest;
 import com.guardpay.risk.DeterministicRiskEngine;
 import com.guardpay.risk.RiskEvaluationRequest;
 import com.guardpay.risk.RiskEvaluationResult;
+import com.guardpay.risk.correlation.CorrelationResult;
+import com.guardpay.risk.correlation.RiskCorrelationEngine;
+import com.guardpay.risk.correlation.dto.CorrelationFindingDto;
 import com.guardpay.risk.dto.RiskFindingDto;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationRequestDto;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
@@ -59,8 +62,9 @@ public class AutomaticRiskEvaluationService {
   private final AiAnalysisClient aiClient;
   private final AdaptiveBehavioralAnalyzer behavioralAnalyzer;
   private final DecisionMetrics metrics;
+  private final RiskCorrelationEngine correlationEngine;
 
-  /** Legacy/test constructor: decision metrics and behavioral profiling are not recorded. */
+  /** Legacy/test constructor: metrics, behavioral profiling, and correlation are not recorded. */
   public AutomaticRiskEvaluationService(
       PaymentSignalCollectorService collector,
       DeterministicRiskEngine engine,
@@ -78,10 +82,11 @@ public class AutomaticRiskEvaluationService {
         merchants,
         aiClient,
         null,
+        null,
         null);
   }
 
-  @org.springframework.beans.factory.annotation.Autowired
+  /** Legacy/test constructor: behavioral profiling and correlation are not recorded. */
   public AutomaticRiskEvaluationService(
       PaymentSignalCollectorService collector,
       DeterministicRiskEngine engine,
@@ -100,9 +105,11 @@ public class AutomaticRiskEvaluationService {
         merchants,
         aiClient,
         metrics,
+        null,
         null);
   }
 
+  /** Test constructor: correlation is not recorded. */
   public AutomaticRiskEvaluationService(
       PaymentSignalCollectorService collector,
       DeterministicRiskEngine engine,
@@ -113,6 +120,31 @@ public class AutomaticRiskEvaluationService {
       AiAnalysisClient aiClient,
       DecisionMetrics metrics,
       AdaptiveBehavioralAnalyzer behavioralAnalyzer) {
+    this(
+        collector,
+        engine,
+        demoUser,
+        deviceStates,
+        recipients,
+        merchants,
+        aiClient,
+        metrics,
+        behavioralAnalyzer,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public AutomaticRiskEvaluationService(
+      PaymentSignalCollectorService collector,
+      DeterministicRiskEngine engine,
+      DemoUserService demoUser,
+      DeviceCallStateRepository deviceStates,
+      RecipientRepository recipients,
+      MerchantRepository merchants,
+      AiAnalysisClient aiClient,
+      DecisionMetrics metrics,
+      AdaptiveBehavioralAnalyzer behavioralAnalyzer,
+      RiskCorrelationEngine correlationEngine) {
     this.collector = collector;
     this.engine = engine;
     this.demoUser = demoUser;
@@ -122,6 +154,7 @@ public class AutomaticRiskEvaluationService {
     this.aiClient = aiClient;
     this.metrics = metrics;
     this.behavioralAnalyzer = behavioralAnalyzer;
+    this.correlationEngine = correlationEngine;
   }
 
   public AutomaticEvaluationResponseDto evaluate(AutomaticEvaluationRequestDto dto) {
@@ -207,17 +240,33 @@ public class AutomaticRiskEvaluationService {
     AutomaticSignalCollectionResult collection =
         new AutomaticSignalCollectionResult(List.copyOf(combined), deterministic.historicalAverage());
 
+    // Correlation is evidence-only and fail-safe: an unavailable or broken
+    // correlation pass contributes zero points and never changes the decision
+    // beyond the deterministic engine's own scoring.
+    CorrelationResult correlation;
+    if (correlationEngine == null) {
+      correlation = CorrelationResult.empty(CorrelationResult.UNAVAILABLE);
+    } else {
+      try {
+        correlation = correlationEngine.evaluate(collection.signals());
+      } catch (RuntimeException failure) {
+        log.warn("Signal correlation failed, continuing deterministically", failure);
+        correlation = CorrelationResult.unavailable();
+      }
+    }
+
     RiskEvaluationRequest engineRequest =
         AutomaticSignalAdapter.toRiskEvaluationRequest(dto.getAmount(), collection);
-    RiskEvaluationResult result = engine.evaluate(engineRequest);
+    RiskEvaluationResult result = engine.evaluate(engineRequest, correlation);
 
     log.info(
-        "Risk evaluated: score={} level={} action={} ai={} device={} triggered={}",
+        "Risk evaluated: score={} level={} action={} ai={} device={} correlation={} triggered={}",
         result.score(),
         result.riskLevel(),
         result.recommendedAction(),
         aiStatus,
         describeDevice(deviceSignal),
+        correlation.status(),
         collection.signals().stream()
             .filter(PaymentSignal::detected)
             .map(signal -> signal.type().name())
@@ -264,11 +313,11 @@ public class AutomaticRiskEvaluationService {
                         finding.triggered(),
                         signal.severity(),
                         signal.confidence(),
-                        null, // deviationRatio - not available in PaymentSignalDto
-                        null, // observedValue - not available in PaymentSignalDto
-                        null, // expectedValue - not available in PaymentSignalDto
-                        null, // profileWindow - not available in PaymentSignalDto
-                        null, // contributingFactors - not available in PaymentSignalDto
+                        signal.deviationRatio(),
+                        signal.observedValue(),
+                        signal.expectedValue(),
+                        signal.profileWindow(),
+                        signal.contributingFactors(),
                         signal.evidence());
                   }
                   return new RiskFindingDto(
@@ -287,6 +336,9 @@ public class AutomaticRiskEvaluationService {
           result.recommendedAction());
     }
 
+    List<CorrelationFindingDto> correlationFindings =
+        result.correlationFindings().stream().map(CorrelationFindingDto::from).toList();
+
     return new AutomaticEvaluationResponseDto(
         result.score(),
         result.riskLevel(),
@@ -295,7 +347,9 @@ public class AutomaticRiskEvaluationService {
         signals,
         findings,
         aiStatus,
-        behavioralProfileStatus);
+        behavioralProfileStatus,
+        correlationFindings,
+        correlation.status());
   }
 
   /**

@@ -35,6 +35,24 @@ export interface RiskFinding {
   evidence?: string | null;
 }
 
+export interface CorrelationFinding {
+  correlationCode: string;
+  category: string;
+  title: string;
+  description: string;
+  severity: string;
+  confidence: number;
+  interactionStrength: number;
+  contributionPoints: number;
+  participatingSignals: string[];
+  evidenceFamilies: string[];
+  triggeredConditions: string[];
+  unavailableConditions: string[];
+  ruleVersion: string;
+  overlapDiscounted: boolean;
+  explanation: string;
+}
+
 export interface RiskEvaluationResponse {
   score: number;
   riskLevel: RiskLevel;

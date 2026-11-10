@@ -10,6 +10,7 @@ import com.guardpay.ai.AiUnavailableException;
 import com.guardpay.ai.dto.AiAnalysisResponse;
 import com.guardpay.ai.dto.AiFindingDto;
 import com.guardpay.behavior.AdaptiveBehavioralAnalyzer;
+import com.guardpay.behavior.BehavioralOutcomeEventRepository;
 import com.guardpay.behavior.BehavioralProfileService;
 import com.guardpay.behavior.UserBehaviorProfileRepository;
 import com.guardpay.behavior.UserRecipientBehaviorRepository;
@@ -26,6 +27,7 @@ import com.guardpay.recipient.RecipientRepository;
 import com.guardpay.recipient.RecipientRiskContext;
 import com.guardpay.recipient.RecipientRiskEvaluator;
 import com.guardpay.risk.DeterministicRiskEngine;
+import com.guardpay.risk.correlation.RiskCorrelationEngine;
 import com.guardpay.risk.signal.AutomaticRiskEvaluationService;
 import com.guardpay.risk.signal.DeterministicContentAnalyzer;
 import com.guardpay.risk.signal.PaymentSignalCollectorService;
@@ -39,11 +41,14 @@ import com.guardpay.user.User;
 import com.guardpay.user.UserRepository;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -75,6 +80,31 @@ final class BenchmarkHarness {
       BenchmarkMode mode,
       boolean recipientIntelligence,
       boolean behavioralAnalysis) {
+    return evaluate(scenario, mode, recipientIntelligence, behavioralAnalysis, Set.of());
+  }
+
+  /**
+   * Runs one scenario. {@code excludedHistoryIds} plays the role of the
+   * behavioral outcome ledger: those completed payments were refunded,
+   * reversed, or disputed and must not contribute to the learned baseline.
+   */
+  Result evaluate(
+      BenchmarkScenario scenario,
+      BenchmarkMode mode,
+      boolean recipientIntelligence,
+      boolean behavioralAnalysis,
+      Set<UUID> excludedHistoryIds) {
+    return evaluate(
+        scenario, mode, recipientIntelligence, behavioralAnalysis, excludedHistoryIds, false);
+  }
+
+  Result evaluate(
+      BenchmarkScenario scenario,
+      BenchmarkMode mode,
+      boolean recipientIntelligence,
+      boolean behavioralAnalysis,
+      Set<UUID> excludedHistoryIds,
+      boolean correlation) {
     BenchmarkScenario.Input input = scenario.input();
 
     UserRepository users = mock(UserRepository.class);
@@ -179,6 +209,10 @@ final class BenchmarkHarness {
     UserDeviceBehaviorRepository deviceBehaviorRepo =
         mock(UserDeviceBehaviorRepository.class);
     EntityManager entityManager = mock(EntityManager.class);
+    BehavioralOutcomeEventRepository outcomeEvents =
+        mock(BehavioralOutcomeEventRepository.class);
+    when(outcomeEvents.findNonLearnableTransactionIds(USER_ID)).thenReturn(excludedHistoryIds);
+    when(outcomeEvents.findTransactionIdsByOutcomeIn(eq(USER_ID), any())).thenReturn(Set.of());
 
     BehavioralProfileService profileService =
         new BehavioralProfileService(
@@ -188,7 +222,9 @@ final class BenchmarkHarness {
             hourlyBehaviorRepo,
             geoBehaviorRepo,
             deviceBehaviorRepo,
-            entityManager);
+            entityManager,
+            outcomeEvents,
+            null);
     AdaptiveBehavioralAnalyzer behavioralAnalyzer =
         behavioralAnalysis ? new AdaptiveBehavioralAnalyzer(profileService) : null;
 
@@ -202,16 +238,28 @@ final class BenchmarkHarness {
             recipientHistory,
             new RecipientRiskEvaluator());
     AutomaticRiskEvaluationService service =
-        new AutomaticRiskEvaluationService(
-            collector,
-            new DeterministicRiskEngine(),
-            demoUser,
-            deviceStates,
-            recipients,
-            merchants,
-            aiClient,
-            null,
-            behavioralAnalyzer);
+        correlation
+            ? new AutomaticRiskEvaluationService(
+                collector,
+                new DeterministicRiskEngine(),
+                demoUser,
+                deviceStates,
+                recipients,
+                merchants,
+                aiClient,
+                null,
+                behavioralAnalyzer,
+                new RiskCorrelationEngine())
+            : new AutomaticRiskEvaluationService(
+                collector,
+                new DeterministicRiskEngine(),
+                demoUser,
+                deviceStates,
+                recipients,
+                merchants,
+                aiClient,
+                null,
+                behavioralAnalyzer);
 
     long startedAt = System.nanoTime();
     AutomaticEvaluationResponseDto response = service.evaluate(dto);
@@ -220,10 +268,27 @@ final class BenchmarkHarness {
 
   private static List<Transaction> history(BenchmarkScenario.Input input) {
     List<Transaction> history = new ArrayList<>();
+    int index = 0;
     for (BigDecimal amount : input.historyAmounts()) {
-      history.add(transaction(input.currency(), amount));
+      Transaction transaction = transaction(input.currency(), amount);
+      ReflectionTestUtils.setField(transaction, "id", historyId(index++));
+      history.add(transaction);
     }
     return List.copyOf(history);
+  }
+
+  /** Ids of the completed history payments, matching {@link #history}. */
+  static Set<UUID> historyIds(BenchmarkScenario.Input input) {
+    Set<UUID> ids = new HashSet<>();
+    for (int index = 0; index < input.historyAmounts().size(); index++) {
+      ids.add(historyId(index));
+    }
+    return ids;
+  }
+
+  private static UUID historyId(int index) {
+    return UUID.nameUUIDFromBytes(
+        ("guardpay-benchmark-history:" + index).getBytes(StandardCharsets.UTF_8));
   }
 
   private static List<Transaction> recipientHistory(BenchmarkScenario.Input input) {

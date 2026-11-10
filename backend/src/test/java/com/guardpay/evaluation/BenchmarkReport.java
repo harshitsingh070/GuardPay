@@ -11,6 +11,7 @@ public record BenchmarkReport(
     int scenarioCount,
     Map<String, BenchmarkMetrics> metrics,
     Map<String, BenchmarkMetrics> behavioralComparison,
+    Map<String, BenchmarkMetrics> correlationComparison,
     Map<String, Map<String, CategoryMetrics>> categories,
     Map<String, Map<String, CategoryMetrics>> signalDimensions,
     Map<String, RecipientComparison> recipientComparison,

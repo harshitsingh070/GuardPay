@@ -163,6 +163,8 @@ export const mockCheckoutService: CheckoutService = {
         automaticSignals: mockSignals(riskyText, amount),
         findings: mockFindings(action),
         aiStatus: riskyText ? 'AVAILABLE' : 'NOT_REQUESTED',
+        correlationFindings: [],
+        correlationStatus: 'NO_MATCH',
       },
       paymentStatus: stop
         ? 'BLOCKED'

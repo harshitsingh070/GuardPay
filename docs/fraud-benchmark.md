@@ -1,4 +1,4 @@
-# GuardPay Fraud Benchmark
+﻿# GuardPay Fraud Benchmark
 
 ## Purpose
 
@@ -15,7 +15,7 @@ decision path:
 
 There are two distinct datasets:
 
-- **Dev** (`54` scenarios: `26` fraud, `28` legitimate) is used for diagnosis
+- **Dev** (`66` scenarios: `31` fraud, `35` legitimate) is used for diagnosis
   and threshold exploration.
 - **Held-out** (`32` scenarios: `16` fraud, `16` legitimate) is PayPal-specific,
   uses different IDs and inputs, and is evaluated only with the fixed
@@ -131,10 +131,10 @@ does not request AI (`aiStatus=NOT_REQUESTED`).
 Files:
 
 - Dev: `backend/src/test/resources/fraud-benchmark/dataset/scenarios.jsonl`
-  (`54` scenarios, IDs such as `F01`/`L01`, including `F26`/`F27` and
-  `L26`–`L28` for recipient intelligence).
+  (`66` scenarios, IDs such as `F01`/`L01`, including `F26`/`F27`,
+  `L26`â€“`L28` for recipient intelligence).
 - Held-out: `backend/src/test/resources/fraud-benchmark/held-out/scenarios.jsonl`
-  (`32` PayPal-specific scenarios, IDs `HF01`–`HF16` and `HL01`–`HL16`).
+  (`32` PayPal-specific scenarios, IDs `HF01`â€“`HF16` and `HL01`â€“`HL16`).
 
 Held-out IDs and exact input records must remain disjoint from the dev dataset.
 `HeldOutBenchmarkTest` enforces both constraints. Do not inspect held-out
@@ -189,7 +189,7 @@ Example shape:
 | `category` | Group used for analysis and optional filtering. |
 | `description` | Human-readable intent of the scenario. |
 | `label` | `FRAUD` or `LEGITIMATE`. |
-| `expectedScore` | Deterministic-mode score, 0–100. |
+| `expectedScore` | Deterministic-mode score, 0â€“100. |
 | `expectedRiskLevel` | Must equal `RiskLevels.levelFor(expectedScore)`. |
 | `expectedAction` | Must equal `RiskLevels.actionFor(expectedRiskLevel)`. |
 | `expectedSignals` | Triggered engine signal codes, using `RiskSignal` names. |
@@ -315,12 +315,12 @@ Latency is measured around `service.evaluate()`, not around mock setup.
 
 ## Current baseline
 
-Latest checked-in dev run (54 scenarios: 26 fraud, 28 legitimate):
+Latest checked-in dev run (66 scenarios: 31 fraud, 35 legitimate):
 
 | Mode | TP | FN | FP | TN | Precision | Recall | F1 | FPR | Accuracy |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY` | 24 | 2 | 8 | 20 | 75.00% | 92.31% | 82.76% | 28.57% | 81.48% |
-| `VALIDATED_AI` | 26 | 0 | 9 | 19 | 74.29% | 100.00% | 85.25% | 32.14% | 83.33% |
+| `DETERMINISTIC_ONLY` | 27 | 4 | 8 | 27 | 77.14% | 87.10% | 81.82% | 22.86% | 81.82% |
+| `VALIDATED_AI` | 29 | 2 | 9 | 26 | 76.32% | 93.55% | 84.06% | 25.71% | 83.33% |
 
 Exact score/level/action and signal agreement are 100% because the dataset is
 constructed to characterize the current engine. That is a regression property,
@@ -328,17 +328,19 @@ not proof of real-world accuracy.
 
 Deterministic misses in this dataset:
 
-- `F08-paypal-lookalike-known` — 30 `ALLOW`; AI raises it to 50 `VERIFY`.
-- `F15-account-takeover-known` — 30 `ALLOW`; AI raises it to 50 `VERIFY`.
+- `F08-paypal-lookalike-known` - 30 `ALLOW`; AI raises it to 50 `VERIFY`.
+- `F15-account-takeover-known` - 30 `ALLOW`; AI raises it to 50 `VERIFY`.
+- `B03-new-recipient-normal-amount` - 30 `ALLOW` boundary case.
+- `B04-unusual-payment-hour` - 30 `ALLOW` boundary case.
 
 `F09-urgent-giftcard-known`, `F20-payment-instruction-url-known`, and
 `F23-just-below-missing-threshold` are detected deterministically in the
 current baseline. `L25-known-payee-no-context` is a labeled legitimate boundary
 case: it produces no signals and is correctly allowed. It is not a fraud miss.
 
-Validated AI detects every fraud scenario, including `F08` and `F15`, and adds
-one legitimate false positive (`L22-ai-false-positive-medium`). These results are
-for the synthetic dataset only.
+Validated AI detects every fraud scenario except the two `B0x` boundary cases,
+and adds one legitimate false positive (`L22-ai-false-positive-medium`). These
+results are for the synthetic dataset only.
 
 Notable category observations from the current dataset:
 
@@ -365,20 +367,56 @@ behavior without changing production code paths.
 
 | Configuration | TP | FN | FP | TN | Precision | Recall | F1 | Amount anomaly |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY_BASELINE` | 23 | 3 | 8 | 20 | 74.19% | 88.46% | 80.70% | 0/1 |
-| `DETERMINISTIC_ONLY_RECIPIENT` | 24 | 2 | 8 | 20 | 75.00% | 92.31% | 82.76% | 1/1 |
-| `VALIDATED_AI_BASELINE` | 25 | 1 | 9 | 19 | 73.53% | 96.15% | 83.33% | 0/1 |
-| `VALIDATED_AI_RECIPIENT` | 26 | 0 | 9 | 19 | 74.29% | 100.00% | 85.25% | 1/1 |
+| `DETERMINISTIC_ONLY_BASELINE` | 26 | 5 | 8 | 27 | 76.47% | 83.87% | 80.00% | 0/1 |
+| `DETERMINISTIC_ONLY_RECIPIENT` | 27 | 4 | 8 | 27 | 77.14% | 87.10% | 81.82% | 1/1 |
+| `VALIDATED_AI_BASELINE` | 28 | 3 | 9 | 26 | 75.68% | 90.32% | 82.35% | 0/1 |
+| `VALIDATED_AI_RECIPIENT` | 29 | 2 | 9 | 26 | 76.32% | 93.55% | 84.06% | 1/1 |
 
 Recipient intelligence adds one true positive and no false positives in each
 mode by detecting `F26-known-recipient-amount-anomaly`. Across all
-configurations, new recipients are detected `30/30`, known recipients are never
-misclassified as new (`0/24`), repeated recipient attempts are detected `4/4`,
-and only `7/54` scenarios (`12.96%`) have at least three completed recipient
-history samples. The remaining `47/54` (`87.04%`) are insufficient-history
+configurations, new recipients are detected `36/36`, known recipients are never
+misclassified as new (`0/30`), repeated recipient attempts are detected `4/4`,
+and only `11/66` scenarios (`16.67%`) have at least three completed recipient
+history samples. The remaining `55/66` (`83.33%`) are insufficient-history
 cases, so they deliberately produce no amount-anomaly signal. That sparse
 history coverage is expected in a synthetic dataset. Held-out data was not used
 to choose the `5x` multiplier, the 20-point weight, or the comparison scenarios.
+
+### Correlation comparison
+
+The dev run also evaluates each mode with and without the correlation layer
+(`RiskCorrelationEngine`). Correlation is evidence-only: the same deterministic
+engine decides, and the report records the effect rather than treating it as a
+separate detector.
+
+| Configuration | TP | FN | FP | TN | Legitimate friction |
+|---|---:|---:|---:|---:|---:|
+| `DETERMINISTIC_ONLY_WITHOUT_CORRELATION` | 27 | 4 | 8 | 27 | 8 |
+| `DETERMINISTIC_ONLY_WITH_CORRELATION` | 27 | 4 | 8 | 27 | 8 |
+| `VALIDATED_AI_WITHOUT_CORRELATION` | 29 | 2 | 9 | 26 | 9 |
+| `VALIDATED_AI_WITH_CORRELATION` | 29 | 2 | 9 | 26 | 9 |
+
+The main 66-scenario set does not contain cases designed to cross a decision
+threshold only through correlation, so the aggregate metrics are unchanged. The
+point-level effect is still visible in the per-scenario results and is asserted
+by the dedicated correlation benchmark below.
+
+## Correlation scenarios
+
+`backend/src/test/resources/fraud-benchmark/correlation/correlation-scenarios.jsonl`
+is a separate seven-scenario set, deliberately kept out of the main dataset so
+the exact expectations there stay stable. `CorrelationScenarioBenchmarkTest`
+runs each scenario in `VALIDATED_AI` mode with and without correlation and
+asserts:
+
+- correlation never lowers the score or weakens the action;
+- `VELOCITY_AMOUNT_COMBO` escalates `CF01` from 35 `ALLOW` to 52 `VERIFY`;
+- `SOCIAL_ENGINEERING_CALL_COMBO`, `PHISHING_CONTENT_COMBO`, and
+  `SOCIAL_ENGINEERING_RECIPIENT_COMBO` fire on their intended combinations;
+- single weak signals (`CF05`â€“`CF07`) produce `NO_MATCH` and no score change;
+- every contribution is bounded at 25 points and equals the score delta;
+- every finding carries a title, description, explanation, participating
+  signals, evidence families, and triggered conditions.
 
 ## Held-out evaluation
 
@@ -461,14 +499,14 @@ best-by-metric labels.
 
 Current dev threshold observations:
 
-- Deterministic mode: the production baseline has 92.31% recall, 82.76% F1,
+- Deterministic mode: the production baseline has 87.10% recall, 81.82% F1,
   and 8 legitimate false positives. `allow-20` reaches 100.00% recall with
-  81.25% F1, but raises legitimate false positives to 12. `allow-50` reduces
-  friction to 1 false positive but drops recall to 57.69%.
+  82.67% F1, but raises legitimate false positives to 13. `allow-50` reduces
+  friction to 1 false positive but drops recall to 54.84%.
 - Validated-AI mode: the production baseline is best by recall, F1, and accuracy
-  at 100.00%, 85.25%, and 83.33%. `allow-20` keeps 100.00% recall but raises
-  legitimate false positives to 14; `allow-50` reduces friction to 2 false
-  positives with 61.54% recall.
+  at 93.55%, 84.06%, and 83.33%. `allow-20` reaches 100.00% recall but raises
+  legitimate false positives to 15; `allow-50` reduces friction to 2 false
+  positives with 58.06% recall.
 
 These are trade-offs on a small synthetic dev dataset. A higher recall or F1
 here does not by itself justify a production threshold change. Threshold
@@ -487,7 +525,7 @@ BenchmarkReport report =
 ```
 
 `FraudBenchmarkTest.filterSelectsMatchingScenarios` demonstrates selecting the
-canonical fraud regression. The main benchmark test runs the full 54-scenario
+canonical fraud regression. The main benchmark test runs the full 66-scenario
 dataset.
 
 ## Adding scenarios

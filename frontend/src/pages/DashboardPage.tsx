@@ -28,11 +28,12 @@ import {
   enrollTotp,
   getAiEnabled,
   getBehavioralProfile,
+  getBehavioralSummary,
   getDashboardSummary,
   getTotpStatus,
   setAiEnabled,
 } from '@/services/api-client';
-import type { BehavioralProfile } from '@/types/index';
+import type { BehavioralProfile, BehavioralProfileSummary } from '@/types/index';
 import type { DashboardSummary } from '@/types/dashboard';
 import type { TotpStatus } from '@/types/mfa';
 
@@ -90,6 +91,7 @@ export default function DashboardPage() {
   const [mfaBusy, setMfaBusy] = useState(false);
   const [mfaError, setMfaError] = useState<string | null>(null);
   const [behavioralProfile, setBehavioralProfile] = useState<BehavioralProfile | null>(null);
+  const [behavioralSummary, setBehavioralSummary] = useState<BehavioralProfileSummary | null>(null);
   const [behavioralLoading, setBehavioralLoading] = useState(true);
 
   const load = useCallback(() => {
@@ -130,16 +132,18 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([getAiEnabled(), getTotpStatus(), getBehavioralProfile()])
-      .then(([ai, mfa, profile]) => {
+    Promise.all([getAiEnabled(), getTotpStatus(), getBehavioralProfile(), getBehavioralSummary()])
+      .then(([ai, mfa, profile, summary]) => {
         if (!active) return;
         setAiEnabledState(ai.enabled);
         setTotp(mfa);
         setBehavioralProfile(profile);
+        setBehavioralSummary(summary);
       })
       .catch(() => {
         if (active) setAiEnabledState(null);
         if (active) setBehavioralProfile(null);
+        if (active) setBehavioralSummary(null);
       })
       .finally(() => {
         if (active) setBehavioralLoading(false);
@@ -521,6 +525,20 @@ export default function DashboardPage() {
                   <p className="mt-3 text-xs text-guardpay-muted">
                     Based on {behavioralProfile.transactionCount} completed transaction(s).
                   </p>
+                )}
+                {behavioralSummary && behavioralSummary.recentAnomalies.length > 0 && (
+                  <div className="mt-4 border-t border-guardpay-line pt-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-guardpay-muted">
+                      Recent anomalies
+                    </p>
+                    <ul className="mt-2 space-y-1">
+                      {behavioralSummary.recentAnomalies.map((anomaly) => (
+                        <li key={anomaly} className="text-xs text-guardpay-ink">
+                          {anomaly}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             </div>

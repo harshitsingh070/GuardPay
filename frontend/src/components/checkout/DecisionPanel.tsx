@@ -1,4 +1,5 @@
 import { AlertOctagon, AlertTriangle, ShieldCheck } from 'lucide-react';
+import CorrelationFindings from '@/components/CorrelationFindings';
 import RiskBadge from '@/components/RiskBadge';
 import type { GuardedPaymentResponse } from '@/types/payment';
 import { classifyFraudPattern } from '@/utils/fraud-pattern';
@@ -120,6 +121,10 @@ export default function DecisionPanel({ result }: { result: GuardedPaymentRespon
             </p>
           )}
         </div>
+      )}
+
+      {result.risk.correlationFindings.length > 0 && (
+        <CorrelationFindings findings={result.risk.correlationFindings} className="mt-4" />
       )}
     </section>
   );

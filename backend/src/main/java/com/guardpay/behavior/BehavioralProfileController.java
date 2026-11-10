@@ -4,6 +4,10 @@ import com.guardpay.behavior.dto.BehavioralProfileDto;
 import com.guardpay.behavior.dto.BehavioralProfileSummaryDto;
 import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -21,12 +25,21 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/behavior")
 public class BehavioralProfileController {
 
+  private static final Duration ANOMALY_WINDOW = Duration.ofDays(30);
+  private static final int MAX_ANOMALIES = 5;
+  private static final DateTimeFormatter ANOMALY_DATE =
+      DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ROOT);
+
   private final UserBehaviorProfileRepository profiles;
+  private final BehavioralOutcomeEventRepository outcomeEvents;
   private final DemoUserService demoUser;
 
   public BehavioralProfileController(
-      UserBehaviorProfileRepository profiles, DemoUserService demoUser) {
+      UserBehaviorProfileRepository profiles,
+      BehavioralOutcomeEventRepository outcomeEvents,
+      DemoUserService demoUser) {
     this.profiles = profiles;
+    this.outcomeEvents = outcomeEvents;
     this.demoUser = demoUser;
   }
 
@@ -157,18 +170,19 @@ public class BehavioralProfileController {
   public ResponseEntity<BehavioralProfileSummaryDto> summary() {
     User user = demoUser.currentUser();
     com.guardpay.behavior.UserBehaviorProfile profile = profiles.findByUserId(user.getId()).orElse(null);
+    List<String> anomalies = recentAnomalies(user.getId());
 
     if (profile == null || profile.getProfileStatus() == com.guardpay.behavior.UserBehaviorProfile.ProfileStatus.INSUFFICIENT_DATA) {
       return ResponseEntity.ok(
           new BehavioralProfileSummaryDto(
               "INSUFFICIENT_DATA",
-              0,
-              null,
+              profile == null ? 0 : profile.getTransactionCount(),
+              profile == null ? null : profile.getLastUpdatedAt(),
               "No established baseline",
               "No established pattern",
               "No recipient history",
               "No device history",
-              List.of()));
+              anomalies));
     }
 
     String status = profile.getProfileStatus().name();
@@ -211,6 +225,31 @@ public class BehavioralProfileController {
             typicalHours,
             recipientFamiliarity,
             deviceFamiliarity,
-            List.of()));
+            anomalies));
+  }
+
+  /** Excluded outcomes from the last 30 days, newest first, capped for display. */
+  private List<String> recentAnomalies(UUID userId) {
+    OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minus(ANOMALY_WINDOW);
+    return outcomeEvents.findRecentNonLearnable(userId, since).stream()
+        .limit(MAX_ANOMALIES)
+        .map(
+            event ->
+                describe(event)
+                    + " \u00b7 "
+                    + event.getOccurredAt().atZoneSameInstant(ZoneOffset.UTC)
+                        .format(ANOMALY_DATE))
+        .toList();
+  }
+
+  private static String describe(BehavioralOutcomeEvent event) {
+    return switch (event.getOutcome()) {
+      case REFUNDED -> "Refund excluded a payment from your baseline";
+      case REVERSED -> "Reversal excluded a payment from your baseline";
+      case DISPUTED -> "Dispute excluded a payment from your baseline";
+      case FAILED -> "A payment failed";
+      case CANCELLED -> "A payment was cancelled or blocked";
+      case COMPLETED -> "A completed payment was excluded as suspicious";
+    };
   }
 }

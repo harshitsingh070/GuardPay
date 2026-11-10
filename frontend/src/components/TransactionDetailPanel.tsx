@@ -1,4 +1,5 @@
 import { Loader2, ReceiptText, ShieldAlert } from 'lucide-react';
+import CorrelationFindings from '@/components/CorrelationFindings';
 import RiskBadge from '@/components/RiskBadge';
 import type { TransactionDetail } from '@/types/transaction';
 import { classifyFraudPattern } from '@/utils/fraud-pattern';
@@ -160,6 +161,13 @@ export default function TransactionDetailPanel({
                       </li>
                     ))}
                 </ul>
+              )}
+              {detail.assessment.correlationFindings.length > 0 && (
+                <CorrelationFindings
+                  findings={detail.assessment.correlationFindings}
+                  contribution={detail.assessment.correlationContribution}
+                  className="mt-3"
+                />
               )}
             </div>
           ) : (

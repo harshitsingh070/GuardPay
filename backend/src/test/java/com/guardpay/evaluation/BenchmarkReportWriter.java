@@ -206,6 +206,37 @@ public final class BenchmarkReportWriter {
           .append(" |\n");
     }
 
+    out.append("\n## Correlation comparison\n\n");
+    out.append(
+        "| Configuration | TP | FN | FP | TN | Precision | Recall | F1 | FPR | Accuracy | Legit friction |\n");
+    out.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    for (Map.Entry<String, BenchmarkMetrics> entry : report.correlationComparison().entrySet()) {
+      BenchmarkMetrics m = entry.getValue();
+      out.append("| ")
+          .append(entry.getKey())
+          .append(" | ")
+          .append(m.truePositives())
+          .append(" | ")
+          .append(m.falseNegatives())
+          .append(" | ")
+          .append(m.falsePositives())
+          .append(" | ")
+          .append(m.trueNegatives())
+          .append(" | ")
+          .append(percent(m.precision()))
+          .append(" | ")
+          .append(percent(m.recall()))
+          .append(" | ")
+          .append(percent(m.f1()))
+          .append(" | ")
+          .append(percent(m.falsePositiveRate()))
+          .append(" | ")
+          .append(percent(m.classificationAccuracy()))
+          .append(" | ")
+          .append(m.legitimateVerified() + m.legitimateStopped())
+          .append(" |\n");
+    }
+
     out.append("\n## Actions and signal quality\n\n");
     out.append(
         "| Mode | ALLOW | VERIFY | STOP | Fraud detected | Fraud missed | Legit allowed | Legit verified | Legit stopped | Signal TP | Signal FP | Signal FN | Signal precision | Signal recall | Signal F1 | Avg ms | P50 ms | P95 ms |\n");

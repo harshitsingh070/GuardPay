@@ -1,5 +1,6 @@
 package com.guardpay.behavior;
 
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -42,4 +43,16 @@ public interface BehavioralOutcomeEventRepository
   Set<UUID> findTransactionIdsByOutcomeIn(
       @Param("userId") UUID userId,
       @Param("outcomes") Collection<BehavioralOutcome> outcomes);
+
+  /** Recent excluded outcomes, newest first, for the dashboard summary. */
+  @Query(
+      """
+      select e from BehavioralOutcomeEvent e
+      where e.transaction.user.id = :userId
+        and e.learnable = false
+        and e.occurredAt >= :since
+      order by e.occurredAt desc
+      """)
+  List<BehavioralOutcomeEvent> findRecentNonLearnable(
+      @Param("userId") UUID userId, @Param("since") OffsetDateTime since);
 }
