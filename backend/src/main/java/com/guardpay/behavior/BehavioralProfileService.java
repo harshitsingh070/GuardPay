@@ -5,6 +5,9 @@ import com.guardpay.behavior.dto.BehavioralAnalysisResponse;
 import com.guardpay.behavior.dto.BehavioralFindingDto;
 import com.guardpay.behavior.dto.BehavioralProfileDto;
 import com.guardpay.behavior.dto.BehavioralProfileSummaryDto;
+import com.guardpay.behavior.dto.HighValueBaselineDto;
+import com.guardpay.behavior.highvalue.FirstTimeHighValueAssessment;
+import com.guardpay.behavior.highvalue.FirstTimeHighValueDetectionEngine;
 import com.guardpay.recipient.Recipient;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.transaction.Transaction;
@@ -101,6 +104,7 @@ public class BehavioralProfileService {
   private final EntityManager entityManager;
   private final BehavioralOutcomeEventRepository outcomeEvents;
   private final TransactionTemplate requiresNewTransaction;
+  private final FirstTimeHighValueDetectionEngine highValueEngine;
 
   public BehavioralProfileService(
       TransactionRepository transactions,
@@ -119,7 +123,31 @@ public class BehavioralProfileService {
         deviceBehaviors,
         entityManager,
         null,
+        null,
         null);
+  }
+
+  public BehavioralProfileService(
+      TransactionRepository transactions,
+      UserBehaviorProfileRepository profiles,
+      UserRecipientBehaviorRepository recipientBehaviors,
+      UserHourlyBehaviorRepository hourlyBehaviors,
+      UserGeoBehaviorRepository geoBehaviors,
+      UserDeviceBehaviorRepository deviceBehaviors,
+      EntityManager entityManager,
+      BehavioralOutcomeEventRepository outcomeEvents,
+      PlatformTransactionManager transactionManager) {
+    this(
+        transactions,
+        profiles,
+        recipientBehaviors,
+        hourlyBehaviors,
+        geoBehaviors,
+        deviceBehaviors,
+        entityManager,
+        outcomeEvents,
+        transactionManager,
+        new FirstTimeHighValueDetectionEngine());
   }
 
   @Autowired
@@ -132,7 +160,8 @@ public class BehavioralProfileService {
       UserDeviceBehaviorRepository deviceBehaviors,
       EntityManager entityManager,
       BehavioralOutcomeEventRepository outcomeEvents,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      @Autowired(required = false) FirstTimeHighValueDetectionEngine highValueEngine) {
     this.transactions = transactions;
     this.profiles = profiles;
     this.recipientBehaviors = recipientBehaviors;
@@ -141,6 +170,7 @@ public class BehavioralProfileService {
     this.deviceBehaviors = deviceBehaviors;
     this.entityManager = entityManager;
     this.outcomeEvents = outcomeEvents;
+    this.highValueEngine = highValueEngine;
     if (transactionManager == null) {
       this.requiresNewTransaction = null;
     } else {
@@ -238,6 +268,38 @@ public class BehavioralProfileService {
       }
     }
 
+    // First-Time High-Value Payment Detection Engine (user-specific baseline analysis)
+    if (highValueEngine != null && request.amount() != null) {
+      FirstTimeHighValueAssessment highValueAssessment =
+          highValueEngine.evaluate(
+              request.userId(),
+              request.amount(),
+              requestCurrency,
+              request.recipientId(),
+              history,
+              excludeTransactionId,
+              asOf,
+              confidence.status().toString());
+
+      if (highValueAssessment != null && highValueAssessment.detected()) {
+        findings.add(
+            new BehavioralFindingDto(
+                highValueAssessment.classification().name(),
+                highValueAssessment.title(),
+                highValueAssessment.evidence(),
+                highValueAssessment.severity(),
+                highValueAssessment.confidence(),
+                highValueAssessment.observedAmount(),
+                highValueAssessment.expectedAmount(),
+                highValueAssessment.amountRatio(),
+                highValueAssessment.baselineWindow(),
+                highValueAssessment.profileStatus(),
+                highValueAssessment.evidence(),
+                highValueAssessment.contributingFactors(),
+                highValueAssessment.evaluatedAt()));
+      }
+    }
+
     // Time-of-day deviation (timezone-aware, window-filtered)
     if (request.transactionTimestamp() != null
         && confidence.sufficientForTime()) {
@@ -326,6 +388,87 @@ public class BehavioralProfileService {
         findings,
         overall,
         true);
+  }
+
+  /**
+   * Direct high-value evaluation method for controllers or callers wanting
+   * full first-time high-value assessment details.
+   */
+  @Transactional(readOnly = true)
+  public FirstTimeHighValueAssessment evaluateHighValue(
+      UUID userId,
+      BigDecimal amount,
+      String currency,
+      UUID recipientId,
+      UUID excludeTransactionId,
+      OffsetDateTime asOf) {
+    if (highValueEngine == null || userId == null || amount == null) {
+      return null;
+    }
+    OffsetDateTime effectiveAsOf = asOf != null ? asOf : OffsetDateTime.now();
+    List<Transaction> history = loadEligibleHistory(userId, effectiveAsOf, excludeTransactionId);
+    ProfileConfidence confidence = assessConfidence(history, userId);
+    return highValueEngine.evaluate(
+        userId,
+        amount,
+        currency,
+        recipientId,
+        history,
+        excludeTransactionId,
+        effectiveAsOf,
+        confidence.status().toString());
+  }
+
+  /**
+   * Retrieves the currency-specific high-value baseline statistics for the user.
+   */
+  @Transactional(readOnly = true)
+  public HighValueBaselineDto getHighValueBaseline(UUID userId, String currency) {
+    if (userId == null) {
+      return null;
+    }
+    String reqCurrency = currency != null ? currency : "USD";
+    OffsetDateTime now = OffsetDateTime.now();
+    List<Transaction> history = loadEligibleHistory(userId, now, null).stream()
+        .filter(t -> reqCurrency.equalsIgnoreCase(t.getCurrency()))
+        .sorted(Comparator.comparing(Transaction::getTransactionTimestamp))
+        .toList();
+
+    ProfileConfidence confidence = assessConfidence(history, userId);
+    int n = history.size();
+    if (n < MIN_TRANSACTIONS_FOR_BASELINE) {
+      return new HighValueBaselineDto(
+          reqCurrency,
+          confidence.status().toString(),
+          n,
+          null, null, null, null, null, null, null,
+          false);
+    }
+
+    List<BigDecimal> amounts = history.stream().map(Transaction::getAmount).sorted().toList();
+    BigDecimal median = median(amounts);
+    BigDecimal max = amounts.get(n - 1);
+    List<BigDecimal> deviations = amounts.stream().map(a -> a.subtract(median).abs()).sorted().toList();
+    BigDecimal mad = median(deviations);
+    BigDecimal p75 = percentile(amounts, 0.75);
+    BigDecimal p90 = percentile(amounts, 0.90);
+    BigDecimal p95 = percentile(amounts, 0.95);
+
+    BigDecimal highValueThreshold = p90 != null ? p90 : max;
+    boolean established = confidence.status() == UserBehaviorProfile.ProfileStatus.ESTABLISHED;
+
+    return new HighValueBaselineDto(
+        reqCurrency,
+        confidence.status().toString(),
+        n,
+        median,
+        mad,
+        max,
+        p75,
+        p90,
+        p95,
+        highValueThreshold,
+        established);
   }
 
   /**
@@ -1488,18 +1631,25 @@ public class BehavioralProfileService {
   }
 
   private String computeOverallDeviation(List<BehavioralFindingDto> findings) {
-    if (findings.isEmpty()) {
+    // Align the aggregate with the analyzer's per-signal confidence gate. A
+    // low-confidence finding is not emitted as a signal, so it must not inflate
+    // the aggregate deviation either.
+    List<BehavioralFindingDto> reliable =
+        findings.stream()
+            .filter(f -> f.confidence() != null && f.confidence() >= 0.6)
+            .toList();
+    if (reliable.isEmpty()) {
       return "NORMAL";
     }
     long highOrCritical =
-        findings.stream()
+        reliable.stream()
             .filter(f -> f.severity() != null
                 && (f.severity().equals("HIGH") || f.severity().equals("CRITICAL")))
             .count();
     if (highOrCritical >= 2) {
       return "SIGNIFICANT";
     }
-    if (highOrCritical == 1 || findings.size() >= 3) {
+    if (highOrCritical == 1 || reliable.size() >= 3) {
       return "MODERATE";
     }
     return "MINOR";

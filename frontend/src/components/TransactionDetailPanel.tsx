@@ -1,8 +1,11 @@
 import { Loader2, ReceiptText, ShieldAlert } from 'lucide-react';
 import CorrelationFindings from '@/components/CorrelationFindings';
+import FirstTimeHighValueCard from '@/components/FirstTimeHighValueCard';
+import RecipientReputationCard from '@/components/RecipientReputationCard';
 import RiskBadge from '@/components/RiskBadge';
 import type { TransactionDetail } from '@/types/transaction';
 import { classifyFraudPattern } from '@/utils/fraud-pattern';
+import { isHighValueFinding } from '@/utils/high-value';
 import { getRiskTheme } from '@/utils/risk-styles';
 
 function money(amount: number, currency: string): string {
@@ -33,6 +36,10 @@ export default function TransactionDetailPanel({
         level: detail.assessment.riskLevel,
       })
     : null;
+  const triggeredFindings =
+    detail?.assessment?.findings.filter(
+      (finding) => finding.triggered && !isHighValueFinding(finding),
+    ) ?? [];
 
   return (
     <section
@@ -137,11 +144,10 @@ export default function TransactionDetailPanel({
                   </p>
                 </div>
               )}
-              {detail.assessment.findings.filter((finding) => finding.triggered).length > 0 && (
+              <FirstTimeHighValueCard findings={detail.assessment.findings} className="mt-3" />
+              {triggeredFindings.length > 0 && (
                 <ul className="mt-3 space-y-1.5">
-                  {detail.assessment.findings
-                    .filter((finding) => finding.triggered)
-                    .map((finding) => (
+                  {triggeredFindings.map((finding) => (
                       <li
                         key={finding.code}
                         className="rounded-lg border border-white/70 bg-white/70 p-2.5"
@@ -169,6 +175,11 @@ export default function TransactionDetailPanel({
                   className="mt-3"
                 />
               )}
+              <RecipientReputationCard
+                reputation={detail.assessment.recipientReputation}
+                transactionId={detail.id}
+                className="mt-3"
+              />
             </div>
           ) : (
             <p className="rounded-xl bg-guardpay-canvas p-3 text-guardpay-muted">

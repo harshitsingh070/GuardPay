@@ -17,6 +17,8 @@ import com.guardpay.behavior.UserRecipientBehaviorRepository;
 import com.guardpay.behavior.UserHourlyBehaviorRepository;
 import com.guardpay.behavior.UserGeoBehaviorRepository;
 import com.guardpay.behavior.UserDeviceBehaviorRepository;
+import com.guardpay.behavior.highvalue.FirstTimeHighValueConfig;
+import com.guardpay.behavior.highvalue.FirstTimeHighValueDetectionEngine;
 import com.guardpay.device.DeviceCallState;
 import com.guardpay.device.DeviceCallStateRepository;
 import com.guardpay.merchant.Merchant;
@@ -95,7 +97,7 @@ final class BenchmarkHarness {
       boolean behavioralAnalysis,
       Set<UUID> excludedHistoryIds) {
     return evaluate(
-        scenario, mode, recipientIntelligence, behavioralAnalysis, excludedHistoryIds, false);
+        scenario, mode, recipientIntelligence, behavioralAnalysis, excludedHistoryIds, false, true);
   }
 
   Result evaluate(
@@ -105,6 +107,28 @@ final class BenchmarkHarness {
       boolean behavioralAnalysis,
       Set<UUID> excludedHistoryIds,
       boolean correlation) {
+    return evaluate(
+        scenario,
+        mode,
+        recipientIntelligence,
+        behavioralAnalysis,
+        excludedHistoryIds,
+        correlation,
+        true);
+  }
+
+  /**
+   * Runs one scenario with the first-time high-value engine toggled on or off.
+   * This is the controlled comparison used by the high-value benchmark.
+   */
+  Result evaluate(
+      BenchmarkScenario scenario,
+      BenchmarkMode mode,
+      boolean recipientIntelligence,
+      boolean behavioralAnalysis,
+      Set<UUID> excludedHistoryIds,
+      boolean correlation,
+      boolean highValueEnabled) {
     BenchmarkScenario.Input input = scenario.input();
 
     UserRepository users = mock(UserRepository.class);
@@ -214,6 +238,11 @@ final class BenchmarkHarness {
     when(outcomeEvents.findNonLearnableTransactionIds(USER_ID)).thenReturn(excludedHistoryIds);
     when(outcomeEvents.findTransactionIdsByOutcomeIn(eq(USER_ID), any())).thenReturn(Set.of());
 
+    FirstTimeHighValueConfig highValueConfig = FirstTimeHighValueConfig.defaults();
+    highValueConfig.setEnabled(highValueEnabled);
+    FirstTimeHighValueDetectionEngine highValueEngine =
+        new FirstTimeHighValueDetectionEngine(highValueConfig);
+
     BehavioralProfileService profileService =
         new BehavioralProfileService(
             transactions,
@@ -224,7 +253,8 @@ final class BenchmarkHarness {
             deviceBehaviorRepo,
             entityManager,
             outcomeEvents,
-            null);
+            null,
+            highValueEngine);
     AdaptiveBehavioralAnalyzer behavioralAnalyzer =
         behavioralAnalysis ? new AdaptiveBehavioralAnalyzer(profileService) : null;
 

@@ -418,6 +418,43 @@ asserts:
 - every finding carries a title, description, explanation, participating
   signals, evidence families, and triggered conditions.
 
+## High-value scenarios
+
+The first-time high-value engine has its own 10-scenario set:
+
+- `backend/src/test/resources/fraud-benchmark/high-value/scenarios.jsonl`
+- IDs `HV01`–`HV10`, covering new-recipient high value, new-recipient normal,
+  established high-value users, zero-MAD, cold start, currency mismatch,
+  significant deviation, normal repeat, rapid escalation, and existing-recipient
+  escalation.
+
+`HighValueBenchmarkTest` runs the real
+`FirstTimeHighValueDetectionEngine` through `BenchmarkHarness` twice: once with
+the engine enabled and once with `enabled=false`. A scenario is positive when the
+engine emits a high-value finding; this is an evidence-detection metric, not the
+final payment decision. The run writes:
+
+- `backend/target/high-value-benchmark/high-value-report.json`
+- `backend/target/high-value-benchmark/high-value-report.md`
+
+Run it with:
+
+```powershell
+mvn -q "-Dtest=HighValueBenchmarkTest" test
+```
+
+Current result (10 scenarios: 5 high-value, 5 controls):
+
+| Configuration | TP | FN | FP | TN | Precision | Recall | F1 | Findings | Cold starts |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `WITH_HIGH_VALUE` | 5 | 0 | 0 | 5 | 100.00% | 100.00% | 100.00% | 5 | 2 |
+| `WITHOUT_HIGH_VALUE` | 0 | 5 | 0 | 5 | n/a | 0.00% | n/a | 0 | 10 |
+
+The disabled run demonstrates the kill switch: every scenario becomes a cold
+start and no high-value finding is emitted. These are synthetic regression
+results, not real-world accuracy. The engine’s full behavior and configuration
+are documented in [`first-time-high-value.md`](first-time-high-value.md).
+
 ## Held-out evaluation
 
 The held-out dataset is PayPal-specific and was not used to choose thresholds or
@@ -576,3 +613,5 @@ threshold selection.
   separately scored by the current engine.
 - Exact expectations describe the current engine; they can become stale after
   an intentional risk-engine change and must be reviewed then.
+- The high-value benchmark is a small, curated set. Its 100% precision and
+  recall describe those 10 scenarios only and do not estimate live performance.

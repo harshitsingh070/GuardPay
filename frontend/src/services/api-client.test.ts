@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiFetch, setCsrfToken } from '@/services/api-client';
+import { apiFetch, getHighValueBaseline, setCsrfToken } from '@/services/api-client';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -8,6 +8,38 @@ function jsonResponse(body: unknown, status = 200): Response {
     json: async () => body,
   } as Response;
 }
+
+describe('getHighValueBaseline', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('requests the currency-specific baseline', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        currency: 'USD',
+        profileStatus: 'ESTABLISHED',
+        transactionCount: 12,
+        medianAmount: 1800,
+        madAmount: 240,
+        historicalMax: 9500,
+        p75Amount: 3100,
+        p90Amount: 7200,
+        p95Amount: 8800,
+        typicalHighValueThreshold: 7200,
+        established: true,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const baseline = await getHighValueBaseline('USD');
+
+    expect(baseline.currency).toBe('USD');
+    expect(fetchMock.mock.calls[0]?.[0]).toContain(
+      '/api/behavior/high-value/baseline?currency=USD',
+    );
+  });
+});
 
 describe('apiFetch CSRF handling', () => {
   afterEach(() => {

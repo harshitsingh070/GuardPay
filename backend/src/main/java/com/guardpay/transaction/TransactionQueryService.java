@@ -3,6 +3,7 @@ package com.guardpay.transaction;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.guardpay.intelligence.dto.RecipientReputationDto;
 import com.guardpay.payment.PaymentVerificationRepository;
 import com.guardpay.risk.RiskAssessment;
 import com.guardpay.risk.RiskAssessmentRepository;
@@ -105,7 +106,9 @@ public class TransactionQueryService {
                 latest.getCreatedAt(),
                 parseCorrelationFindings(latest.getCorrelationFindings()),
                 latest.getCorrelationStatus(),
-                latest.getCorrelationContribution());
+                latest.getCorrelationContribution(),
+                parseRecipientReputation(latest.getRecipientReputation()),
+                latest.getRecipientReputationPoints());
     return new TransactionDetailDto(
         transaction.getId(),
         transaction.getAmount(),
@@ -165,6 +168,17 @@ public class TransactionQueryService {
       return JSON.readValue(findings, new TypeReference<List<CorrelationFindingDto>>() {});
     } catch (JsonProcessingException unreadable) {
       return List.of();
+    }
+  }
+
+  private static RecipientReputationDto parseRecipientReputation(String reputation) {
+    if (reputation == null || reputation.isBlank()) {
+      return null;
+    }
+    try {
+      return JSON.readValue(reputation, RecipientReputationDto.class);
+    } catch (JsonProcessingException unreadable) {
+      return null;
     }
   }
 }

@@ -51,6 +51,12 @@ public final class AutomaticSignalAdapter {
         collection.detected(PaymentSignalType.TRANSACTION_FREQUENCY_ANOMALY),
         collection.detected(PaymentSignalType.GEOGRAPHIC_BEHAVIOR_DEVIATION),
         collection.detected(PaymentSignalType.DEVICE_BEHAVIOR_DEVIATION),
-        collection.detected(PaymentSignalType.OVERALL_BEHAVIOR_DEVIATION));
+        collection.detected(PaymentSignalType.OVERALL_BEHAVIOR_DEVIATION),
+        collection.detected(PaymentSignalType.FIRST_HIGH_VALUE_PAYMENT),
+        collection.detected(PaymentSignalType.FIRST_HIGH_VALUE_TO_RECIPIENT),
+        collection.detected(PaymentSignalType.FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE),
+        collection.detected(PaymentSignalType.SIGNIFICANT_AMOUNT_DEVIATION),
+        collection.detected(PaymentSignalType.AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM),
+        collection.detected(PaymentSignalType.RAPID_AMOUNT_ESCALATION));
   }
 }

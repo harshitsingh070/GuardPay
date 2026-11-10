@@ -115,7 +115,31 @@ public enum RiskSignal {
   OVERALL_BEHAVIOR_DEVIATION(
       "Multiple behavioral anomalies",
       "Several behavioral dimensions deviate from your established pattern simultaneously.",
-      20);
+      20),
+  FIRST_HIGH_VALUE_PAYMENT(
+      "First high-value payment",
+      "Payment is substantially higher than your historical baseline with no prior high-value history.",
+      20),
+  FIRST_HIGH_VALUE_TO_RECIPIENT(
+      "First high-value payment to recipient",
+      "Payment amount is significantly higher than any previous payment sent to this recipient.",
+      20),
+  FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE(
+      "First-time payment to new recipient is high-value",
+      "Payment to a new recipient is unusually large relative to your normal spending baseline.",
+      25),
+  SIGNIFICANT_AMOUNT_DEVIATION(
+      "Significant amount deviation",
+      "Payment amount substantially exceeds your established spending distribution.",
+      20),
+  AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM(
+      "Exceeds historical maximum",
+      "Payment amount exceeds the largest payment previously observed for your account.",
+      15),
+  RAPID_AMOUNT_ESCALATION(
+      "Rapid amount escalation",
+      "Payment represents an unusually rapid increase in spending amount over recent transactions.",
+      15);
 
   private final String title;
   private final String description;

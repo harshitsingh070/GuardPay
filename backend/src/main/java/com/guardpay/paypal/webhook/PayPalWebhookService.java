@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guardpay.behavior.BehavioralOutcome;
 import com.guardpay.behavior.BehavioralOutcomeService;
+import com.guardpay.intelligence.service.RecipientIntelligenceOutcomeService;
 import com.guardpay.paypal.webhook.dto.PayPalWebhookEventDto;
 import com.guardpay.paypal.webhook.dto.WebhookAckResponse;
 import com.guardpay.transaction.Transaction;
@@ -41,13 +42,24 @@ public class PayPalWebhookService {
   private final TransactionRepository transactions;
   private final ObjectMapper objectMapper;
   private final BehavioralOutcomeService behavioralOutcomes;
+  private final RecipientIntelligenceOutcomeService intelligenceOutcomes;
 
   public PayPalWebhookService(
       PayPalWebhookVerifier verifier,
       PayPalWebhookEventRepository events,
       TransactionRepository transactions,
       ObjectMapper objectMapper) {
-    this(verifier, events, transactions, objectMapper, null);
+    this(verifier, events, transactions, objectMapper, null, null);
+  }
+
+  /** Test constructor: recipient intelligence outcomes are not recorded. */
+  public PayPalWebhookService(
+      PayPalWebhookVerifier verifier,
+      PayPalWebhookEventRepository events,
+      TransactionRepository transactions,
+      ObjectMapper objectMapper,
+      BehavioralOutcomeService behavioralOutcomes) {
+    this(verifier, events, transactions, objectMapper, behavioralOutcomes, null);
   }
 
   @org.springframework.beans.factory.annotation.Autowired
@@ -56,12 +68,14 @@ public class PayPalWebhookService {
       PayPalWebhookEventRepository events,
       TransactionRepository transactions,
       ObjectMapper objectMapper,
-      BehavioralOutcomeService behavioralOutcomes) {
+      BehavioralOutcomeService behavioralOutcomes,
+      RecipientIntelligenceOutcomeService intelligenceOutcomes) {
     this.verifier = verifier;
     this.events = events;
     this.transactions = transactions;
     this.objectMapper = objectMapper;
     this.behavioralOutcomes = behavioralOutcomes;
+    this.intelligenceOutcomes = intelligenceOutcomes;
   }
 
   @Transactional
@@ -212,6 +226,10 @@ public class PayPalWebhookService {
     if (behavioralOutcomes != null) {
       behavioralOutcomes.recordExclusionAfterCommit(
           transaction.get(), outcome, "PAYPAL_WEBHOOK:" + outcome.name());
+    }
+    if (intelligenceOutcomes != null) {
+      intelligenceOutcomes.recordExclusionAfterCommit(
+          transaction.get(), "PAYPAL_WEBHOOK:" + outcome.name());
     }
     log.info("PayPal exclusion event recorded for behavioral baseline (outcome={})", outcome);
     return WebhookProcessingStatus.PROCESSED;

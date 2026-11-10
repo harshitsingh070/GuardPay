@@ -91,3 +91,18 @@ export interface BehavioralProfileSummary {
   deviceFamiliarity: string;
   recentAnomalies: string[];
 }
+
+/** Currency-specific spending baseline used by the high-value engine. */
+export interface HighValueBaseline {
+  currency: string;
+  profileStatus: string;
+  transactionCount: number;
+  medianAmount: number | null;
+  madAmount: number | null;
+  historicalMax: number | null;
+  p75Amount: number | null;
+  p90Amount: number | null;
+  p95Amount: number | null;
+  typicalHighValueThreshold: number | null;
+  established: boolean;
+}

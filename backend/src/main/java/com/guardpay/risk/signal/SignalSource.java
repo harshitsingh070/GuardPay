@@ -10,5 +10,6 @@ public enum SignalSource {
   NETWORK,
   AI,
   BEHAVIORAL_PROFILE,
+  GLOBAL_INTELLIGENCE,
   NOT_AVAILABLE
 }

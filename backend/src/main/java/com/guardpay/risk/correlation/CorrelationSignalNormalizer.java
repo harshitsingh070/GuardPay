@@ -69,6 +69,20 @@ public final class CorrelationSignalNormalizer {
     FAMILIES.put(PaymentSignalType.BLOCKLISTED_RECIPIENT, EvidenceFamily.BLOCKLIST);
     FAMILIES.put(PaymentSignalType.UNUSUAL_PAYMENT_HOUR, EvidenceFamily.TIME);
     FAMILIES.put(PaymentSignalType.OVERALL_BEHAVIOR_DEVIATION, EvidenceFamily.BEHAVIORAL_AGGREGATE);
+    FAMILIES.put(PaymentSignalType.FIRST_HIGH_VALUE_PAYMENT, EvidenceFamily.AMOUNT);
+    FAMILIES.put(PaymentSignalType.SIGNIFICANT_AMOUNT_DEVIATION, EvidenceFamily.AMOUNT);
+    FAMILIES.put(PaymentSignalType.AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM, EvidenceFamily.AMOUNT);
+    FAMILIES.put(PaymentSignalType.RAPID_AMOUNT_ESCALATION, EvidenceFamily.AMOUNT);
+    FAMILIES.put(PaymentSignalType.FIRST_HIGH_VALUE_TO_RECIPIENT, EvidenceFamily.RECIPIENT);
+    FAMILIES.put(PaymentSignalType.FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE, EvidenceFamily.RECIPIENT);
+    FAMILIES.put(PaymentSignalType.GLOBAL_RECIPIENT_REPORTED, EvidenceFamily.GLOBAL_REPUTATION);
+    FAMILIES.put(
+        PaymentSignalType.GLOBAL_RECIPIENT_UNDER_REVIEW, EvidenceFamily.GLOBAL_REPUTATION);
+    FAMILIES.put(
+        PaymentSignalType.GLOBAL_RECIPIENT_CORROBORATED_SUSPICIOUS,
+        EvidenceFamily.GLOBAL_REPUTATION);
+    FAMILIES.put(
+        PaymentSignalType.GLOBAL_RECIPIENT_CONFIRMED_FRAUD, EvidenceFamily.GLOBAL_REPUTATION);
   }
 
   /**

@@ -2,6 +2,7 @@ package com.guardpay.behavior;
 
 import com.guardpay.behavior.dto.BehavioralProfileDto;
 import com.guardpay.behavior.dto.BehavioralProfileSummaryDto;
+import com.guardpay.behavior.dto.HighValueBaselineDto;
 import com.guardpay.user.DemoUserService;
 import com.guardpay.user.User;
 import java.time.Duration;
@@ -10,9 +11,11 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -33,14 +36,45 @@ public class BehavioralProfileController {
   private final UserBehaviorProfileRepository profiles;
   private final BehavioralOutcomeEventRepository outcomeEvents;
   private final DemoUserService demoUser;
+  private final BehavioralProfileService profileService;
 
   public BehavioralProfileController(
       UserBehaviorProfileRepository profiles,
       BehavioralOutcomeEventRepository outcomeEvents,
       DemoUserService demoUser) {
+    this(profiles, outcomeEvents, demoUser, null);
+  }
+
+  @Autowired
+  public BehavioralProfileController(
+      UserBehaviorProfileRepository profiles,
+      BehavioralOutcomeEventRepository outcomeEvents,
+      DemoUserService demoUser,
+      @Autowired(required = false) BehavioralProfileService profileService) {
     this.profiles = profiles;
     this.outcomeEvents = outcomeEvents;
     this.demoUser = demoUser;
+    this.profileService = profileService;
+  }
+
+  /**
+   * Currency-specific high-value spending baseline for the authenticated user.
+   */
+  @GetMapping("/high-value/baseline")
+  public ResponseEntity<HighValueBaselineDto> highValueBaseline(
+      @RequestParam(value = "currency", required = false, defaultValue = "USD") String currency) {
+    User user = demoUser.currentUser();
+    if (profileService == null) {
+      return ResponseEntity.ok(
+          new HighValueBaselineDto(
+              currency != null ? currency : "USD",
+              "UNAVAILABLE",
+              0,
+              null, null, null, null, null, null, null,
+              false));
+    }
+    HighValueBaselineDto baseline = profileService.getHighValueBaseline(user.getId(), currency);
+    return ResponseEntity.ok(baseline);
   }
 
   /**

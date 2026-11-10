@@ -428,6 +428,30 @@ Response shape:
 Returns a safe summary of established behavior and recent anomalies for
 dashboard display. No raw statistics.
 
+### GET /api/behavior/high-value/baseline
+
+Authenticated, read-only, and owner-scoped. Optional `currency` query parameter
+(default `USD`). Returns the currency-specific high-value spending baseline used
+by the first-time high-value engine. When the profile service is unavailable it
+returns `profileStatus="UNAVAILABLE"`, `transactionCount=0`, null metrics, and
+`established=false`; it never fabricates a baseline.
+
+```json
+{
+  "currency": "USD",
+  "profileStatus": "ESTABLISHED",
+  "transactionCount": 24,
+  "medianAmount": 1800.00,
+  "madAmount": 240.00,
+  "historicalMax": 9500.00,
+  "p75Amount": 3100.00,
+  "p90Amount": 7200.00,
+  "p95Amount": 8800.00,
+  "typicalHighValueThreshold": 7200.00,
+  "established": true
+}
+```
+
 ### Behavioral findings in risk responses
 
 `POST /api/risk/evaluate-automatic` and `POST /api/payments/guarded` now include
@@ -438,3 +462,100 @@ the risk block, and automatic signals may include behavioral types
 `DEVICE_BEHAVIOR_DEVIATION`, `OVERALL_BEHAVIOR_DEVIATION`) sourced from
 `BEHAVIORAL_PROFILE`.
 
+First-time high-value evidence uses these additional behavioral signal codes:
+
+- `FIRST_HIGH_VALUE_PAYMENT`
+- `FIRST_HIGH_VALUE_TO_RECIPIENT`
+- `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE`
+- `SIGNIFICANT_AMOUNT_DEVIATION`
+- `AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM`
+- `RAPID_AMOUNT_ESCALATION`
+
+Findings may carry `severity`, `confidence`, `deviationRatio`, `observedValue`,
+`expectedValue`, `profileWindow`, `contributingFactors`, and `evidence`. Cold
+start produces no high-value finding. A specialized high-value signal suppresses
+the generic `AMOUNT_DEVIATION` points so amount evidence is not counted twice.
+See [`first-time-high-value.md`](first-time-high-value.md).
+
+## 14. Global recipient intelligence
+
+All routes are authenticated, owner-scoped, and CSRF-protected for mutations.
+Identifiers are never accepted in a response and are hashed before storage.
+Missing intelligence configuration returns `UNAVAILABLE`/503; it is never
+presented as a clean recipient.
+
+### POST /api/intelligence/recipients/reports
+
+Submits a fraud report for a recipient the caller has paid. Either
+`relatedTransactionId` (owned by the caller) or an explicit
+`identifierType` + `identifierValue` is required. `recipientReference`
+alone is not accepted. Rate limited per reporter and per recipient/day.
+
+Request:
+
+`json
+{
+  "relatedTransactionId": "�",
+  "description": "Optional context without identifiers.",
+  "incidentAt": "2026-01-01T10:00:00Z"
+}
+`
+
+Response `201`:
+
+`json
+{
+  "reportId": "�",
+  "recipientReference": "�",
+  "status": "SUBMITTED",
+  "submittedAt": "�"
+}
+`
+
+### GET /api/intelligence/recipients/{recipientReference}/summary
+
+Returns an evidence-only summary for a recipient the caller has a relationship
+with. Never includes other users' reports or evidence detail.
+
+### GET /api/intelligence/reports
+
+Paged list of the caller's own reports.
+
+### GET /api/intelligence/reports/{reportId}
+
+One of the caller's own reports.
+
+### GET /api/intelligence/summary
+
+Aggregate counts for the caller's reports.
+
+### Admin review
+
+`/api/admin/intelligence/**` requires `users.admin = true`. Admin review is
+the only path that can set `CONFIRMED_FRAUD`; automatic evidence can never
+reach that status. Review actions are recorded in
+`recipient_review_events`.
+
+### Reputation in payment responses
+
+`POST /api/risk/evaluate-automatic` and `POST /api/payments/guarded` include
+an identifier-free `recipientReputation` object:
+
+`json
+{
+  "status": "MATCH_FOUND",
+  "reputationStatus": "REPORTED",
+  "category": "ELEVATED_RISK",
+  "score": 40,
+  "points": 10,
+  "matchLevel": "EXACT_VERIFIED_MATCH",
+  "identityConfidence": "VERY_HIGH",
+  "evidenceCount": 2,
+  "reportCount": 2,
+  "reason": "GLOBAL_RECIPIENT_REPORTED_EXACT_VERIFIED_MATCH"
+}
+`
+
+`status` is one of `NO_DATA`, `NO_MATCH`, `MATCH_FOUND`,
+`UNAVAILABLE`. `points` is bounded at 40 and already included in the score;
+the engine also emits a `GLOBAL_RECIPIENT_*` finding for display.

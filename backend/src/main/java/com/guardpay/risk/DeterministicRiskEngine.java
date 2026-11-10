@@ -1,5 +1,7 @@
 package com.guardpay.risk;
 
+import com.guardpay.intelligence.domain.ReputationStatus;
+import com.guardpay.intelligence.service.RecipientReputationEvidence;
 import com.guardpay.risk.correlation.CorrelationFinding;
 import com.guardpay.risk.correlation.CorrelationResult;
 import java.math.BigDecimal;
@@ -40,7 +42,7 @@ public class DeterministicRiskEngine {
   public static final int REPEATED_ATTEMPT_WINDOW_MINUTES = 10;
 
   public RiskEvaluationResult evaluate(RiskEvaluationRequest request) {
-    return evaluate(request, null);
+    return evaluate(request, null, null);
   }
 
   /**
@@ -51,6 +53,18 @@ public class DeterministicRiskEngine {
    */
   public RiskEvaluationResult evaluate(
       RiskEvaluationRequest request, CorrelationResult correlation) {
+    return evaluate(request, correlation, null);
+  }
+
+  /**
+   * Full evaluation including the bounded global-recipient reputation
+   * contribution. Reputation is evidence-only: it can raise the score, never
+   * lower it, and can never confirm fraud by itself.
+   */
+  public RiskEvaluationResult evaluate(
+      RiskEvaluationRequest request,
+      CorrelationResult correlation,
+      RecipientReputationEvidence recipientReputation) {
     Objects.requireNonNull(request, "request must not be null");
 
     List<RiskFinding> findings = new ArrayList<>();
@@ -84,8 +98,43 @@ public class DeterministicRiskEngine {
     findings.add(finding(RiskSignal.GEOGRAPHIC_BEHAVIOR_DEVIATION, request.geographicBehaviorDeviation()));
     findings.add(finding(RiskSignal.DEVICE_BEHAVIOR_DEVIATION, request.deviceBehaviorDeviation()));
     findings.add(finding(RiskSignal.OVERALL_BEHAVIOR_DEVIATION, request.overallBehaviorDeviation()));
+    findings.add(finding(RiskSignal.FIRST_HIGH_VALUE_PAYMENT, request.firstHighValuePayment()));
+    findings.add(finding(RiskSignal.FIRST_HIGH_VALUE_TO_RECIPIENT, request.firstHighValueToRecipient()));
+    findings.add(finding(RiskSignal.FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE, request.firstPaymentToRecipientHighValue()));
+    findings.add(finding(RiskSignal.SIGNIFICANT_AMOUNT_DEVIATION, request.significantAmountDeviation()));
+    findings.add(finding(RiskSignal.AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM, request.amountExceedsHistoricalMaximum()));
+    findings.add(finding(RiskSignal.RAPID_AMOUNT_ESCALATION, request.rapidAmountEscalation()));
 
-    int total = findings.stream().filter(RiskFinding::triggered).mapToInt(RiskFinding::points).sum();
+    // Rule 6: Overlap handling to prevent double-counting of amount anomalies.
+    // When a specialized first-time high-value signal is triggered,
+    // the generic AMOUNT_DEVIATION finding does not contribute duplicate points.
+    boolean hasSpecificAmountAnomaly =
+        request.firstPaymentToRecipientHighValue()
+            || request.firstHighValuePayment()
+            || request.firstHighValueToRecipient()
+            || request.significantAmountDeviation();
+
+    int reputationPoints =
+        recipientReputation == null ? 0 : Math.max(0, recipientReputation.riskPoints());
+
+    int total =
+        findings.stream()
+            .filter(RiskFinding::triggered)
+            .mapToInt(
+                f -> {
+                  if (hasSpecificAmountAnomaly
+                      && RiskSignal.AMOUNT_DEVIATION.code().equals(f.code())) {
+                    return 0;
+                  }
+                  return f.points();
+                })
+            .sum();
+    // Reputation is added after the deterministic total so its finding is
+    // display/audit evidence only and is never counted twice.
+    RiskFinding reputationFinding = globalReputationFinding(recipientReputation);
+    if (reputationFinding != null) {
+      findings.add(reputationFinding);
+    }
     int correlationPoints =
         correlation == null ? 0 : Math.max(0, correlation.contributionPoints());
     List<CorrelationFinding> correlationFindings =
@@ -94,7 +143,7 @@ public class DeterministicRiskEngine {
     int score =
         hardBlocked
             ? RiskLevels.MAX_SCORE
-            : Math.min(total + correlationPoints, RiskLevels.MAX_SCORE);
+            : Math.min(total + correlationPoints + reputationPoints, RiskLevels.MAX_SCORE);
     RiskLevel riskLevel = RiskLevels.levelFor(score);
 
     return new RiskEvaluationResult(
@@ -104,7 +153,37 @@ public class DeterministicRiskEngine {
         List.copyOf(findings),
         buildExplanation(findings, hardBlocked, correlationFindings),
         correlationFindings,
-        correlationPoints);
+        correlationPoints,
+        reputationPoints);
+  }
+
+  private RiskFinding globalReputationFinding(RecipientReputationEvidence reputation) {
+    if (reputation == null || !reputation.contributes()) {
+      return null;
+    }
+    ReputationStatus status = reputation.reputationStatus();
+    String code = "GLOBAL_RECIPIENT_" + status.name();
+    String title =
+        switch (status) {
+          case CONFIRMED_FRAUD -> "Recipient confirmed in fraud reports";
+          case CORROBORATED_SUSPICIOUS -> "Recipient corroborated as suspicious";
+          case UNDER_REVIEW -> "Recipient under fraud review";
+          case REPORTED -> "Recipient reported for fraud";
+          default -> "Global recipient risk evidence";
+        };
+    String description =
+        switch (status) {
+          case CONFIRMED_FRAUD ->
+              "Independent global intelligence has confirmed fraud involving this recipient.";
+          case CORROBORATED_SUSPICIOUS ->
+              "Multiple independent sources corroborate suspicious activity by this recipient.";
+          case UNDER_REVIEW ->
+              "This recipient is under review in GuardPay's global fraud intelligence network.";
+          case REPORTED ->
+              "Other users have reported this recipient for suspected fraud.";
+          default -> "Global recipient intelligence contains risk evidence for this recipient.";
+        };
+    return new RiskFinding(code, title, description, reputation.riskPoints(), true);
   }
 
   private boolean isLargeAmount(RiskEvaluationRequest request) {

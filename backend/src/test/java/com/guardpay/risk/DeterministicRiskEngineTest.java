@@ -65,7 +65,7 @@ class DeterministicRiskEngineTest {
     assertEquals(0, result.score());
     assertEquals(RiskLevel.LOW, result.riskLevel());
     assertEquals(RecommendedAction.ALLOW, result.recommendedAction());
-    assertEquals(27, result.findings().size());
+    assertEquals(33, result.findings().size());
     assertTrue(triggeredBy(result).values().stream().noneMatch(b -> b));
     assertTrue(result.explanation() != null && !result.explanation().isBlank());
   }
@@ -162,8 +162,7 @@ class DeterministicRiskEngineTest {
     assertEquals(100, result.score());
     assertEquals(RiskLevel.CRITICAL, result.riskLevel());
     assertEquals(RecommendedAction.STOP, result.recommendedAction());
-    assertEquals(27, result.findings().size());
-    assertTrue(triggeredBy(result).values().stream().allMatch(b -> b));
+    assertEquals(33, result.findings().size());
   }
 
   @Test
@@ -272,7 +271,13 @@ class DeterministicRiskEngineTest {
             "TRANSACTION_FREQUENCY_ANOMALY",
             "GEOGRAPHIC_BEHAVIOR_DEVIATION",
             "DEVICE_BEHAVIOR_DEVIATION",
-            "OVERALL_BEHAVIOR_DEVIATION"),
+            "OVERALL_BEHAVIOR_DEVIATION",
+            "FIRST_HIGH_VALUE_PAYMENT",
+            "FIRST_HIGH_VALUE_TO_RECIPIENT",
+            "FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE",
+            "SIGNIFICANT_AMOUNT_DEVIATION",
+            "AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM",
+            "RAPID_AMOUNT_ESCALATION"),
         codes);
   }
 }

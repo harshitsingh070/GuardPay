@@ -42,6 +42,11 @@ export function classifyFraudPattern({
   const accountTakeover = ['NEW_DEVICE', 'NEW_GEO', 'IMPOSSIBLE_TRAVEL', 'VPN_PROXY'];
   const socialEngineering = ['SOCIAL_ENGINEERING', 'URGENT_LANGUAGE', 'SUSPICIOUS_URL'];
   const velocity = ['REPEATED_ATTEMPTS', 'VELOCITY_HOURLY', 'VELOCITY_DAILY'];
+  const firstTimeHighValue = [
+    'FIRST_HIGH_VALUE_PAYMENT',
+    'FIRST_HIGH_VALUE_TO_RECIPIENT',
+    'FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE',
+  ];
 
   if (triggered.has('BLOCKLISTED_RECIPIENT')) {
     return {
@@ -102,6 +107,15 @@ export function classifyFraudPattern({
       label: 'Rapid payment abuse',
       description:
         'Several payment attempts in a short window can indicate coercion, card testing, or an automated attack.',
+    };
+  }
+
+  if (hasAny(triggered, firstTimeHighValue)) {
+    return {
+      code: 'FIRST_TIME_HIGH_VALUE',
+      label: 'First-time high-value payment',
+      description:
+        'This amount is far above your own established payment history. GuardPay is treating it as an unverified first-time high-value payment, especially when the recipient is new.',
     };
   }
 

@@ -4,6 +4,7 @@ import type {
   RiskFinding,
   RiskLevel,
 } from '@/types/risk';
+import type { RecipientReputation } from '@/types/intelligence';
 import type { VerificationStatus } from '@/types/payment';
 
 // Transaction history contracts. Every value is produced by the backend; the
@@ -48,6 +49,8 @@ export interface RiskAssessmentView {
   correlationFindings: CorrelationFinding[];
   correlationStatus: string | null;
   correlationContribution: number;
+  recipientReputation?: RecipientReputation | null;
+  recipientReputationPoints?: number;
 }
 
 export interface TransactionDetail {

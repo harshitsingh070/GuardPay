@@ -2,6 +2,9 @@ package com.guardpay.risk.signal;
 
 import com.guardpay.behavior.AdaptiveBehavioralAnalyzer;
 import com.guardpay.behavior.dto.BehavioralAnalysisRequest;
+import com.guardpay.intelligence.dto.RecipientReputationDto;
+import com.guardpay.intelligence.service.RecipientReputationEvidence;
+import com.guardpay.intelligence.service.RecipientReputationLookup;
 import com.guardpay.risk.DeterministicRiskEngine;
 import com.guardpay.risk.RiskEvaluationRequest;
 import com.guardpay.risk.RiskEvaluationResult;
@@ -63,6 +66,7 @@ public class AutomaticRiskEvaluationService {
   private final AdaptiveBehavioralAnalyzer behavioralAnalyzer;
   private final DecisionMetrics metrics;
   private final RiskCorrelationEngine correlationEngine;
+  private final RecipientReputationLookup reputationLookup;
 
   /** Legacy/test constructor: metrics, behavioral profiling, and correlation are not recorded. */
   public AutomaticRiskEvaluationService(
@@ -133,7 +137,7 @@ public class AutomaticRiskEvaluationService {
         null);
   }
 
-  @org.springframework.beans.factory.annotation.Autowired
+  /** Test constructor: global recipient reputation is not consulted. */
   public AutomaticRiskEvaluationService(
       PaymentSignalCollectorService collector,
       DeterministicRiskEngine engine,
@@ -145,6 +149,33 @@ public class AutomaticRiskEvaluationService {
       DecisionMetrics metrics,
       AdaptiveBehavioralAnalyzer behavioralAnalyzer,
       RiskCorrelationEngine correlationEngine) {
+    this(
+        collector,
+        engine,
+        demoUser,
+        deviceStates,
+        recipients,
+        merchants,
+        aiClient,
+        metrics,
+        behavioralAnalyzer,
+        correlationEngine,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public AutomaticRiskEvaluationService(
+      PaymentSignalCollectorService collector,
+      DeterministicRiskEngine engine,
+      DemoUserService demoUser,
+      DeviceCallStateRepository deviceStates,
+      RecipientRepository recipients,
+      MerchantRepository merchants,
+      AiAnalysisClient aiClient,
+      DecisionMetrics metrics,
+      AdaptiveBehavioralAnalyzer behavioralAnalyzer,
+      RiskCorrelationEngine correlationEngine,
+      RecipientReputationLookup reputationLookup) {
     this.collector = collector;
     this.engine = engine;
     this.demoUser = demoUser;
@@ -155,6 +186,7 @@ public class AutomaticRiskEvaluationService {
     this.metrics = metrics;
     this.behavioralAnalyzer = behavioralAnalyzer;
     this.correlationEngine = correlationEngine;
+    this.reputationLookup = reputationLookup;
   }
 
   public AutomaticEvaluationResponseDto evaluate(AutomaticEvaluationRequestDto dto) {
@@ -255,9 +287,18 @@ public class AutomaticRiskEvaluationService {
       }
     }
 
+    RecipientReputationEvidence reputation = lookupReputation(currentUserId, dto.getRecipientId());
+    if (reputation.contributes()) {
+      List<PaymentSignal> withReputation = new ArrayList<>(collection.signals());
+      withReputation.add(reputationSignal(reputation));
+      collection =
+          new AutomaticSignalCollectionResult(
+              List.copyOf(withReputation), collection.historicalAverage());
+    }
+
     RiskEvaluationRequest engineRequest =
         AutomaticSignalAdapter.toRiskEvaluationRequest(dto.getAmount(), collection);
-    RiskEvaluationResult result = engine.evaluate(engineRequest, correlation);
+    RiskEvaluationResult result = engine.evaluate(engineRequest, correlation, reputation);
 
     log.info(
         "Risk evaluated: score={} level={} action={} ai={} device={} correlation={} triggered={}",
@@ -349,7 +390,41 @@ public class AutomaticRiskEvaluationService {
         aiStatus,
         behavioralProfileStatus,
         correlationFindings,
-        correlation.status());
+        correlation.status(),
+        RecipientReputationDto.from(reputation));
+  }
+
+  private RecipientReputationEvidence lookupReputation(UUID userId, UUID recipientId) {
+    if (reputationLookup == null || userId == null || recipientId == null) {
+      return RecipientReputationEvidence.unavailable();
+    }
+    try {
+      RecipientReputationEvidence evidence = reputationLookup.lookup(userId, recipientId);
+      return evidence == null ? RecipientReputationEvidence.unavailable() : evidence;
+    } catch (RuntimeException failure) {
+      log.warn("Recipient intelligence lookup failed, continuing deterministically", failure);
+      return RecipientReputationEvidence.unavailable();
+    }
+  }
+
+  private static PaymentSignal reputationSignal(RecipientReputationEvidence reputation) {
+    PaymentSignalType type =
+        switch (reputation.reputationStatus()) {
+          case CONFIRMED_FRAUD -> PaymentSignalType.GLOBAL_RECIPIENT_CONFIRMED_FRAUD;
+          case CORROBORATED_SUSPICIOUS -> PaymentSignalType.GLOBAL_RECIPIENT_CORROBORATED_SUSPICIOUS;
+          case UNDER_REVIEW -> PaymentSignalType.GLOBAL_RECIPIENT_UNDER_REVIEW;
+          default -> PaymentSignalType.GLOBAL_RECIPIENT_REPORTED;
+        };
+    String evidence =
+        "Global recipient intelligence: status="
+            + reputation.reputationStatus().name()
+            + ", reports="
+            + reputation.reportCount()
+            + ", evidence="
+            + reputation.evidenceCount()
+            + ", match="
+            + reputation.matchLevel().name();
+    return new PaymentSignal(type, true, SignalSource.GLOBAL_INTELLIGENCE, null, evidence);
   }
 
   /**

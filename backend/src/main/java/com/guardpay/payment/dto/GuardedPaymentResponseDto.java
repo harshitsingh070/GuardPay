@@ -1,6 +1,7 @@
 package com.guardpay.payment.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.guardpay.intelligence.dto.RecipientReputationDto;
 import com.guardpay.payment.GuardedPaymentStatus;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
@@ -32,11 +33,38 @@ public record GuardedPaymentResponseDto(
       String aiStatus,
       String behavioralProfileStatus,
       List<CorrelationFindingDto> correlationFindings,
-      String correlationStatus) {
+      String correlationStatus,
+      RecipientReputationDto recipientReputation) {
 
     public GuardedRiskDto {
       correlationFindings =
           correlationFindings == null ? List.of() : List.copyOf(correlationFindings);
+    }
+
+    /** Pre-reputation contract for callers that do not run the intelligence layer. */
+    public GuardedRiskDto(
+        int score,
+        RiskLevel riskLevel,
+        RecommendedAction recommendedAction,
+        String explanation,
+        List<PaymentSignalDto> automaticSignals,
+        List<RiskFindingDto> findings,
+        String aiStatus,
+        String behavioralProfileStatus,
+        List<CorrelationFindingDto> correlationFindings,
+        String correlationStatus) {
+      this(
+          score,
+          riskLevel,
+          recommendedAction,
+          explanation,
+          automaticSignals,
+          findings,
+          aiStatus,
+          behavioralProfileStatus,
+          correlationFindings,
+          correlationStatus,
+          null);
     }
 
     /** Pre-correlation contract for callers that do not run the correlation layer. */

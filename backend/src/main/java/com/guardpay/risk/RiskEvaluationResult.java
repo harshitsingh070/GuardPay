@@ -9,9 +9,11 @@ import java.util.List;
  * explanation generated without any LLM.
  *
  * <p>{@code correlationFindings} and {@code correlationContribution} are the
- * bounded, already de-duplicated contribution of the correlation layer. The
- * five-argument constructor keeps the pre-correlation contract intact for
- * callers that do not run correlation.
+ * bounded, already de-duplicated contribution of the correlation layer.
+ * {@code recipientReputationContribution} is the bounded global-reputation
+ * contribution; it is included in the score but kept separate for audit.
+ * The shorter constructors preserve earlier contracts for callers that do not
+ * run those layers.
  */
 public record RiskEvaluationResult(
     int score,
@@ -20,7 +22,8 @@ public record RiskEvaluationResult(
     List<RiskFinding> findings,
     String explanation,
     List<CorrelationFinding> correlationFindings,
-    int correlationContribution) {
+    int correlationContribution,
+    int recipientReputationContribution) {
 
   public RiskEvaluationResult {
     correlationFindings =
@@ -32,7 +35,26 @@ public record RiskEvaluationResult(
       RiskLevel riskLevel,
       RecommendedAction recommendedAction,
       List<RiskFinding> findings,
+      String explanation,
+      List<CorrelationFinding> correlationFindings,
+      int correlationContribution) {
+    this(
+        score,
+        riskLevel,
+        recommendedAction,
+        findings,
+        explanation,
+        correlationFindings,
+        correlationContribution,
+        0);
+  }
+
+  public RiskEvaluationResult(
+      int score,
+      RiskLevel riskLevel,
+      RecommendedAction recommendedAction,
+      List<RiskFinding> findings,
       String explanation) {
-    this(score, riskLevel, recommendedAction, findings, explanation, List.of(), 0);
+    this(score, riskLevel, recommendedAction, findings, explanation, List.of(), 0, 0);
   }
 }

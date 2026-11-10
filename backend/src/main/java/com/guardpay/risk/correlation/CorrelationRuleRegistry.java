@@ -263,7 +263,112 @@ public final class CorrelationRuleRegistry {
                 EvidenceFamily.RECIPIENT,
                 PaymentSignalType.NEW_RECIPIENT,
                 PaymentSignalType.RECIPIENT_BEHAVIOR_DEVIATION),
-            req(EvidenceFamily.BEHAVIORAL_AGGREGATE, PaymentSignalType.OVERALL_BEHAVIOR_DEVIATION)));
+            req(EvidenceFamily.BEHAVIORAL_AGGREGATE, PaymentSignalType.OVERALL_BEHAVIOR_DEVIATION)),
+        rule(
+            "FIRST_TIME_HIGH_VALUE_COMBO",
+            CorrelationCategory.COUNTERPARTY_RISK,
+            "First-time payment to recipient with high amount deviation",
+            "A first-time recipient and a substantial amount deviation co-occur.",
+            0.95,
+            req(
+                EvidenceFamily.RECIPIENT,
+                PaymentSignalType.NEW_RECIPIENT,
+                PaymentSignalType.FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE),
+            req(
+                EvidenceFamily.AMOUNT,
+                PaymentSignalType.FIRST_HIGH_VALUE_PAYMENT,
+                PaymentSignalType.SIGNIFICANT_AMOUNT_DEVIATION,
+                PaymentSignalType.AMOUNT_DEVIATION,
+                PaymentSignalType.AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM)),
+        rule(
+            "HIGH_VALUE_ACCOUNT_TAKEOVER_COMBO",
+            CorrelationCategory.ACCOUNT_TAKEOVER,
+            "High-value payment with device and location deviation",
+            "A high-value amount deviation occurs together with a new device and unfamiliar location.",
+            1.0,
+            req(
+                EvidenceFamily.AMOUNT,
+                PaymentSignalType.FIRST_HIGH_VALUE_PAYMENT,
+                PaymentSignalType.SIGNIFICANT_AMOUNT_DEVIATION,
+                PaymentSignalType.AMOUNT_DEVIATION),
+            req(
+                EvidenceFamily.DEVICE,
+                PaymentSignalType.NEW_DEVICE,
+                PaymentSignalType.DEVICE_BEHAVIOR_DEVIATION),
+            req(
+                EvidenceFamily.GEOLOCATION,
+                PaymentSignalType.NEW_GEO,
+                PaymentSignalType.GEOGRAPHIC_BEHAVIOR_DEVIATION,
+                PaymentSignalType.IMPOSSIBLE_TRAVEL)),
+        rule(
+            "HIGH_VALUE_SOCIAL_ENGINEERING_COMBO",
+            CorrelationCategory.SOCIAL_ENGINEERING,
+            "High-value payment under social engineering",
+            "A high-value payment to an unfamiliar recipient coincides with urgent language or scam indicators.",
+            1.0,
+            req(
+                EvidenceFamily.AMOUNT,
+                PaymentSignalType.FIRST_HIGH_VALUE_PAYMENT,
+                PaymentSignalType.SIGNIFICANT_AMOUNT_DEVIATION,
+                PaymentSignalType.AMOUNT_DEVIATION),
+            req(
+                EvidenceFamily.RECIPIENT,
+                PaymentSignalType.NEW_RECIPIENT,
+                PaymentSignalType.FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE),
+            req(
+                EvidenceFamily.CONTENT,
+                PaymentSignalType.URGENT_LANGUAGE,
+                PaymentSignalType.PRESSURE_TO_PAY,
+                PaymentSignalType.IMPERSONATION,
+                PaymentSignalType.SOCIAL_ENGINEERING_DETECTED,
+                PaymentSignalType.SCAM_PATTERN)),
+        rule(
+            "HIGH_VALUE_SUSPICIOUS_RECIPIENT_COMBO",
+            CorrelationCategory.COUNTERPARTY_RISK,
+            "High-value payment to suspicious or blocked recipient",
+            "A high-value payment deviation targets a recipient with negative fraud evidence.",
+            1.0,
+            req(
+                EvidenceFamily.AMOUNT,
+                PaymentSignalType.FIRST_HIGH_VALUE_PAYMENT,
+                PaymentSignalType.SIGNIFICANT_AMOUNT_DEVIATION,
+                PaymentSignalType.AMOUNT_DEVIATION),
+            req(
+                EvidenceFamily.BLOCKLIST,
+                PaymentSignalType.BLOCKLISTED_RECIPIENT,
+                PaymentSignalType.KNOWN_RECIPIENT_SCAM)),
+        rule(
+            "RAPID_FINANCIAL_ESCALATION_COMBO",
+            CorrelationCategory.VELOCITY_STRUCTURING,
+            "Rapid payment amount escalation with velocity",
+            "Recent payments show a sudden steep escalation combined with elevated velocity.",
+            0.9,
+            req(
+                EvidenceFamily.AMOUNT,
+                PaymentSignalType.RAPID_AMOUNT_ESCALATION),
+            req(
+                EvidenceFamily.VELOCITY,
+                PaymentSignalType.REPEATED_ATTEMPTS,
+                PaymentSignalType.VELOCITY_HOURLY,
+                PaymentSignalType.VELOCITY_DAILY,
+                PaymentSignalType.TRANSACTION_FREQUENCY_ANOMALY)),
+        rule(
+            "HIGH_VALUE_BEHAVIORAL_DEVIATION_COMBO",
+            CorrelationCategory.BEHAVIORAL_SHIFT,
+            "High-value payment with timing and frequency anomalies",
+            "A high-value payment coincides with abnormal hour and frequency deviation.",
+            0.85,
+            req(
+                EvidenceFamily.AMOUNT,
+                PaymentSignalType.FIRST_HIGH_VALUE_PAYMENT,
+                PaymentSignalType.SIGNIFICANT_AMOUNT_DEVIATION,
+                PaymentSignalType.AMOUNT_DEVIATION),
+            req(EvidenceFamily.TIME, PaymentSignalType.UNUSUAL_PAYMENT_HOUR),
+            req(
+                EvidenceFamily.VELOCITY,
+                PaymentSignalType.TRANSACTION_FREQUENCY_ANOMALY,
+                PaymentSignalType.REPEATED_ATTEMPTS,
+                PaymentSignalType.VELOCITY_HOURLY)));
   }
 
   private static List<UnsupportedCorrelation> unsupportedCorrelations() {

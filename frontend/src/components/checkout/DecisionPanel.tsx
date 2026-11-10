@@ -1,8 +1,11 @@
 import { AlertOctagon, AlertTriangle, ShieldCheck } from 'lucide-react';
 import CorrelationFindings from '@/components/CorrelationFindings';
+import FirstTimeHighValueCard from '@/components/FirstTimeHighValueCard';
+import RecipientReputationCard from '@/components/RecipientReputationCard';
 import RiskBadge from '@/components/RiskBadge';
 import type { GuardedPaymentResponse } from '@/types/payment';
 import { classifyFraudPattern } from '@/utils/fraud-pattern';
+import { isHighValueFinding } from '@/utils/high-value';
 import { getRiskTheme } from '@/utils/risk-styles';
 
 const COPY = {
@@ -28,7 +31,9 @@ export default function DecisionPanel({ result }: { result: GuardedPaymentRespon
   const action = result.risk.recommendedAction;
   const copy = COPY[action];
   const theme = getRiskTheme(result.risk.riskLevel);
-  const triggered = result.risk.findings.filter((finding) => finding.triggered);
+  const triggered = result.risk.findings.filter(
+    (finding) => finding.triggered && !isHighValueFinding(finding),
+  );
   const top = triggered.slice(0, 3);
   const fraudPattern = classifyFraudPattern({
     findings: result.risk.findings,
@@ -62,6 +67,8 @@ export default function DecisionPanel({ result }: { result: GuardedPaymentRespon
           </p>
         </div>
       )}
+
+      <FirstTimeHighValueCard findings={result.risk.findings} className="mt-4" />
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <span>
@@ -126,6 +133,11 @@ export default function DecisionPanel({ result }: { result: GuardedPaymentRespon
       {result.risk.correlationFindings.length > 0 && (
         <CorrelationFindings findings={result.risk.correlationFindings} className="mt-4" />
       )}
+
+      <RecipientReputationCard
+        reputation={result.risk.recipientReputation}
+        className="mt-4"
+      />
     </section>
   );
 }

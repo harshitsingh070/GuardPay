@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   Timer,
+  TrendingUp,
   Wallet,
 } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -30,10 +31,15 @@ import {
   getBehavioralProfile,
   getBehavioralSummary,
   getDashboardSummary,
+  getHighValueBaseline,
   getTotpStatus,
   setAiEnabled,
 } from '@/services/api-client';
-import type { BehavioralProfile, BehavioralProfileSummary } from '@/types/index';
+import type {
+  BehavioralProfile,
+  BehavioralProfileSummary,
+  HighValueBaseline,
+} from '@/types/index';
 import type { DashboardSummary } from '@/types/dashboard';
 import type { TotpStatus } from '@/types/mfa';
 
@@ -59,10 +65,10 @@ const PIPELINE = [
   'Store the final ALLOW, VERIFY, or STOP decision for auditing.',
 ];
 
-function money(value: number): string {
+function money(value: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }
@@ -93,6 +99,7 @@ export default function DashboardPage() {
   const [behavioralProfile, setBehavioralProfile] = useState<BehavioralProfile | null>(null);
   const [behavioralSummary, setBehavioralSummary] = useState<BehavioralProfileSummary | null>(null);
   const [behavioralLoading, setBehavioralLoading] = useState(true);
+  const [highValueBaseline, setHighValueBaseline] = useState<HighValueBaseline | null>(null);
 
   const load = useCallback(() => {
     setReload((current) => current + 1);
@@ -147,6 +154,20 @@ export default function DashboardPage() {
       })
       .finally(() => {
         if (active) setBehavioralLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getHighValueBaseline()
+      .then((baseline) => {
+        if (active) setHighValueBaseline(baseline);
+      })
+      .catch(() => {
+        if (active) setHighValueBaseline(null);
       });
     return () => {
       active = false;
@@ -541,6 +562,79 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+
+              <div className="gp-card p-5 sm:p-6">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-guardpay-blue" aria-hidden="true" />
+                  <h2 className="text-lg font-bold text-guardpay-ink">High-value baseline</h2>
+                  {highValueBaseline !== null && (
+                    <span
+                      className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        highValueBaseline.established
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-guardpay-line text-guardpay-muted'
+                      }`}
+                    >
+                      {highValueBaseline.currency}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-guardpay-muted">
+                  Your own completed payment history in one currency. First-time high-value
+                  payments are compared against this range.
+                </p>
+
+                {highValueBaseline === null ? (
+                  <p className="mt-4 rounded-xl bg-guardpay-canvas p-3 text-xs text-guardpay-muted">
+                    No high-value baseline available yet.
+                  </p>
+                ) : !highValueBaseline.established ? (
+                  <p className="mt-4 rounded-xl bg-guardpay-canvas p-3 text-xs text-guardpay-muted">
+                    Not enough completed {highValueBaseline.currency} payments to establish a
+                    reliable baseline. GuardPay does not invent one.
+                  </p>
+                ) : (
+                  <>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <BaselineStat
+                        label="Median payment"
+                        value={money(highValueBaseline.medianAmount ?? 0, highValueBaseline.currency)}
+                      />
+                      <BaselineStat
+                        label="90th percentile"
+                        value={money(highValueBaseline.p90Amount ?? 0, highValueBaseline.currency)}
+                      />
+                      <BaselineStat
+                        label="95th percentile"
+                        value={money(highValueBaseline.p95Amount ?? 0, highValueBaseline.currency)}
+                      />
+                      <BaselineStat
+                        label="Historical max"
+                        value={money(
+                          highValueBaseline.historicalMax ?? 0,
+                          highValueBaseline.currency,
+                        )}
+                      />
+                    </div>
+                    {highValueBaseline.typicalHighValueThreshold !== null && (
+                      <p className="mt-3 text-xs text-guardpay-muted">
+                        Typical high-value threshold:{' '}
+                        <span className="font-semibold text-guardpay-ink">
+                          {money(
+                            highValueBaseline.typicalHighValueThreshold,
+                            highValueBaseline.currency,
+                          )}
+                        </span>
+                      </p>
+                    )}
+                    <p className="mt-3 text-[11px] text-guardpay-muted">
+                      Based on {highValueBaseline.transactionCount} completed payment
+                      {highValueBaseline.transactionCount === 1 ? '' : 's'}. A new recipient is
+                      treated as unverified, not automatically fraudulent.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           ) : (
             <div className="gp-card mt-6 p-6 text-center text-guardpay-muted text-sm">
@@ -773,6 +867,17 @@ function SmallStat({
         </p>
         <p className="text-lg font-bold tabular-nums text-guardpay-ink">{value}</p>
       </div>
+    </div>
+  );
+}
+
+function BaselineStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-guardpay-line bg-white p-2.5">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-guardpay-muted">
+        {label}
+      </p>
+      <p className="mt-0.5 text-sm font-bold tabular-nums text-guardpay-ink">{value}</p>
     </div>
   );
 }

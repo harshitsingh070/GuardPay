@@ -4,6 +4,7 @@ import type {
   RiskFinding,
   RiskLevel,
 } from '@/types/risk';
+import type { RecipientReputation } from '@/types/intelligence';
 
 // Guarded payment contracts — business context in, server decision out.
 // No risk fields exist on the request: the backend derives every signal.
@@ -84,6 +85,7 @@ export interface GuardedPaymentResponse {
     behavioralProfileStatus?: string;
     correlationFindings: CorrelationFinding[];
     correlationStatus: string;
+    recipientReputation?: RecipientReputation | null;
   };
   paymentStatus: GuardedPaymentStatus;
   paypalOrder: GuardedPaypalOrder | null;

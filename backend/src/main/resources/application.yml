@@ -53,6 +53,50 @@ guardpay:
     login-lockout-minutes: ${GUARDPAY_AUTH_LOGIN_LOCKOUT_MINUTES:15}
     session-cleanup-initial-delay-ms: ${GUARDPAY_AUTH_SESSION_CLEANUP_INITIAL_DELAY_MS:60000}
     session-cleanup-interval-ms: ${GUARDPAY_AUTH_SESSION_CLEANUP_INTERVAL_MS:3600000}
+  # First-Time High-Value Payment Detection. All thresholds are configurable so
+  # the deterministic engine can be tuned without code changes.
+  risk:
+    high-value:
+      enabled: ${GUARDPAY_HIGH_VALUE_ENABLED:true}
+      min-transactions-for-baseline: ${GUARDPAY_HIGH_VALUE_MIN_BASELINE:5}
+      cold-start-threshold: ${GUARDPAY_HIGH_VALUE_COLD_START:10}
+      established-threshold: ${GUARDPAY_HIGH_VALUE_ESTABLISHED:20}
+      min-meaningful-deviation-ratio: ${GUARDPAY_HIGH_VALUE_MIN_DEVIATION:1.50}
+      modified-z-significant-threshold: ${GUARDPAY_HIGH_VALUE_Z_SIGNIFICANT:3.00}
+      modified-z-extreme-threshold: ${GUARDPAY_HIGH_VALUE_Z_EXTREME:4.50}
+      zero-mad-threshold: ${GUARDPAY_HIGH_VALUE_ZERO_MAD:0.01}
+      zero-mad-significant-ratio: ${GUARDPAY_HIGH_VALUE_ZERO_MAD_RATIO:2.50}
+      amount-within-scale-z-threshold: ${GUARDPAY_HIGH_VALUE_SCALE_Z:2.50}
+      normal-amount-ratio-ceiling: ${GUARDPAY_HIGH_VALUE_NORMAL_RATIO:2.00}
+      percentile-high-value: ${GUARDPAY_HIGH_VALUE_PERCENTILE:0.90}
+      percentile-extreme: ${GUARDPAY_HIGH_VALUE_EXTREME_PERCENTILE:0.95}
+      historical-max-escalation-factor: ${GUARDPAY_HIGH_VALUE_MAX_FACTOR:1.25}
+      recipient-escalation-factor: ${GUARDPAY_HIGH_VALUE_RECIPIENT_FACTOR:3.00}
+      recipient-max-escalation-factor: ${GUARDPAY_HIGH_VALUE_RECIPIENT_MAX_FACTOR:2.00}
+      recipient-min-modified-z: ${GUARDPAY_HIGH_VALUE_RECIPIENT_MIN_Z:2.00}
+      new-recipient-critical-ratio: ${GUARDPAY_HIGH_VALUE_NEW_RECIPIENT_CRITICAL:5.00}
+      recipient-critical-ratio: ${GUARDPAY_HIGH_VALUE_RECIPIENT_CRITICAL:4.00}
+      extreme-ratio-over-max: ${GUARDPAY_HIGH_VALUE_EXTREME_MAX_RATIO:2.00}
+      recent-window-days: ${GUARDPAY_HIGH_VALUE_RECENT_WINDOW_DAYS:7}
+      medium-window-days: ${GUARDPAY_HIGH_VALUE_MEDIUM_WINDOW_DAYS:30}
+      long-window-days: ${GUARDPAY_HIGH_VALUE_LONG_WINDOW_DAYS:90}
+      rapid-escalation-window-days: ${GUARDPAY_HIGH_VALUE_RAPID_WINDOW_DAYS:7}
+      rapid-escalation-factor: ${GUARDPAY_HIGH_VALUE_RAPID_FACTOR:4.00}
+      max-signal-contribution: ${GUARDPAY_HIGH_VALUE_MAX_SIGNAL:25}
+      confidence-discount-cold-start: ${GUARDPAY_HIGH_VALUE_CONFIDENCE_COLD_START:0.40}
+      confidence-initializing: ${GUARDPAY_HIGH_VALUE_CONFIDENCE_INITIALIZING:0.70}
+      confidence-established: ${GUARDPAY_HIGH_VALUE_CONFIDENCE_ESTABLISHED:0.90}
+  # Global recipient reputation network. Identifiers are HMAC-SHA-256 hashed;
+  # without a key the feature reports UNAVAILABLE instead of "clean".
+  intelligence:
+    enabled: ${GUARDPAY_INTELLIGENCE_ENABLED:true}
+    active-key-version: ${GUARDPAY_INTELLIGENCE_ACTIVE_KEY_VERSION:1}
+    hmac-keys:
+      "1": ${GUARDPAY_INTELLIGENCE_HMAC_KEY_V1:}
+    report-rate-limit-per-hour: ${GUARDPAY_INTELLIGENCE_REPORT_RATE_LIMIT_HOURLY:5}
+    report-rate-limit-per-recipient-per-day: ${GUARDPAY_INTELLIGENCE_REPORT_RATE_LIMIT_RECIPIENT_DAILY:1}
+    evidence-half-life-days: ${GUARDPAY_INTELLIGENCE_EVIDENCE_HALF_LIFE_DAYS:180}
+    max-description-length: ${GUARDPAY_INTELLIGENCE_MAX_DESCRIPTION_LENGTH:1000}
   paypal:
     base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
     client-id: ${PAYPAL_CLIENT_ID:}

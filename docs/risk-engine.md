@@ -66,6 +66,12 @@ contribute points.
 | 25 | `GEOGRAPHIC_BEHAVIOR_DEVIATION` | +15 | Behavioral profile | Payment from a location outside the user's established geographic pattern. |
 | 26 | `DEVICE_BEHAVIOR_DEVIATION` | +15 | Behavioral profile | Payment from a device not previously used for the account. |
 | 27 | `OVERALL_BEHAVIOR_DEVIATION` | +20 | Behavioral profile | Multiple behavioral dimensions deviate simultaneously. |
+| 28 | `FIRST_HIGH_VALUE_PAYMENT` | +20 | Behavioral profile | First payment of this magnitude for the account: above the historical maximum and a statistically significant deviation. |
+| 29 | `FIRST_HIGH_VALUE_TO_RECIPIENT` | +20 | Behavioral profile | Existing recipient: amount far above that recipient's previous maximum and median. |
+| 30 | `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` | +25 | Behavioral profile | New recipient and an amount meaningfully above the user's established distribution. |
+| 31 | `SIGNIFICANT_AMOUNT_DEVIATION` | +20 | Behavioral profile | Modified Z-score or zero-MAD ratio indicates a significant amount outlier. |
+| 32 | `AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM` | +15 | Behavioral profile | Amount exceeds the previous largest completed payment without another stronger amount classification. |
+| 33 | `RAPID_AMOUNT_ESCALATION` | +15 | Behavioral profile | Amount jumps at least 4× over the recent 7-day maximum and above p75. |
 
 Behavioral signals are computed by `AdaptiveBehavioralAnalyzer` against a
 per-user learned baseline stored in `user_behavior_profiles`. They are evidence
@@ -153,7 +159,7 @@ A single AI social finding is not enough by itself; the five AI social codes
 ## 6. Scoring algorithm
 
 1. Start at `0`.
-2. Evaluate all 20 signals in fixed order.
+2. Evaluate all catalogued signals in fixed order.
 3. Add the points of each triggered signal.
 4. Add the bounded correlation contribution (section 10, `0`–`25` points).
    Correlation can only raise the score; it never lowers it.
@@ -223,11 +229,27 @@ baseline. It produces complementary `PaymentSignal`s with
 - `GEOGRAPHIC_BEHAVIOR_DEVIATION` (+15): location outside established pattern
 - `DEVICE_BEHAVIOR_DEVIATION` (+15): previously unseen device
 - `OVERALL_BEHAVIOR_DEVIATION` (+20): multiple dimensions deviate simultaneously
+- `FIRST_HIGH_VALUE_PAYMENT` (+20): first payment of this magnitude for the account
+- `FIRST_HIGH_VALUE_TO_RECIPIENT` (+20): amount far above this recipient's history
+- `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` (+25): new recipient plus a meaningful amount deviation
+- `SIGNIFICANT_AMOUNT_DEVIATION` (+20): statistically significant amount outlier
+- `AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM` (+15): above the previous largest payment
+- `RAPID_AMOUNT_ESCALATION` (+15): sudden jump over recent activity
 
 Behavioral signals are evidence only. They never override hard-stop rules, never
 set an action directly, and never bypass `BLOCKLISTED_RECIPIENT`. If profiling is
 unavailable (`INSUFFICIENT_DATA`, `UNAVAILABLE`), no behavioral findings are
 generated and the deterministic engine decides alone.
+
+The first-time high-value engine is a read-only component of the behavioral
+analysis. It compares the payment only with the user's own completed,
+same-currency history, prefers a 90-day baseline, falls back to 30 days and then
+to all eligible history, and treats a new recipient as unverified rather than
+automatically fraudulent. Cold start is reported explicitly and never becomes a
+finding. When a specialized amount signal fires, the generic `AMOUNT_DEVIATION`
+points are suppressed so the same evidence is not counted twice. See
+[`first-time-high-value.md`](first-time-high-value.md) for the full
+classification and configuration reference.
 
 Cold-start handling: users with fewer than 5 completed transactions are marked
 `INSUFFICIENT_DATA` and receive no artificial risk inflation. Profiles become
@@ -283,6 +305,12 @@ repeated observations from one source: `AMOUNT`, `RECIPIENT`, `DEVICE`,
 | `AMOUNT_TIME_FREQUENCY_COMBO` | Behavioral | Amount + time + frequency deviation | 0.85 |
 | `AMOUNT_RECIPIENT_GEO_COMBO` | Behavioral | Amount + recipient + geographic deviation | 0.85 |
 | `BEHAVIORAL_MULTI_DIMENSION_COMBO` | Behavioral | Two or more behavioral deviations | 0.8 |
+| `FIRST_TIME_HIGH_VALUE_COMBO` | Counterparty | New recipient + high-value amount deviation | 0.95 |
+| `HIGH_VALUE_ACCOUNT_TAKEOVER_COMBO` | Account takeover | High-value + new device + new location | 1.0 |
+| `HIGH_VALUE_SOCIAL_ENGINEERING_COMBO` | Social engineering | High-value + unfamiliar recipient + content/social evidence | 1.0 |
+| `HIGH_VALUE_SUSPICIOUS_RECIPIENT_COMBO` | Counterparty | High-value + blocklist or known recipient scam | 1.0 |
+| `RAPID_FINANCIAL_ESCALATION_COMBO` | Velocity/structuring | Rapid escalation + velocity | 0.9 |
+| `HIGH_VALUE_BEHAVIORAL_DEVIATION_COMBO` | Behavioral | High-value + unusual hour + frequency anomaly | 0.85 |
 
 Each rule declares a minimum interaction strength (`0.12` by default) and a
 minimum per-signal confidence (`0.5` by default). A rule fires only when every
@@ -350,8 +378,10 @@ never "definitely fraud" and never "94% probability of fraud".
 Guarded payments persist the transaction, payment context, risk assessment, and
 findings. `risk_assessment_findings` keeps decisions explainable after the fact.
 `risk_assessments` also stores `correlation_findings` (JSON), `correlation_status`,
-and `correlation_contribution` (see migration `V28`). Transaction detail serves
-the stored assessment, correlation evidence, and verification outcome.
+and `correlation_contribution` (see migration `V28`). Migration `V29` adds
+`recipient_reputation` (identifier-free JSON) and `recipient_reputation_points`
+for audit. Transaction detail serves the stored assessment, correlation
+evidence, reputation evidence, and verification outcome.
 
 The automatic evaluation endpoint (`POST /api/risk/evaluate-automatic`) is
 read-only for history and does not persist an assessment. The legacy
@@ -373,6 +403,38 @@ and is not used by the guarded flow.
   (`fraud-benchmark/correlation/correlation-scenarios.jsonl`) and asserts that
   correlation never lowers a score, never weakens an action, escalates the
   intended combinations, and reports an exact, bounded contribution.
+- `FirstTimeHighValueDetectionEngineTest` covers normal, new-recipient,
+  established, zero-MAD, cold-start, currency-separation, rapid-escalation, and
+  kill-switch behavior.
+- `HighValuePipelineIntegrationTest` verifies that high-value evidence reaches
+  the deterministic engine and that a disabled engine emits no signal.
+- `HighValueBenchmarkTest` runs a dedicated 10-scenario set with the engine
+  enabled and disabled and asserts detection, cold start, and zero false
+  positives.
 - The synthetic fraud benchmark (`docs/fraud-benchmark.md`) runs the real
   collector and engine with mocked repositories; it reports regression metrics,
   never real-world accuracy.
+
+## 14. Global recipient reputation (evidence-only)
+
+Recipient reputation is an independent evidence source, never a decision
+authority. The payment pipeline performs a read-only lookup before the engine
+runs; a missing HMAC key, missing recipient, or repository failure yields
+`UNAVAILABLE` and contributes zero points. Missing data is never treated as
+`clean`.
+
+- Identifiers are normalized per type and stored only as keyed HMAC-SHA-256
+  digests. Raw emails, PayPal account ids, and report text are never persisted
+  in the intelligence tables.
+- `ReputationStatus` is a conservative lifecycle: user reports can reach
+  `REPORTED`, provider outcomes `UNDER_REVIEW`, independent corroboration
+  `CORROBORATED_SUSPICIOUS`, but only an explicit admin review can set
+  `CONFIRMED_FRAUD`.
+- Risk points are bounded at **40** and scaled by match level and identity
+  confidence. They are added to the score exactly once; the corresponding
+  finding is display/audit evidence and is excluded from the deterministic
+  finding total.
+- Evidence aggregation uses a probabilistic-OR with group decay and a recency
+  half-life, so repeated copies of one report do not become independent facts.
+- Disputes and refunds are low-weight, unverified provider outcomes. They never
+  confirm fraud and never change a payment result.

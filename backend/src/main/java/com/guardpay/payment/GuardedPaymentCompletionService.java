@@ -256,6 +256,8 @@ public class GuardedPaymentCompletionService {
     assessment.setCorrelationFindings(serializeCorrelationFindings(risk));
     assessment.setCorrelationStatus(risk.correlationStatus());
     assessment.setCorrelationContribution(correlationContribution(risk));
+    assessment.setRecipientReputation(serializeReputation(risk));
+    assessment.setRecipientReputationPoints(reputationPoints(risk));
     assessments.save(assessment);
 
     if (alertService != null) {
@@ -299,6 +301,23 @@ public class GuardedPaymentCompletionService {
         .sum();
   }
 
+  /** Reputation is audit/display data: failure never blocks the payment. */
+  private static String serializeReputation(AutomaticEvaluationResponseDto risk) {
+    if (risk.recipientReputation() == null) {
+      return null;
+    }
+    try {
+      return JSON.writeValueAsString(risk.recipientReputation());
+    } catch (JsonProcessingException notSerializable) {
+      log.warn("Recipient reputation could not be serialized; storing none");
+      return null;
+    }
+  }
+
+  private static int reputationPoints(AutomaticEvaluationResponseDto risk) {
+    return risk.recipientReputation() == null ? 0 : risk.recipientReputation().points();
+  }
+
   private static boolean flag(AutomaticEvaluationResponseDto risk, PaymentSignalType type) {
     if (risk.automaticSignals() == null) {
       return false;
@@ -333,7 +352,8 @@ public class GuardedPaymentCompletionService {
             risk.aiStatus(),
             risk.behavioralProfileStatus(),
             risk.correlationFindings(),
-            risk.correlationStatus()),
+            risk.correlationStatus(),
+            risk.recipientReputation()),
         status,
         paypalOrder,
         verification);

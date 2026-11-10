@@ -34,6 +34,10 @@ public class User extends BaseEntity {
   @Column(name = "password_hash", length = 100)
   private String passwordHash;
 
+  /** Explicit admin flag for the intelligence review console; never client-set. */
+  @Column(name = "admin", nullable = false)
+  private boolean admin = false;
+
   /** Base32 TOTP secret; never serialized by payment APIs. */
   @Column(name = "totp_secret", length = 64)
   private String totpSecret;
@@ -82,6 +86,14 @@ public class User extends BaseEntity {
 
   public void setPasswordHash(String passwordHash) {
     this.passwordHash = passwordHash;
+  }
+
+  public boolean isAdmin() {
+    return admin;
+  }
+
+  public void setAdmin(boolean admin) {
+    this.admin = admin;
   }
 
   public String getTotpSecret() {

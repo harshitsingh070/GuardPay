@@ -53,6 +53,17 @@ describe('classifyFraudPattern', () => {
     expect(pattern?.code).toBe('MONEY_MULE');
   });
 
+  it('prioritizes first-time high-value evidence over a new recipient', () => {
+    const pattern = classifyFraudPattern({
+      codes: ['NEW_RECIPIENT', 'FIRST_HIGH_VALUE_TO_RECIPIENT'],
+      action: 'VERIFY',
+      level: 'HIGH',
+    });
+
+    expect(pattern?.code).toBe('FIRST_TIME_HIGH_VALUE');
+    expect(pattern?.label).toBe('First-time high-value payment');
+  });
+
   it('classifies from triggered findings and ignores untriggered ones', () => {
     const pattern = classifyFraudPattern({
       findings: [

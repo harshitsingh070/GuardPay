@@ -64,6 +64,30 @@ public class RiskAssessment extends BaseEntity {
   @Column(name = "correlation_contribution", nullable = false)
   private int correlationContribution;
 
+  /** JSON object with identifier-free global reputation evidence (audit/display only). */
+  @Column(name = "recipient_reputation", columnDefinition = "TEXT")
+  private String recipientReputation;
+
+  /** Points the global reputation layer added to the score. */
+  @Column(name = "recipient_reputation_points", nullable = false)
+  private int recipientReputationPoints;
+
+  public String getRecipientReputation() {
+    return recipientReputation;
+  }
+
+  public void setRecipientReputation(String recipientReputation) {
+    this.recipientReputation = recipientReputation;
+  }
+
+  public int getRecipientReputationPoints() {
+    return recipientReputationPoints;
+  }
+
+  public void setRecipientReputationPoints(int recipientReputationPoints) {
+    this.recipientReputationPoints = recipientReputationPoints;
+  }
+
   public String getFindings() {
     return findings;
   }

@@ -4,8 +4,16 @@
 
 import { readNative } from '@/services/native-bridge';
 import type { Alert } from '@/types/alerts';
-import type { BehavioralProfile, BehavioralProfileSummary } from '@/types/index';
+import type {
+  BehavioralProfile,
+  BehavioralProfileSummary,
+  HighValueBaseline,
+} from '@/types/index';
 import type { DashboardSummary } from '@/types/dashboard';
+import type {
+  FraudReportResponse,
+  RecipientReputationSummary,
+} from '@/types/intelligence';
 import type { PayPalCaptureResponse, PayPalGateResponse } from '@/types/paypal';
 import type {
   GuardedPaymentRequest,
@@ -283,6 +291,30 @@ export function getTransaction(id: string): Promise<TransactionDetail> {
   return apiFetch<TransactionDetail>(`/api/transactions/${encodeURIComponent(id)}`);
 }
 
+/**
+ * Reports a recipient for suspected fraud. The transaction must belong to the
+ * caller; the backend derives and hashes the recipient identity server-side.
+ */
+export function submitFraudReport(request: {
+  relatedTransactionId?: string;
+  description?: string;
+  incidentAt?: string;
+}): Promise<FraudReportResponse> {
+  return apiFetch<FraudReportResponse>('/api/intelligence/recipients/reports', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/** Safe, evidence-only reputation summary for a recipient the caller paid. */
+export function getRecipientReputationSummary(
+  recipientReference: string,
+): Promise<RecipientReputationSummary> {
+  return apiFetch<RecipientReputationSummary>(
+    `/api/intelligence/recipients/${encodeURIComponent(recipientReference)}/summary`,
+  );
+}
+
 /** Recent in-app alerts for the demo workspace. */
 export function listAlerts(limit = 20): Promise<Alert[]> {
   return apiFetch<Alert[]>(`/api/alerts?limit=${limit}`);
@@ -356,6 +388,12 @@ export function getBehavioralProfile(): Promise<BehavioralProfile> {
 /** Safe behavioral summary for dashboard display. */
 export function getBehavioralSummary(): Promise<BehavioralProfileSummary> {
   return apiFetch<BehavioralProfileSummary>('/api/behavior/summary');
+}
+
+/** Currency-specific high-value spending baseline for the authenticated user. */
+export function getHighValueBaseline(currency = 'USD'): Promise<HighValueBaseline> {
+  const params = new URLSearchParams({ currency });
+  return apiFetch<HighValueBaseline>(`/api/behavior/high-value/baseline?${params.toString()}`);
 }
 
 /** Captures an approved order. Allowed only by the stored server-side decision. */
