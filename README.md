@@ -54,7 +54,7 @@ AI / device / history evidence → Spring Boot validation → deterministic scor
 
 - `docs/architecture.md` — current components, boundaries, and limitations.
 - `docs/api-contract.md` — implemented REST/SSE/internal API contract.
-- `docs/risk-engine.md` — 20-signal deterministic engine, weights, and policy.
+- `docs/risk-engine.md` — deterministic signal catalog, weights, and policy.
 - `docs/fraud-benchmark.md` — synthetic benchmark methodology and current baseline.
 - `docs/demo.md` — runnable demo walkthrough.
 
@@ -357,7 +357,7 @@ optional `recipientId`/`merchantId`/`transactionId`, device identity, message,
 URL, server-observed network context). The workspace is resolved server-side
 from the authenticated session and there are no risk booleans on this path.
 
-The guarded pipeline collects twenty signals: amount/recipient/merchant history,
+The guarded pipeline collects deterministic signals: amount/recipient/merchant history,
 recipient anomaly, three velocity tiers, split payments, blocklist, content and
 URL structure, social engineering, known-recipient compromise, missing context,
 device novelty, geo novelty, impossible travel, VPN/proxy, and active call where

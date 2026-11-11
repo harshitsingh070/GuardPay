@@ -192,13 +192,13 @@ class DeterministicRiskEngineTest {
   }
 
   @Test
-  void reachableSixtyFiveIsHigh() {
-    // 15 (new) + 20 (large: 500 >= 87*5) + 15 (call) + 15 (invoice) = 65.
-    RiskEvaluationRequest request = req(new BigDecimal("500"), new BigDecimal("87"), 0, 1, 4);
+  void reachableSeventyFiveIsHigh() {
+    // 15 (new) + 20 (large: 500 >= 87*5) + 15 (call) + 15 (invoice) + 10 (urgent) = 75.
+    RiskEvaluationRequest request = req(new BigDecimal("500"), new BigDecimal("87"), 0, 1, 4, 5);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    assertEquals(65, result.score());
+    assertEquals(75, result.score());
     assertEquals(RiskLevel.HIGH, result.riskLevel());
     assertEquals(RecommendedAction.VERIFY, result.recommendedAction());
   }

@@ -19,12 +19,12 @@ class DeterministicRiskEngineCorrelationTest {
   @Test
   void correlationRaisesScoreAndLevelWithoutChangingTheActionMapping() {
     CorrelationResult correlation = accountTakeoverCorrelation();
-    RiskEvaluationRequest request = req(1, 10, 11);
+    RiskEvaluationRequest request = req(1, 5, 10, 11);
 
     RiskEvaluationResult base = engine.evaluate(request);
     RiskEvaluationResult withCorrelation = engine.evaluate(request, correlation);
 
-    assertEquals(55, base.score());
+    assertEquals(60, base.score());
     assertEquals(RiskLevel.MEDIUM, base.riskLevel());
     assertEquals(base.score() + correlation.contributionPoints(), withCorrelation.score());
     assertEquals(RiskLevel.HIGH, withCorrelation.riskLevel());

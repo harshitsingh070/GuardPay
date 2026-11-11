@@ -19,7 +19,7 @@
 > orders, server-side capture, signature-verified webhooks, controlled
 > TOTP/simulated verification, transaction history, persisted dashboard/SSE
 > alerts, device registration/call-state, owner-scoped blocklist, and a
-> 20-signal deterministic engine. AI evidence uses FastAPI with two focused LLM
+> deterministic signal engine. AI evidence uses FastAPI with two focused LLM
 > agents plus local URL rules, not CrewAI; AI cannot decide or score.
 >
 > Not implemented: JWT/OAuth/Spring Security, password reset, email
@@ -465,7 +465,7 @@ The risk engine combines signals from:
 
 ```text
 Active call                    +15
-New recipient                  +20
+New recipient                  +15
 Large amount                   +20
 Recipient amount anomaly       +20
 Repeated attempts (10 min)     +15
@@ -475,7 +475,7 @@ Blocklisted recipient          +25 (forces score 100 / STOP)
 Unknown merchant               +10
 Unexpected invoice             +15
 Urgent language                +10
-Suspicious URL                 +10
+Suspicious URL                 +15
 Social engineering             +20
 Known-recipient scam           +50
 Split payment                  +40

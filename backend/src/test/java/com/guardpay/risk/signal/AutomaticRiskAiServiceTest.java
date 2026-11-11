@@ -25,6 +25,7 @@ import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationRequestDto;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
+import com.guardpay.risk.signal.dto.PaymentSignalDto;
 import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionRepository;
 import com.guardpay.transaction.TransactionStatus;
@@ -135,10 +136,10 @@ class AutomaticRiskAiServiceTest {
     dto.setRecipientId(RECIPIENT_ID);
     AutomaticEvaluationResponseDto response = service.evaluate(dto);
 
-    // Deterministic content analysis alone reaches STOP when AI is down.
-    assertEquals(85, response.score());
-    assertEquals(RiskLevel.CRITICAL, response.riskLevel());
-    assertEquals(RecommendedAction.STOP, response.recommendedAction());
+    // Deterministic content analysis alone still escalates to VERIFY when AI is down.
+    assertEquals(80, response.score());
+    assertEquals(RiskLevel.HIGH, response.riskLevel());
+    assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
     assertEquals("UNAVAILABLE", response.aiStatus());
   }
 
@@ -147,15 +148,21 @@ class AutomaticRiskAiServiceTest {
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of());
+    Recipient fresh = new Recipient();
+    ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
+    fresh.setUser(user);
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(fresh));
     when(aiClient.analyze(any()))
         .thenReturn(aiResponse(aiFinding("URGENT_LANGUAGE", 0.9), aiFinding("IMPERSONATION", 0.8)));
 
-    AutomaticEvaluationResponseDto response = service.evaluate(benignRequest("45"));
+    AutomaticEvaluationRequestDto dto = benignRequest("45");
+    dto.setRecipientId(RECIPIENT_ID);
+    AutomaticEvaluationResponseDto response = service.evaluate(dto);
 
-    // Deterministic baseline is 0; AI adds urgent (10) + social (20).
-    assertEquals(30, response.score());
-    assertEquals(RiskLevel.LOW, response.riskLevel());
-    assertEquals(RecommendedAction.ALLOW, response.recommendedAction());
+    // New recipient (15) corroborates AI urgent (10) + social (20).
+    assertEquals(45, response.score());
+    assertEquals(RiskLevel.MEDIUM, response.riskLevel());
+    assertEquals(RecommendedAction.VERIFY, response.recommendedAction());
     assertEquals("AVAILABLE", response.aiStatus());
     assertTrue(
         response.automaticSignals().stream()
@@ -168,6 +175,10 @@ class AutomaticRiskAiServiceTest {
     when(users.findById(USER_ID)).thenReturn(Optional.of(user));
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
         .thenReturn(List.of());
+    Recipient fresh = new Recipient();
+    ReflectionTestUtils.setField(fresh, "id", RECIPIENT_ID);
+    fresh.setUser(user);
+    when(recipients.findByIdAndUserId(RECIPIENT_ID, USER_ID)).thenReturn(Optional.of(fresh));
     when(aiClient.analyze(any()))
         .thenReturn(
             aiResponse(
@@ -177,12 +188,34 @@ class AutomaticRiskAiServiceTest {
                 aiFinding("SECRECY_REQUEST", 0.9),
                 aiFinding("SUSPICIOUS_PAYMENT_INSTRUCTION", 0.9)));
 
-    AutomaticEvaluationResponseDto response = service.evaluate(benignRequest("45"));
+    AutomaticEvaluationRequestDto dto = benignRequest("45");
+    dto.setRecipientId(RECIPIENT_ID);
+    AutomaticEvaluationResponseDto response = service.evaluate(dto);
 
-    // Five social-group findings collapse onto one +20 engine signal.
-    assertEquals(20, response.score());
+    // New recipient (15) corroborates five social findings, which still collapse onto one +20 signal.
+    assertEquals(35, response.score());
     assertEquals(5, response.automaticSignals().stream()
         .filter(signal -> signal.source() == SignalSource.AI).count());
+  }
+
+  @Test
+  void uncorroboratedAiSocialEvidenceIsAuditableButNotScored() {
+    when(users.findById(USER_ID)).thenReturn(Optional.of(user));
+    when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED))
+        .thenReturn(List.of());
+    when(aiClient.analyze(any())).thenReturn(aiResponse(aiFinding("IMPERSONATION", 0.9)));
+
+    AutomaticEvaluationResponseDto response = service.evaluate(benignRequest("45"));
+
+    assertEquals(0, response.score());
+    assertEquals(RecommendedAction.ALLOW, response.recommendedAction());
+    PaymentSignalDto social =
+        response.automaticSignals().stream()
+            .filter(signal -> signal.type() == PaymentSignalType.IMPERSONATION)
+            .findFirst()
+            .orElseThrow();
+    assertFalse(social.detected());
+    assertEquals("UNCORROBORATED_AI_SOCIAL", social.reason());
   }
 
   @Test
@@ -212,7 +245,7 @@ class AutomaticRiskAiServiceTest {
     dto.setMerchantId(MERCHANT_ID);
     AutomaticEvaluationResponseDto response = service.evaluate(dto);
 
-    // 20 + 20 + 10 + 15 + 10 + 20 + 10 = 105 -> capped at 100.
+    // 15 + 20 + 10 + 15 + 10 + 20 + 10 = 100.
     assertEquals(100, response.score());
     assertEquals(RiskLevel.CRITICAL, response.riskLevel());
     assertEquals(RecommendedAction.STOP, response.recommendedAction());

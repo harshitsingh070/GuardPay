@@ -112,24 +112,24 @@ class CorrelationScenarioBenchmarkTest {
   @Test
   void callGuidedNewRecipientCorrelationFires() {
     Outcome outcome = outcomes.get("CF02-call-new-recipient-urgency");
-    assertEquals(65, outcome.without().score());
-    assertEquals(83, outcome.with().score());
+    assertEquals(60, outcome.without().score());
+    assertEquals(78, outcome.with().score());
     assertTrue(outcome.hasFinding("SOCIAL_ENGINEERING_CALL_COMBO"));
   }
 
   @Test
   void phishingContentCorrelationFires() {
     Outcome outcome = outcomes.get("CF03-phishing-url-urgency-instruction");
-    assertEquals(40, outcome.without().score());
-    assertEquals(53, outcome.with().score());
+    assertEquals(45, outcome.without().score());
+    assertEquals(59, outcome.with().score());
     assertTrue(outcome.hasFinding("PHISHING_CONTENT_COMBO"));
   }
 
   @Test
   void newRecipientAndAmountCorrelationFires() {
     Outcome outcome = outcomes.get("CF04-new-recipient-amount-scam");
-    assertEquals(60, outcome.without().score());
-    assertEquals(80, outcome.with().score());
+    assertEquals(55, outcome.without().score());
+    assertEquals(75, outcome.with().score());
     assertTrue(outcome.hasFinding("SOCIAL_ENGINEERING_RECIPIENT_COMBO"));
   }
 

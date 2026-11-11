@@ -80,7 +80,7 @@ The backend calls the Python AI service only when message text or a URL exists. 
 
 ### 3.4 Step 4 — Deterministic scoring
 
-The engine evaluates twenty signals in a fixed order, sums the weights of triggered signals, applies the blocklist hard-block override, caps the score at 100, and maps score to risk level and action.
+The engine evaluates a fixed-order signal catalog, sums the weights of triggered signals, applies the blocklist hard-block override, caps the score at 100, and maps score to risk level and action.
 
 ### 3.5 Step 5 — Enforcement
 
@@ -90,12 +90,12 @@ The engine evaluates twenty signals in a fixed order, sums the weights of trigge
 
 ## 4. Core Detection Logic
 
-### 4.1 The twenty risk signals and their weights
+### 4.1 The core risk signals and their weights
 
 | # | Signal | Points | Source | Trigger rule |
 |---:|---|---:|---|---|
 | 1 | `ACTIVE_CALL` | +15 | Device | A fresh paired-device observation says the user is on a call. Observations older than five minutes never count as active. |
-| 2 | `NEW_RECIPIENT` | +20 | Transaction history | No prior **completed** transaction to this recipient, same currency, current attempt excluded. Unavailable identity is not guessed. |
+| 2 | `NEW_RECIPIENT` | +15 | Transaction history | No prior **completed** transaction to this recipient, same currency, current attempt excluded. Unavailable identity is not guessed. |
 | 3 | `LARGE_AMOUNT` | +20 | Transaction history | Current amount is at least **5×** the account-wide completed-history average. Missing/zero/negative history does not fire. |
 | 4 | `RECIPIENT_AMOUNT_ANOMALY` | +20 | Recipient history | At least 3 completed samples exist and the amount is at least **5×** the recipient median. Suppressed when `LARGE_AMOUNT` already fires. |
 | 5 | `REPEATED_ATTEMPTS` | +15 | Transaction history | At least **3 attempts including the current one** within **10 minutes**, any status, same currency. |
@@ -105,8 +105,8 @@ The engine evaluates twenty signals in a fixed order, sums the weights of trigge
 | 9 | `UNKNOWN_MERCHANT` | +10 | Merchant history | No previous completed transaction with this merchant. |
 | 10 | `UNEXPECTED_INVOICE` | +15 | Payment content / AI | Invoice/billing/overdue/refund wording combined with unexpected/pressure context, or validated AI `UNEXPECTED_INVOICE_CONTEXT`. |
 | 11 | `URGENT_LANGUAGE` | +10 | Payment content / AI | Urgency/pressure phrasing such as “urgent,” “immediately,” “act now,” “final warning,” or validated AI `URGENT_LANGUAGE`. |
-| 12 | `SUSPICIOUS_URL` | +10 | URL structure / AI | Local structural URL rules fire, or validated AI `SUSPICIOUS_URL_STRUCTURE` fires. |
-| 13 | `SOCIAL_ENGINEERING` | +20 | Content + counterparty + call / AI | Multiple independent scam indicators co-occur, or a validated AI social code fires. Counted once. |
+| 12 | `SUSPICIOUS_URL` | +15 | URL structure / AI | Local structural URL rules fire, or validated AI `SUSPICIOUS_URL_STRUCTURE` fires. |
+| 13 | `SOCIAL_ENGINEERING` | +20 | Content + counterparty + call / AI | Multiple independent scam indicators co-occur, or a validated AI social code fires with independent corroboration. Counted once. |
 | 14 | `KNOWN_RECIPIENT_SCAM` | +50 | Recipient history + content | An established recipient sends a new high-risk payment instruction, lookalike invoice/link, or scam-pattern combination consistent with a compromised payee. |
 | 15 | `SPLIT_PAYMENT` | +40 | Transaction history | At least 3 payments to the same recipient, each below `$1,000`, totaling at least `$1,000` within 24 hours (current attempt included). |
 | 16 | `MISSING_CONTEXT` | +20 | Payment context | High-value payment with no message/link and no trusted device observation; `$1,000`, or `$500` for a new recipient. |
@@ -115,7 +115,7 @@ The engine evaluates twenty signals in a fixed order, sums the weights of trigge
 | 19 | `IMPOSSIBLE_TRAVEL` | +25 | Transaction history / network | A different country is seen within **6 hours** of the previous geolocated payment. |
 | 20 | `VPN_PROXY` | +10 | Network | Trusted network reputation reports a VPN, proxy, or hosting connection. |
 
-The weights are fixed constants in `RiskSignal`, not learned or statistically calibrated. `BLOCKLISTED_RECIPIENT` is a hard block: the score is forced to 100 and the action to `STOP`. Social-engineering evidence is consolidated into a **single +20 signal**, so multiple AI findings cannot multiply the score.
+The weights are fixed prototype constants in `RiskSignal`, not learned probabilities. `BLOCKLISTED_RECIPIENT` is a hard block: the score is forced to 100 and the action to `STOP`. Social-engineering evidence is consolidated into a **single +20 signal**, so multiple AI findings cannot multiply the score.
 
 ### 4.2 Score-to-action policy
 
@@ -201,7 +201,7 @@ Backend validation:
   - `SUSPICIOUS_URL_STRUCTURE` → suspicious URL
   - `UNEXPECTED_INVOICE_CONTEXT` → unexpected invoice
 
-The AI can only **add** evidence. It cannot subtract risk, lower a score, or make a blocked payment allowed. This is an asymmetric safety design: AI false negatives do not weaken deterministic protection, though AI false positives can add friction.
+The AI can only **add** evidence. It cannot subtract risk, lower a score, or make a blocked payment allowed. AI-only social findings stay audit-visible but unweighted unless independent deterministic or behavioral evidence corroborates them. This is an asymmetric safety design: AI false negatives do not weaken deterministic protection, though AI false positives can add friction.
 
 ### 4.6 Device call-state signal
 
@@ -228,7 +228,7 @@ Input: $45, “Known Co,” “Known Shop,” normal subscription message, no UR
 Signals:
 
 - If both counterparties are already established: 0 points → LOW → `ALLOW`.
-- On a fresh demo database where the names are new: new recipient +20, unknown merchant +10 = 30 → LOW → `ALLOW`.
+- On a fresh demo database where the names are new: new recipient +15, unknown merchant +10 = 25 → LOW → `ALLOW`.
 
 This shows that “new counterparty” alone does not block a payment.
 
@@ -238,7 +238,7 @@ Input: $2,499, “Fresh Stranger,” “Unknown Shop,” message: “You need to
 
 Deterministic signals:
 
-- New recipient: +20
+- New recipient: +15
 - Unknown merchant: +10
 - Urgent language (“immediately”): +10
 - Unexpected invoice (invoice wording + urgency): +15
@@ -247,9 +247,9 @@ Deterministic signals:
 - Large amount: no history → 0
 - Missing context: content exists → 0
 
-Total: **75 → HIGH → VERIFY**. No PayPal order is created.
+Total: **70 → HIGH → VERIFY**. No PayPal order is created.
 
-If the AI service is reachable, its local URL lure-word rule sees “suspicious” in the domain and adds +10 for `SUSPICIOUS_URL_STRUCTURE`. Total: **85 → CRITICAL → STOP**. This is exactly the documented “VERIFY or STOP, AI-dependent” behavior.
+If the AI service is reachable, its local URL lure-word rule sees “suspicious” in the domain and adds +15 for `SUSPICIOUS_URL_STRUCTURE`. Total: **85 → CRITICAL → STOP**. This is exactly the documented “VERIFY or STOP, AI-dependent” behavior.
 
 ### Scenario C — Canonical scam caught without AI or device
 
@@ -259,12 +259,12 @@ Input: $2,499, new recipient, unknown merchant, text: “You did not request thi
 
 Signals:
 
-- New recipient: +20
+- New recipient: +15
 - Unknown merchant: +10
 - Large amount: no completed history → 0
 - Unexpected invoice: invoice + “did not request” → +15
 - Urgent language: “URGENT,” “immediately” → +10
-- Suspicious URL: non-HTTPS and brand-lookalike host → +10
+- Suspicious URL: non-HTTPS and brand-lookalike host → +15
 - Social engineering: urgency + gift-card instruction, and unexpected invoice + gift-card instruction → +20
 
 Total: **85 → CRITICAL → STOP**.
@@ -280,9 +280,10 @@ Deterministic score: 0.
 AI returns urgent language (0.9) and impersonation (0.8):
 
 - Urgent language: +10
-- Social engineering, counted once for all social-group AI codes: +20
+- Social engineering: +0 because no independent deterministic or behavioral
+  signal corroborates the AI-only social finding
 
-Total: **30 → LOW → ALLOW**.
+Total: **10 → LOW → ALLOW**.
 
 This demonstrates that even strong AI findings do not automatically block a payment. The engine still decides.
 
@@ -293,12 +294,12 @@ Input: $600, history average $100, new recipient, unknown merchant, message “P
 Score contributions:
 
 - Large amount (600 is at least 5×100): +20
-- New recipient: +20
+- New recipient: +15
 - Unknown merchant: +10
 - Unexpected invoice: +15
 - Urgent language: +10
 - Social engineering (counted once despite multiple AI codes): +20
-- AI suspicious URL: +10
+- AI suspicious URL: +15
 
 Raw total: **105**, capped to **100 → CRITICAL → STOP**.
 
@@ -472,7 +473,7 @@ The deterministic path is fast and predictable. The AI path is time-bounded and 
 - **URL analysis is structural only.** The system does not fetch URLs or query Google Safe Browsing or any reputation service. A clean-looking phishing domain can pass.
 - **English-centric regex.** Non-English, leetspeak, or heavily obfuscated text relies on the LLM.
 - **AI findings are not severity-weighted.** Severity is recorded but does not change points; every finding of a given type contributes the same fixed weight.
-- **AI false positives can add friction.** AI can add up to +10 urgent, +10 URL, +15 unexpected invoice, and +20 social, so a confident but wrong AI can push a borderline payment from VERIFY to STOP.
+- **AI false positives can add friction.** AI can add up to +10 urgent, +15 URL, +15 unexpected invoice, and +20 corroborated social, so a confident but wrong AI can push a borderline payment from VERIFY to STOP.
 - **The AI model itself is not deterministic run to run.** Strict schema, confidence gating, and deterministic scoring absorb most of this, but evidence availability can vary.
 - **History queries scale linearly.** Large completed-history sets are loaded and filtered in memory.
 - **Demo limitations.** No password reset, email verification, OAuth, or MFA-at-login; verification is simulated unless TOTP is enrolled; debug-signed Android APK; foreground-only call detection; external webhook delivery requires a tunnel.
@@ -481,12 +482,12 @@ The deterministic path is fast and predictable. The AI path is time-bounded and 
 
 **False positives are mostly converted into friction, not blockage.** A legitimate first-time high-value payment can easily reach:
 
-- New recipient +20
+- New recipient +15
 - Unknown merchant +10
 - Large amount +20
 - Missing context +20
 
-That is 70 → HIGH → `VERIFY`. The user is challenged but not blocked. This is a reasonable trade-off.
+That is 65 → MEDIUM → `VERIFY`. The user is challenged but not blocked. This is a reasonable trade-off.
 
 **False negatives are the larger concern.** A payment to a known recipient, for a normal amount, with no message or link, during no call, can score 0 and be allowed. The system is designed around the assumption that social-engineering scams leave evidence; it does not detect fraud that looks behaviourally normal.
 
@@ -521,14 +522,14 @@ Important demo limitations:
 
 The repository contains substantial automated coverage:
 
-- **63 backend Java test classes**
-- **8 frontend test files**
+- **93 backend Java test classes**
+- **10 frontend test files**
 - **4 AI-service test modules**
 
-The synthetic benchmark is the only quantitative evaluation. On the 54-scenario
-dev set, `DETERMINISTIC_ONLY` reaches 75.00% precision, 92.31% recall, 82.76%
-F1, and 81.48% accuracy; `VALIDATED_AI` reaches 74.29% precision, 100.00%
-recall, 85.25% F1, and 83.33% accuracy. On the 32-scenario PayPal-specific
+The synthetic benchmark is the only quantitative evaluation. On the 66-scenario
+dev set, `DETERMINISTIC_ONLY` reaches 79.41% precision, 87.10% recall, 83.08%
+F1, and 83.33% accuracy; `VALIDATED_AI` reaches 80.56% precision, 93.55%
+recall, 86.57% F1, and 86.36% accuracy. On the 32-scenario PayPal-specific
 held-out set, both modes reach 88.89% precision, 100.00% recall, 94.12% F1, and
 93.75% accuracy. These are synthetic regression figures, not real-world
 accuracy. See `docs/fraud-benchmark.md`.

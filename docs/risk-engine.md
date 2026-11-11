@@ -29,7 +29,11 @@ are optional evidence sources; the arithmetic and thresholds are deterministic.
   discarded.
 - Owner-scoped blocklist entries.
 - Network context such as country and VPN/proxy result, when a trusted resolver
-  supplied it. Missing data is reported as unavailable, never guessed as safe.
+  supplied it. The immediate peer must match `guardpay.network.trusted-proxies`;
+  `X-Forwarded-For` is read right-to-left and the GeoIP/VPN headers are only
+  honored when `guardpay.network.geo-headers-enabled=true`. Client JSON cannot
+  set these fields. Missing data is reported as unavailable, never guessed as
+  safe.
 
 ## 3. Signal catalog and weights
 
@@ -40,7 +44,7 @@ contribute points.
 | # | Code | Points | Source | Fires when |
 |---:|---|---:|---|---|
 | 1 | `ACTIVE_CALL` | +15 | Device | A fresh paired-device observation reports an active call. |
-| 2 | `NEW_RECIPIENT` | +20 | Transaction history | No prior completed transaction to this recipient (same currency, current attempt excluded). Unavailable identity never counts as new. |
+| 2 | `NEW_RECIPIENT` | +15 | Transaction history | No prior completed transaction to this recipient (same currency, current attempt excluded). Unavailable identity never counts as new. |
 | 3 | `LARGE_AMOUNT` | +20 | Transaction history | Current amount is at least **5×** the account-wide completed-history average. Missing/zero/negative history never fires. |
 | 4 | `RECIPIENT_AMOUNT_ANOMALY` | +20 | Recipient history | At least 3 completed samples exist and the current amount is at least **5×** the recipient median. Suppressed when `LARGE_AMOUNT` already fires. |
 | 5 | `REPEATED_ATTEMPTS` | +15 | Transaction history | At least **3 attempts including the current one** within **10 minutes**, any status, same currency. |
@@ -50,8 +54,8 @@ contribute points.
 | 9 | `UNKNOWN_MERCHANT` | +10 | Merchant history | No previous completed transaction with the merchant. |
 | 10 | `UNEXPECTED_INVOICE` | +15 | Payment content / AI | Invoice, billing, overdue, refund, or payment-request wording combined with unexpected/pressure context, or validated AI `UNEXPECTED_INVOICE_CONTEXT`. |
 | 11 | `URGENT_LANGUAGE` | +10 | Payment content / AI | Urgency or pressure phrasing, or validated AI `URGENT_LANGUAGE`. |
-| 12 | `SUSPICIOUS_URL` | +10 | URL structure / AI | Local structural URL rules fire, or validated AI `SUSPICIOUS_URL_STRUCTURE` fires. |
-| 13 | `SOCIAL_ENGINEERING` | +20 | Content + counterparty + call / AI | Multiple independent scam indicators co-occur, or any validated AI social code fires. Counted once. |
+| 12 | `SUSPICIOUS_URL` | +15 | URL structure / AI | Local structural URL rules fire, or validated AI `SUSPICIOUS_URL_STRUCTURE` fires. |
+| 13 | `SOCIAL_ENGINEERING` | +20 | Content + counterparty + call / AI | Multiple independent scam indicators co-occur, or a validated AI social code fires with independent corroboration. Counted once. |
 | 14 | `KNOWN_RECIPIENT_SCAM` | +50 | Recipient history + content | An established recipient sends a new high-risk payment instruction, a lookalike invoice/link, or a scam-pattern combination consistent with a compromised payee. |
 | 15 | `SPLIT_PAYMENT` | +40 | Transaction history | At least 3 payments to the same recipient, each below `$1,000`, total at least `$1,000` within 24 hours (current attempt included). |
 | 16 | `MISSING_CONTEXT` | +20 | Payment context | High-value payment with no message/link and no trusted device observation. Threshold is `$1,000`, or `$500` for a new recipient. |
@@ -82,6 +86,12 @@ robust statistics (median, MAD) to resist outlier distortion.
 Weights are fixed prototype heuristics in one enum, not learned probabilities.
 A signal that cannot be derived reliably is reported with a reason code and
 does not fire.
+
+AI-only social-engineering findings are auditable but unweighted unless an
+independent deterministic or behavioral signal corroborates them. Uncorroborated
+AI social signals remain in the response with `detected=false` and reason
+`UNCORROBORATED_AI_SOCIAL`, so they cannot be the sole difference between
+`ALLOW` and `VERIFY`.
 
 ### 3.1 Hard block
 
@@ -209,7 +219,7 @@ present. The AI service returns structured findings; Spring Boot validates and
 folds them into existing engine signals:
 
 - `URGENT_LANGUAGE` → `URGENT_LANGUAGE` (+10)
-- `SUSPICIOUS_URL_STRUCTURE` → `SUSPICIOUS_URL` (+10)
+- `SUSPICIOUS_URL_STRUCTURE` → `SUSPICIOUS_URL` (+15)
 - `UNEXPECTED_INVOICE_CONTEXT` → `UNEXPECTED_INVOICE` (+15)
 - `IMPERSONATION`, `PRESSURE_TO_PAY`, `SECRECY_REQUEST`,
   `SUSPICIOUS_PAYMENT_INSTRUCTION`, `SCAM_PATTERN` → one
@@ -217,7 +227,9 @@ folds them into existing engine signals:
 
 AI cannot add a new weight, subtract risk, or set an action. Unknown codes,
 confidence below `0.5`, blank evidence, and AI attempts to assert deterministic
-facts (for example `ACTIVE_CALL`) are rejected.
+facts (for example `ACTIVE_CALL`) are rejected. The social-code group is also
+gated: without independent deterministic or behavioral corroboration, it stays
+visible as `detected=false` with reason `UNCORROBORATED_AI_SOCIAL`.
 
 Fallback behavior:
 

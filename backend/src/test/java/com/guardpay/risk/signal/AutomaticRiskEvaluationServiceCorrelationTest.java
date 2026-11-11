@@ -66,7 +66,7 @@ class AutomaticRiskEvaluationServiceCorrelationTest {
 
     AutomaticEvaluationResponseDto response = service.evaluate(dto);
 
-    assertEquals(20, response.score());
+    assertEquals(15, response.score());
     assertEquals("UNAVAILABLE", response.correlationStatus());
     assertTrue(response.correlationFindings().isEmpty());
   }
@@ -126,6 +126,6 @@ class AutomaticRiskEvaluationServiceCorrelationTest {
     assertEquals(1, response.correlationFindings().size());
     assertEquals(
         "ACCOUNT_TAKEOVER_COMBO", response.correlationFindings().get(0).correlationCode());
-    assertEquals(74, response.score());
+    assertEquals(68, response.score());
   }
 }

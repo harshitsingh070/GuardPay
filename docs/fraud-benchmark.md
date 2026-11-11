@@ -319,8 +319,8 @@ Latest checked-in dev run (66 scenarios: 31 fraud, 35 legitimate):
 
 | Mode | TP | FN | FP | TN | Precision | Recall | F1 | FPR | Accuracy |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY` | 27 | 4 | 8 | 27 | 77.14% | 87.10% | 81.82% | 22.86% | 81.82% |
-| `VALIDATED_AI` | 29 | 2 | 9 | 26 | 76.32% | 93.55% | 84.06% | 25.71% | 83.33% |
+| `DETERMINISTIC_ONLY` | 27 | 4 | 7 | 28 | 79.41% | 87.10% | 83.08% | 20.00% | 83.33% |
+| `VALIDATED_AI` | 29 | 2 | 7 | 28 | 80.56% | 93.55% | 86.57% | 20.00% | 86.36% |
 
 Exact score/level/action and signal agreement are 100% because the dataset is
 constructed to characterize the current engine. That is a regression property,
@@ -328,19 +328,21 @@ not proof of real-world accuracy.
 
 Deterministic misses in this dataset:
 
-- `F08-paypal-lookalike-known` - 30 `ALLOW`; AI raises it to 50 `VERIFY`.
+- `F08-paypal-lookalike-known` - 35 `ALLOW`; AI raises it to 55 `VERIFY`.
 - `F15-account-takeover-known` - 30 `ALLOW`; AI raises it to 50 `VERIFY`.
-- `B03-new-recipient-normal-amount` - 30 `ALLOW` boundary case.
-- `B04-unusual-payment-hour` - 30 `ALLOW` boundary case.
+- `B03-new-recipient-normal-amount` - 25 `ALLOW` boundary case.
+- `B04-unusual-payment-hour` - 25 `ALLOW` boundary case.
 
 `F09-urgent-giftcard-known`, `F20-payment-instruction-url-known`, and
 `F23-just-below-missing-threshold` are detected deterministically in the
 current baseline. `L25-known-payee-no-context` is a labeled legitimate boundary
 case: it produces no signals and is correctly allowed. It is not a fraud miss.
 
-Validated AI detects every fraud scenario except the two `B0x` boundary cases,
-and adds one legitimate false positive (`L22-ai-false-positive-medium`). These
-results are for the synthetic dataset only.
+Validated AI detects every fraud scenario except the two `B0x` boundary cases.
+AI social-engineering evidence is admitted only when an independent
+deterministic or behavioral signal corroborates it, so `L21` and `L22` remain
+allowed and `HL14` loses its uncorroborated social signal. These results are for
+the synthetic dataset only.
 
 Notable category observations from the current dataset:
 
@@ -349,7 +351,7 @@ Notable category observations from the current dataset:
 - `invoice_scam` detects 5/5 fraud scenarios with no legitimate false positives.
 - `legitimate_new_payee` has 5/8 legitimate payments sent to `VERIFY` in
   deterministic mode and 5/8 in validated-AI mode, the largest friction source.
-- `ai_false_positive` has 1/4 deterministic false positives and 2/4 validated-AI
+- `ai_false_positive` has 1/4 deterministic false positives and 1/4 validated-AI
   false positives.
 - `account_takeover` and `impersonation` are missed deterministically and
   detected with AI; each has one scenario.
@@ -367,20 +369,22 @@ behavior without changing production code paths.
 
 | Configuration | TP | FN | FP | TN | Precision | Recall | F1 | Amount anomaly |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `DETERMINISTIC_ONLY_BASELINE` | 26 | 5 | 8 | 27 | 76.47% | 83.87% | 80.00% | 0/1 |
-| `DETERMINISTIC_ONLY_RECIPIENT` | 27 | 4 | 8 | 27 | 77.14% | 87.10% | 81.82% | 1/1 |
-| `VALIDATED_AI_BASELINE` | 28 | 3 | 9 | 26 | 75.68% | 90.32% | 82.35% | 0/1 |
-| `VALIDATED_AI_RECIPIENT` | 29 | 2 | 9 | 26 | 76.32% | 93.55% | 84.06% | 1/1 |
+| `DETERMINISTIC_ONLY_BASELINE` | 26 | 5 | 7 | 28 | 78.79% | 83.87% | 81.25% | 0/1 |
+| `DETERMINISTIC_ONLY_RECIPIENT` | 27 | 4 | 7 | 28 | 79.41% | 87.10% | 83.08% | 1/1 |
+| `VALIDATED_AI_BASELINE` | 28 | 3 | 7 | 28 | 80.00% | 90.32% | 84.85% | 0/1 |
+| `VALIDATED_AI_RECIPIENT` | 29 | 2 | 7 | 28 | 80.56% | 93.55% | 86.57% | 1/1 |
 
 Recipient intelligence adds one true positive and no false positives in each
 mode by detecting `F26-known-recipient-amount-anomaly`. Across all
-configurations, new recipients are detected `36/36`, known recipients are never
+configurations, new recipients are detected `34/36` (two are consolidated into
+`FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE`), known recipients are never
 misclassified as new (`0/30`), repeated recipient attempts are detected `4/4`,
 and only `11/66` scenarios (`16.67%`) have at least three completed recipient
 history samples. The remaining `55/66` (`83.33%`) are insufficient-history
 cases, so they deliberately produce no amount-anomaly signal. That sparse
 history coverage is expected in a synthetic dataset. Held-out data was not used
-to choose the `5x` multiplier, the 20-point weight, or the comparison scenarios.
+to choose the `5x` multiplier, the recalibrated new-recipient weight, or the
+comparison scenarios.
 
 ### Correlation comparison
 
@@ -536,14 +540,14 @@ best-by-metric labels.
 
 Current dev threshold observations:
 
-- Deterministic mode: the production baseline has 87.10% recall, 81.82% F1,
-  and 8 legitimate false positives. `allow-20` reaches 100.00% recall with
+- Deterministic mode: the production baseline has 87.10% recall, 83.08% F1,
+  and 7 legitimate false positives. `allow-20` reaches 100.00% recall with
   82.67% F1, but raises legitimate false positives to 13. `allow-50` reduces
   friction to 1 false positive but drops recall to 54.84%.
 - Validated-AI mode: the production baseline is best by recall, F1, and accuracy
-  at 93.55%, 84.06%, and 83.33%. `allow-20` reaches 100.00% recall but raises
-  legitimate false positives to 15; `allow-50` reduces friction to 2 false
-  positives with 58.06% recall.
+  at 93.55%, 86.57%, and 86.36%. `allow-20` reaches 100.00% recall but raises
+  legitimate false positives to 14; `allow-50` reduces friction to 2 false
+  positives with 61.29% recall.
 
 These are trade-offs on a small synthetic dev dataset. A higher recall or F1
 here does not by itself justify a production threshold change. Threshold

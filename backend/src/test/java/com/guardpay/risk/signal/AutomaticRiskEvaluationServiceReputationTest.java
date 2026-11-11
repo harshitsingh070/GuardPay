@@ -55,7 +55,7 @@ class AutomaticRiskEvaluationServiceReputationTest {
     assertNotNull(response.recipientReputation());
     assertEquals("REPORTED", response.recipientReputation().reputationStatus());
     assertEquals(10, response.recipientReputation().points());
-    assertEquals(30, response.score());
+    assertEquals(25, response.score());
     assertTrue(
         response.automaticSignals().stream()
             .anyMatch(
@@ -77,7 +77,7 @@ class AutomaticRiskEvaluationServiceReputationTest {
     assertNotNull(response.recipientReputation());
     assertEquals("UNAVAILABLE", response.recipientReputation().status());
     assertEquals(0, response.recipientReputation().points());
-    assertEquals(20, response.score());
+    assertEquals(15, response.score());
     assertTrue(
         response.automaticSignals().stream()
             .noneMatch(signal -> signal.source() == SignalSource.GLOBAL_INTELLIGENCE));
