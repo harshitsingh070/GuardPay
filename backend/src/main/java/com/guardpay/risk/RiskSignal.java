@@ -15,7 +15,7 @@ public enum RiskSignal {
   NEW_RECIPIENT(
       "New recipient",
       "This payment is going to a new recipient.",
-      20),
+      15),
   LARGE_AMOUNT(
       "Unusually large amount",
       "Payment amount is significantly higher than the user's normal transaction amount.",
@@ -55,7 +55,7 @@ public enum RiskSignal {
   SUSPICIOUS_URL(
       "Suspicious URL",
       "Payment context contains a suspicious URL.",
-      10),
+      15),
   SOCIAL_ENGINEERING(
       "Known scam pattern",
       "Behavior is consistent with a known social-engineering payment scam pattern.",

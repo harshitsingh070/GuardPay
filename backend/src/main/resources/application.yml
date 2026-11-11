@@ -40,6 +40,12 @@ app:
 # PayPal Sandbox. Credentials come from the environment only â€” never commit them.
 # The backend boots without them; PayPal calls fail clearly at use time.
 guardpay:
+  # Trusted network metadata. Forwarded client IPs and GeoIP/VPN headers are
+  # only honored when the immediate peer matches one of these proxies. Set the
+  # GeoIP header switch only when the proxy itself populates those headers.
+  network:
+    trusted-proxies: ${GUARDPAY_NETWORK_TRUSTED_PROXIES:127.0.0.1/32,::1/128}
+    geo-headers-enabled: ${GUARDPAY_NETWORK_GEO_HEADERS_ENABLED:false}
   auth:
     enabled: ${GUARDPAY_AUTH_ENABLED:true}
     cookie-secure: ${GUARDPAY_AUTH_COOKIE_SECURE:false}

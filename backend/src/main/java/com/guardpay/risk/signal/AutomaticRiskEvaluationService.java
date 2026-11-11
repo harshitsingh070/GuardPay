@@ -32,9 +32,11 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -55,6 +57,32 @@ public class AutomaticRiskEvaluationService {
    * and must never count as an active call.
    */
   public static final Duration DEVICE_STATE_MAX_AGE = Duration.ofMinutes(5);
+
+  /**
+   * AI social-engineering findings are only admitted when an independent
+   * deterministic or behavioral signal corroborates them. A lone model opinion
+   * must never be the difference between ALLOW and VERIFY.
+   */
+  private static final Set<PaymentSignalType> AI_SOCIAL_CORROBORATION =
+      EnumSet.of(
+          PaymentSignalType.NEW_RECIPIENT,
+          PaymentSignalType.UNKNOWN_MERCHANT,
+          PaymentSignalType.ACTIVE_CALL,
+          PaymentSignalType.URGENT_LANGUAGE,
+          PaymentSignalType.SUSPICIOUS_URL,
+          PaymentSignalType.UNEXPECTED_INVOICE,
+          PaymentSignalType.REPEATED_ATTEMPTS,
+          PaymentSignalType.MISSING_CONTEXT,
+          PaymentSignalType.KNOWN_RECIPIENT_SCAM,
+          PaymentSignalType.SPLIT_PAYMENT,
+          PaymentSignalType.NEW_DEVICE,
+          PaymentSignalType.NEW_GEO,
+          PaymentSignalType.IMPOSSIBLE_TRAVEL,
+          PaymentSignalType.VPN_PROXY,
+          PaymentSignalType.BLOCKLISTED_RECIPIENT,
+          PaymentSignalType.VELOCITY_HOURLY,
+          PaymentSignalType.VELOCITY_DAILY,
+          PaymentSignalType.RECIPIENT_AMOUNT_ANOMALY);
 
   private static final Logger log = LoggerFactory.getLogger(AutomaticRiskEvaluationService.class);
 
@@ -300,6 +328,10 @@ public class AutomaticRiskEvaluationService {
       }
     }
 
+    List<PaymentSignal> independentSignals = new ArrayList<>(deterministic.signals());
+    independentSignals.addAll(behavioralSignals);
+    aiSignals = gateUncorroboratedSocialEvidence(aiSignals, independentSignals);
+
     List<PaymentSignal> combined = new ArrayList<>(deterministic.signals());
     combined.addAll(aiSignals);
     combined.addAll(behavioralSignals);
@@ -503,6 +535,41 @@ public class AutomaticRiskEvaluationService {
       return new DeviceCallSignal(null, "STALE");
     }
     return new DeviceCallSignal(state.get().isActiveCall(), null);
+  }
+
+  /**
+   * Keeps AI-only social-engineering evidence auditable but unweighted unless
+   * an independent signal supports it. Direct AI content findings such as
+   * urgent language or a suspicious URL structure are still admitted; only the
+   * high-weight social group is gated.
+   */
+  private static List<PaymentSignal> gateUncorroboratedSocialEvidence(
+      List<PaymentSignal> aiSignals, List<PaymentSignal> independentSignals) {
+    if (aiSignals.isEmpty()) {
+      return aiSignals;
+    }
+    boolean corroborated =
+        independentSignals.stream()
+            .filter(signal -> signal != null && signal.detected())
+            .filter(signal -> signal.source() != SignalSource.AI)
+            .anyMatch(signal -> AI_SOCIAL_CORROBORATION.contains(signal.type()));
+    if (corroborated) {
+      return aiSignals;
+    }
+    return aiSignals.stream()
+        .map(
+            signal ->
+                AiFindingAdapter.SOCIAL_GROUP.contains(signal.type())
+                    ? new PaymentSignal(
+                        signal.type(),
+                        false,
+                        signal.source(),
+                        "UNCORROBORATED_AI_SOCIAL",
+                        signal.evidence(),
+                        signal.severity(),
+                        signal.confidence())
+                    : signal)
+        .toList();
   }
 
   private static boolean hasContent(AutomaticEvaluationRequestDto dto) {

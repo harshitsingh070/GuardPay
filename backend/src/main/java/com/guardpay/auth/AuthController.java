@@ -1,5 +1,6 @@
 package com.guardpay.auth;
 
+import com.guardpay.common.net.NetworkContextResolver;
 import com.guardpay.user.User;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -29,16 +30,19 @@ public class AuthController {
 
   private final AuthService auth;
   private final CsrfTokenService csrf;
+  private final NetworkContextResolver network;
   private final boolean secureCookie;
   private final String sameSite;
 
   public AuthController(
       AuthService auth,
       CsrfTokenService csrf,
+      NetworkContextResolver network,
       @Value("${guardpay.auth.cookie-secure:false}") boolean secureCookie,
       @Value("${guardpay.auth.cookie-same-site:Lax}") String sameSite) {
     this.auth = auth;
     this.csrf = csrf;
+    this.network = network;
     this.secureCookie = secureCookie;
     this.sameSite = normalizeSameSite(sameSite, secureCookie);
   }
@@ -56,7 +60,11 @@ public class AuthController {
       @CookieValue(name = AuthService.COOKIE_NAME, required = false) String existingToken,
       HttpServletRequest httpRequest) {
     return withSession(
-        auth.login(request.email(), request.password(), existingToken, clientIp(httpRequest)));
+        auth.login(
+            request.email(),
+            request.password(),
+            existingToken,
+            network.resolve(httpRequest).clientIp()));
   }
 
   @PostMapping("/logout")
@@ -147,14 +155,6 @@ public class AuthController {
   private AuthResponse anonymousResponse() {
     return new AuthResponse(
         false, null, csrf.issue(CsrfTokenService.ANONYMOUS_SCOPE));
-  }
-
-  private static String clientIp(HttpServletRequest request) {
-    String forwarded = request.getHeader("X-Forwarded-For");
-    if (forwarded != null && !forwarded.isBlank()) {
-      return forwarded.split(",")[0].trim();
-    }
-    return request.getRemoteAddr();
   }
 
   private static String normalizeSameSite(String value, boolean secure) {

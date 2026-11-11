@@ -1,5 +1,8 @@
 package com.guardpay.payment;
 
+import com.guardpay.common.net.NetworkContext;
+import com.guardpay.common.net.NetworkContextResolver;
+import com.guardpay.common.net.TrustedProxyNetworkContextResolver;
 import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
 import com.guardpay.payment.dto.VerificationConfirmRequestDto;
@@ -30,20 +33,27 @@ public class GuardedPaymentController {
   private final PaymentSafetyOrchestrator orchestrator;
   private final PaymentVerificationService verificationService;
   private final DemoUserService demoUser;
+  private final NetworkContextResolver network;
 
   public GuardedPaymentController(
       PaymentSafetyOrchestrator orchestrator, PaymentVerificationService verificationService) {
-    this(orchestrator, verificationService, null);
+    this(
+        orchestrator,
+        verificationService,
+        null,
+        new TrustedProxyNetworkContextResolver("127.0.0.1/32,::1/128", false));
   }
 
   @Autowired
   public GuardedPaymentController(
       PaymentSafetyOrchestrator orchestrator,
       PaymentVerificationService verificationService,
-      DemoUserService demoUser) {
+      DemoUserService demoUser,
+      NetworkContextResolver network) {
     this.orchestrator = orchestrator;
     this.verificationService = verificationService;
     this.demoUser = demoUser;
+    this.network = network;
   }
 
   @PostMapping("/guarded")
@@ -51,23 +61,13 @@ public class GuardedPaymentController {
       @Valid @RequestBody GuardedPaymentRequestDto request,
       @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
       HttpServletRequest httpRequest) {
-    request.setClientIp(clientIp(httpRequest));
+    NetworkContext context = network.resolve(httpRequest);
+    request.setClientIp(context.clientIp());
+    request.setGeoCountry(context.geoCountry());
+    request.setGeoCity(context.geoCity());
+    request.setAsn(context.asn());
+    request.setVpnOrProxy(context.vpnOrProxy());
     return ResponseEntity.ok(orchestrator.initiate(request, idempotencyKey));
-  }
-
-  /**
-   * Client IP is server-observed, never taken from JSON. The first
-   * X-Forwarded-For hop is used only when a trusted proxy added it.
-   */
-  private static String clientIp(HttpServletRequest request) {
-    String forwarded = request.getHeader("X-Forwarded-For");
-    if (forwarded != null && !forwarded.isBlank()) {
-      String first = forwarded.split(",")[0].trim();
-      if (!first.isEmpty()) {
-        return first;
-      }
-    }
-    return request.getRemoteAddr();
   }
 
   @PostMapping("/{paymentId}/verification/confirm")

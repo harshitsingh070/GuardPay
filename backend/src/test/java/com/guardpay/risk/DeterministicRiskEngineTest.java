@@ -83,12 +83,12 @@ class DeterministicRiskEngineTest {
   }
 
   @Test
-  void newRecipientAddsTwenty() {
+  void newRecipientAddsFifteen() {
     RiskEvaluationRequest request = req(1); // newRecipient
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    assertEquals(20, result.score());
+    assertEquals(15, result.score());
     assertEquals(RiskLevel.LOW, result.riskLevel());
     assertEquals(RecommendedAction.ALLOW, result.recommendedAction());
     assertTrue(triggeredBy(result).get("NEW_RECIPIENT"));
@@ -138,13 +138,13 @@ class DeterministicRiskEngineTest {
   }
 
   @Test
-  void multipleSignalsSumToSixty() {
-    // activeCall(0) + newRecipient(1) + unexpectedInvoice(4) + urgentLanguage(5) = 15+20+15+10 = 60
+  void multipleSignalsSumToFiftyFive() {
+    // activeCall(0) + newRecipient(1) + unexpectedInvoice(4) + urgentLanguage(5) = 15+15+15+10 = 55
     RiskEvaluationRequest request = req(0, 1, 4, 5);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    assertEquals(60, result.score());
+    assertEquals(55, result.score());
     assertEquals(RiskLevel.MEDIUM, result.riskLevel());
     assertEquals(RecommendedAction.VERIFY, result.recommendedAction());
   }
@@ -192,13 +192,13 @@ class DeterministicRiskEngineTest {
   }
 
   @Test
-  void reachableSeventyIsHigh() {
-    // 20 (new) + 20 (large: 500 >= 87*5) + 15 (call) + 15 (invoice) = 70.
+  void reachableSixtyFiveIsHigh() {
+    // 15 (new) + 20 (large: 500 >= 87*5) + 15 (call) + 15 (invoice) = 65.
     RiskEvaluationRequest request = req(new BigDecimal("500"), new BigDecimal("87"), 0, 1, 4);
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    assertEquals(70, result.score());
+    assertEquals(65, result.score());
     assertEquals(RiskLevel.HIGH, result.riskLevel());
     assertEquals(RecommendedAction.VERIFY, result.recommendedAction());
   }
@@ -224,8 +224,8 @@ class DeterministicRiskEngineTest {
 
     RiskEvaluationResult result = engine.evaluate(request);
 
-    // 20 new recipient + 20 large amount + 20 missing context.
-    assertEquals(60, result.score());
+    // 15 new recipient + 20 large amount + 20 missing context.
+    assertEquals(55, result.score());
     assertEquals(RiskLevel.MEDIUM, result.riskLevel());
     assertEquals(RecommendedAction.VERIFY, result.recommendedAction());
     assertTrue(triggeredBy(result).get("MISSING_CONTEXT"));

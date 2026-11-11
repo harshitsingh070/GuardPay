@@ -42,7 +42,7 @@ class RiskCalibrationTest {
             request, null, null, RiskCalibration.ofThresholds(30, 80, "calib", "dataset"));
 
     assertEquals(defaultResult.score(), calibrated.score());
-    assertEquals(35, calibrated.score());
+    assertEquals(30, calibrated.score());
     assertEquals(RiskLevel.LOW, defaultResult.riskLevel());
     assertEquals(RiskLevel.MEDIUM, calibrated.riskLevel());
   }

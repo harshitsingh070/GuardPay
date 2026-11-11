@@ -1,5 +1,6 @@
 package com.guardpay.risk.signal.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -36,19 +37,24 @@ public class AutomaticEvaluationRequestDto {
   private String deviceFingerprint;
 
   /** Server-observed client IP; populated by the controller, never trusted from JSON. */
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   @Size(max = 64, message = "clientIp must be 64 characters or fewer")
   private String clientIp;
 
   /** Country resolved from the client network context (ISO-3166 alpha-2). */
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   @Size(max = 2, message = "geoCountry must be a 2-letter country code")
   private String geoCountry;
 
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   @Size(max = 128, message = "geoCity must be 128 characters or fewer")
   private String geoCity;
 
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Integer asn;
 
   /** Network reputation result: true when the connection is a VPN/proxy. */
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Boolean vpnOrProxy;
 
   /** Optional message/invoice text for AI content analysis (absent = not analyzed). */

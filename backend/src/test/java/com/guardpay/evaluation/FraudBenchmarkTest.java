@@ -75,13 +75,12 @@ class FraudBenchmarkTest {
             .get(BenchmarkMode.DETERMINISTIC_ONLY.name() + "_WITHOUT_BEHAVIORAL"));
     assertEquals(27, deterministic.truePositives());
     assertEquals(4, deterministic.falseNegatives());
-    assertEquals(8, deterministic.falsePositives());
-    assertEquals(27, deterministic.trueNegatives());
+    assertEquals(7, deterministic.falsePositives());
+    assertEquals(28, deterministic.trueNegatives());
     assertEquals(27.0 / 31.0, deterministic.recall(), DELTA);
-    assertEquals(27.0 / 35.0, deterministic.precision(), DELTA);
-    assertEquals(54.0 / 66.0, deterministic.f1(), DELTA);
-    assertEquals(54.0 / 66.0, deterministic.classificationAccuracy(), DELTA);
-    assertEquals(54.0 / 66.0, deterministic.classificationAccuracy(), DELTA);
+    assertEquals(27.0 / 34.0, deterministic.precision(), DELTA);
+    assertEquals(54.0 / 65.0, deterministic.f1(), DELTA);
+    assertEquals(55.0 / 66.0, deterministic.classificationAccuracy(), DELTA);
     assertEquals(0, deterministic.legitimateStopped());
     assertEquals(1.0, deterministic.exactActionAccuracy(), DELTA);
 
@@ -89,11 +88,12 @@ class FraudBenchmarkTest {
     assertNotNull(validatedAi);
     assertEquals(29, validatedAi.truePositives());
     assertEquals(2, validatedAi.falseNegatives());
-    assertEquals(9, validatedAi.falsePositives());
-    assertEquals(26, validatedAi.trueNegatives());
+    assertEquals(7, validatedAi.falsePositives());
+    assertEquals(28, validatedAi.trueNegatives());
     assertEquals(29.0 / 31.0, validatedAi.recall(), DELTA);
-    assertEquals(29.0 / 38.0, validatedAi.precision(), DELTA);
-    assertEquals(55.0 / 66.0, validatedAi.classificationAccuracy(), DELTA);
+    assertEquals(29.0 / 36.0, validatedAi.precision(), DELTA);
+    assertEquals(58.0 / 67.0, validatedAi.f1(), DELTA);
+    assertEquals(57.0 / 66.0, validatedAi.classificationAccuracy(), DELTA);
     assertEquals(0, validatedAi.legitimateStopped());
 
     assertEquals(64, report.datasetSha256().length());
@@ -122,8 +122,8 @@ class FraudBenchmarkTest {
     assertEquals(84, baseline.highMax());
     assertEquals(27, baseline.truePositives());
     assertEquals(4, baseline.falseNegatives());
-    assertEquals(8, baseline.falsePositives());
-    assertEquals(27, baseline.trueNegatives());
+    assertEquals(7, baseline.falsePositives());
+    assertEquals(28, baseline.trueNegatives());
     assertTrue(baseline.baseline());
     assertFalse("n/a".equals(thresholds.best().get("recall")));
     assertFalse("n/a".equals(thresholds.best().get("f1")));
@@ -187,7 +187,7 @@ class FraudBenchmarkTest {
 
     BenchmarkResult justBelowThreshold =
         result(report, BenchmarkMode.DETERMINISTIC_ONLY, "F23-just-below-missing-threshold");
-    assertEquals(50, justBelowThreshold.actualScore());
+    assertEquals(45, justBelowThreshold.actualScore());
     assertEquals(RiskLevel.MEDIUM, justBelowThreshold.actualLevel());
     assertEquals(RecommendedAction.VERIFY, justBelowThreshold.actualAction());
 
@@ -198,7 +198,7 @@ class FraudBenchmarkTest {
     assertEquals(RecommendedAction.ALLOW, knownPayeeWithoutEvidence.actualAction());
 
     BenchmarkResult aiRescue = result(report, BenchmarkMode.VALIDATED_AI, "F08-paypal-lookalike-known");
-    assertEquals(50, aiRescue.actualScore());
+    assertEquals(55, aiRescue.actualScore());
     assertEquals(RecommendedAction.VERIFY, aiRescue.actualAction());
   }
 

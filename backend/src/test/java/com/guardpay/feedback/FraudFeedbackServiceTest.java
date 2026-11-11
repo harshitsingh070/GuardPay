@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.guardpay.risk.RiskAssessment;
@@ -62,6 +65,34 @@ class FraudFeedbackServiceTest {
     assertEquals("USER", saved.source());
     assertEquals("VERIFY", saved.decisionAction());
     assertEquals(72, saved.riskScore());
+  }
+
+  @Test
+  void unchangedResubmissionPreservesVerifiedReviewState() {
+    FraudFeedback verified = new FraudFeedback();
+    ReflectionTestUtils.setField(verified, "id", UUID.randomUUID());
+    verified.setTransactionId(transaction.getId());
+    verified.setUserReference(user.getId());
+    verified.setLabel(FeedbackLabel.FRAUD);
+    verified.setFeedbackType(FeedbackType.SCAM_OR_SOCIAL_ENGINEERING);
+    verified.setReasonCode(FeedbackReasonCode.OTHER);
+    verified.setFeedbackStatus(FeedbackStatus.VERIFIED_FRAUD);
+    UUID reviewer = UUID.randomUUID();
+    verified.setReviewerReference(reviewer);
+    verified.setReviewerConfidence(java.math.BigDecimal.valueOf(0.95));
+    verified.setReviewedAt(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC));
+
+    when(transactions.findByIdAndUserId(transaction.getId(), user.getId()))
+        .thenReturn(Optional.of(transaction));
+    when(feedback.findByTransactionIdAndUserReference(transaction.getId(), user.getId()))
+        .thenReturn(Optional.of(verified));
+
+    FraudFeedbackDto saved = service.submit(user, transaction.getId(), FeedbackLabel.FRAUD);
+
+    assertEquals("VERIFIED_FRAUD", saved.feedbackStatus());
+    assertEquals(reviewer.toString(), saved.reviewerReference());
+    verify(feedback, never()).save(any(FraudFeedback.class));
+    verifyNoInteractions(assessments);
   }
 
   @Test

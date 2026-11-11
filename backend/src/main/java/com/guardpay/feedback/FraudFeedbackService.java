@@ -106,11 +106,17 @@ public class FraudFeedbackService {
     FeedbackLabel previousLabel = row.getLabel();
     FeedbackType previousType = row.getFeedbackType();
     FeedbackReasonCode previousReason = row.getReasonCode();
-    boolean changed =
+    boolean unchanged =
         row.getId() != null
-            && (previousLabel != request.label()
-                || previousType != feedbackType(request)
-                || previousReason != reasonCode(request));
+            && previousLabel == request.label()
+            && previousType == feedbackType(request)
+            && previousReason == reasonCode(request);
+    if (unchanged) {
+      // Idempotent resubmission: preserve review state and do not emit another
+      // workflow event for a label that did not actually change.
+      return toDto(row);
+    }
+    boolean changed = row.getId() != null;
 
     RiskAssessment latest =
         assessments.findByTransactionOrderByCreatedAtDesc(transaction).stream()

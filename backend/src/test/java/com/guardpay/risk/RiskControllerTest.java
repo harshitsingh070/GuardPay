@@ -87,7 +87,7 @@ class RiskControllerTest {
                      "suspiciousUrl": false, "socialEngineeringDetected": false}
                     """))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.score").value(60))
+        .andExpect(jsonPath("$.score").value(55))
         .andExpect(jsonPath("$.riskLevel").value("MEDIUM"))
         .andExpect(jsonPath("$.recommendedAction").value("VERIFY"));
   }

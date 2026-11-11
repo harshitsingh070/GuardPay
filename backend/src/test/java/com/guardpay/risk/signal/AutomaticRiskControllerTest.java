@@ -7,12 +7,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
+import com.guardpay.common.net.NetworkContext;
+import com.guardpay.common.net.NetworkContextResolver;
 import com.guardpay.risk.RecommendedAction;
 import com.guardpay.risk.RiskLevel;
 import com.guardpay.risk.dto.RiskFindingDto;
 import com.guardpay.risk.signal.dto.AutomaticEvaluationResponseDto;
 import com.guardpay.risk.signal.dto.PaymentSignalDto;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -32,6 +35,13 @@ class AutomaticRiskControllerTest {
   @Autowired private MockMvc mockMvc;
 
   @MockBean private AutomaticRiskEvaluationService service;
+  @MockBean private NetworkContextResolver network;
+
+  @BeforeEach
+  void networkContext() {
+    when(network.resolve(any()))
+        .thenReturn(new NetworkContext(null, null, null, null, null));
+  }
 
   private static String body(String amount) {
     return "{\"amount\": "

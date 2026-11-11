@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.guardpay.common.config.CorsConfig;
+import com.guardpay.common.net.NetworkContext;
+import com.guardpay.common.net.NetworkContextResolver;
 import com.guardpay.payment.dto.GuardedPaymentRequestDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto;
 import com.guardpay.payment.dto.GuardedPaymentResponseDto.GuardedPaypalOrderDto;
@@ -25,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +48,13 @@ class GuardedPaymentControllerTest {
   @MockBean private PaymentSafetyOrchestrator orchestrator;
   @MockBean private PaymentVerificationService verificationService;
   @MockBean private DemoUserService demoUser;
+  @MockBean private NetworkContextResolver network;
+
+  @BeforeEach
+  void networkContext() {
+    when(network.resolve(any()))
+        .thenReturn(new NetworkContext(null, null, null, null, null));
+  }
 
   private static String body(String amount) {
     return "{\"amount\": "
