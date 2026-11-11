@@ -10,6 +10,8 @@ const links = [
   { to: '/payment', label: 'Payment' },
   { to: '/transactions', label: 'Transactions' },
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/admin/feedback', label: 'Review' },
+  { to: '/admin/learning', label: 'Learning' },
 ];
 
 function desktopLinkClass({ isActive }: { isActive: boolean }) {

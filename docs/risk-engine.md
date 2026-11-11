@@ -68,7 +68,7 @@ contribute points.
 | 27 | `OVERALL_BEHAVIOR_DEVIATION` | +20 | Behavioral profile | Multiple behavioral dimensions deviate simultaneously. |
 | 28 | `FIRST_HIGH_VALUE_PAYMENT` | +20 | Behavioral profile | First payment of this magnitude for the account: above the historical maximum and a statistically significant deviation. |
 | 29 | `FIRST_HIGH_VALUE_TO_RECIPIENT` | +20 | Behavioral profile | Existing recipient: amount far above that recipient's previous maximum and median. |
-| 30 | `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` | +25 | Behavioral profile | New recipient and an amount meaningfully above the user's established distribution. |
+| 30 | `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` | +35 | Behavioral profile | New recipient and an amount meaningfully above the user's established distribution. Consolidates the generic new-recipient and amount-deviation points. |
 | 31 | `SIGNIFICANT_AMOUNT_DEVIATION` | +20 | Behavioral profile | Modified Z-score or zero-MAD ratio indicates a significant amount outlier. |
 | 32 | `AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM` | +15 | Behavioral profile | Amount exceeds the previous largest completed payment without another stronger amount classification. |
 | 33 | `RAPID_AMOUNT_ESCALATION` | +15 | Behavioral profile | Amount jumps at least 4× over the recent 7-day maximum and above p75. |
@@ -186,6 +186,22 @@ Identical validated inputs produce identical scores and decisions.
 for example a high-value scam with multiple content signals, or a blocklisted
 recipient.
 
+### 7.1 Optional deployed calibration
+
+`RiskCalibration` carries a `verifyThreshold` and `stopThreshold`. The score
+bands are derived from them: `score < verify` is `ALLOW`, `verify <= score < stop`
+is MEDIUM/HIGH `VERIFY`, and `score >= stop` is CRITICAL `STOP`. The default
+calibration is exactly the table above (`verify=40`, `stop=85`).
+
+`RiskCalibrationProvider` supplies the active calibration. The default provider
+returns the deterministic defaults; the learning provider returns an ACTIVE
+`RULE_CALIBRATION` artifact only when one has been explicitly approved and
+deployed. Missing, malformed, or out-of-range artifacts fall back to defaults.
+A calibration changes thresholds only: it cannot change signal weights, AI
+validation, correlation points, or the hard block (which remains
+`CRITICAL`/`STOP`). Every new assessment stores the active version in
+`risk_assessments.calibration_version`; `null`/absent means the defaults.
+
 ## 8. AI evidence and fallback
 
 Spring Boot calls the AI service only when `contentText` or `contentUrl` is
@@ -231,7 +247,7 @@ baseline. It produces complementary `PaymentSignal`s with
 - `OVERALL_BEHAVIOR_DEVIATION` (+20): multiple dimensions deviate simultaneously
 - `FIRST_HIGH_VALUE_PAYMENT` (+20): first payment of this magnitude for the account
 - `FIRST_HIGH_VALUE_TO_RECIPIENT` (+20): amount far above this recipient's history
-- `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` (+25): new recipient plus a meaningful amount deviation
+- `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` (+35): new recipient plus a meaningful amount deviation; replaces the generic new-recipient and amount-deviation points
 - `SIGNIFICANT_AMOUNT_DEVIATION` (+20): statistically significant amount outlier
 - `AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM` (+15): above the previous largest payment
 - `RAPID_AMOUNT_ESCALATION` (+15): sudden jump over recent activity
@@ -400,7 +416,13 @@ and is not used by the guarded flow.
 ## 13. Testing and benchmark coverage
 
 - Unit tests cover weight math, capping, blocklist override, and boundaries at
-  39/40, 69/70, and 84/85.
+  39/40, 69/70, and 84/85, including default and deployed calibration mapping.
+- `RiskCalibrationTest` and `LearningRiskCalibrationProviderTest` cover threshold
+  validation, version provenance, and fail-safe fallback for malformed or
+  out-of-range artifacts.
+- Learning tests cover verified-label dataset construction, exclusion reasons,
+  insufficient-data refusal, chronological splits, candidate training metrics,
+  approval/deploy/rollback, and invalidation after a label correction.
 - Collector tests cover unavailable reasons, owner scoping, recipient median
   rules, velocity tiers, split payments, device freshness/staleness/replay,
   geo/travel rules, and missing-context thresholds.
@@ -435,6 +457,12 @@ runs; a missing HMAC key, missing recipient, or repository failure yields
 - Identifiers are normalized per type and stored only as keyed HMAC-SHA-256
   digests. Raw emails, PayPal account ids, and report text are never persisted
   in the intelligence tables.
+- During HMAC key rotation, lookups try every configured key version. An
+  existing entity is reused and the active digest is added to it instead of
+  creating a duplicate global entity.
+- Identifiers become `VERIFIED` when an admin confirms fraud or corroborates
+  the entity, making `EXACT_VERIFIED_MATCH` reachable. Identifiers created from
+  user-submitted reports remain `UNVERIFIED`.
 - `ReputationStatus` is a conservative lifecycle: user reports can reach
   `REPORTED`, provider outcomes `UNDER_REVIEW`, independent corroboration
   `CORROBORATED_SUSPICIOUS`, but only an explicit admin review can set

@@ -28,7 +28,9 @@ class BehavioralLedgerBenchmarkTest {
     List<String> withBaseline =
         triggeredSignals(
             harness.evaluate(scenario, BenchmarkMode.DETERMINISTIC_ONLY, true, true).response());
-    assertTrue(withBaseline.contains("AMOUNT_DEVIATION"), () -> withBaseline.toString());
+    assertTrue(
+        withBaseline.contains("FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE"),
+        () -> withBaseline.toString());
 
     List<String> refundedBaseline =
         triggeredSignals(
@@ -41,6 +43,9 @@ class BehavioralLedgerBenchmarkTest {
                     BenchmarkHarness.historyIds(scenario.input()))
                 .response());
     assertFalse(refundedBaseline.contains("AMOUNT_DEVIATION"), () -> refundedBaseline.toString());
+    assertFalse(
+        refundedBaseline.contains("FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE"),
+        () -> refundedBaseline.toString());
     assertTrue(refundedBaseline.contains("NEW_RECIPIENT"), () -> refundedBaseline.toString());
     assertTrue(refundedBaseline.contains("UNKNOWN_MERCHANT"), () -> refundedBaseline.toString());
   }
@@ -62,8 +67,10 @@ class BehavioralLedgerBenchmarkTest {
                 BenchmarkHarness.historyIds(scenario.input()))
             .response();
 
-    assertTrue(triggeredSignals(withBaseline).contains("AMOUNT_DEVIATION"));
+    assertTrue(triggeredSignals(withBaseline).contains("FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE"));
     assertFalse(triggeredSignals(refundedBaseline).contains("AMOUNT_DEVIATION"));
+    assertFalse(
+        triggeredSignals(refundedBaseline).contains("FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE"));
     assertTrue(triggeredSignals(refundedBaseline).contains("LARGE_AMOUNT"));
     assertTrue(triggeredSignals(refundedBaseline).contains("NEW_RECIPIENT"));
     assertTrue(

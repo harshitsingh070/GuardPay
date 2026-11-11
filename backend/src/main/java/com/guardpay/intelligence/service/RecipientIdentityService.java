@@ -148,13 +148,14 @@ public class RecipientIdentityService {
       return Optional.empty();
     }
     HmacDigest active = hasher.activeDigest(identifier);
-    Optional<RecipientIdentifier> existing =
-        identifiers.findByIdentifierTypeAndIdentifierHmac(
-            identifier.type(), active.digest());
+    Optional<RecipientIdentifier> existing = findAcrossKeyVersions(identifier);
     if (existing.isPresent()) {
       RecipientIdentifier row = existing.get();
       touch(row, verification, confidence);
       GlobalRecipientEntity entity = row.getRecipientEntity();
+      if (row.getHmacKeyVersion() != active.keyVersion()) {
+        addRotatedDigest(row, identifier, active);
+      }
       if (confidence.ordinal() > entity.getIdentityConfidence().ordinal()) {
         entity.setIdentityConfidence(confidence);
         entities.save(entity);
@@ -177,6 +178,44 @@ public class RecipientIdentityService {
     row.setLastSeenAt(now);
     identifiers.save(row);
     return Optional.of(entity);
+  }
+
+  private Optional<RecipientIdentifier> findAcrossKeyVersions(
+      CanonicalIdentifier identifier) {
+    for (HmacDigest digest : hasher.digests(identifier)) {
+      Optional<RecipientIdentifier> row =
+          identifiers.findByIdentifierTypeAndIdentifierHmac(
+              identifier.type(), digest.digest());
+      if (row.isPresent()) {
+        return row;
+      }
+    }
+    return Optional.empty();
+  }
+
+  private void addRotatedDigest(
+      RecipientIdentifier previous,
+      CanonicalIdentifier identifier,
+      HmacDigest active) {
+    Optional<RecipientIdentifier> alreadyActive =
+        identifiers.findByIdentifierTypeAndIdentifierHmac(
+            identifier.type(), active.digest());
+    if (alreadyActive.isPresent()) {
+      return;
+    }
+    RecipientIdentifier row = new RecipientIdentifier();
+    row.setRecipientEntity(previous.getRecipientEntity());
+    row.setIdentifierType(identifier.type());
+    row.setIdentifierHmac(active.digest());
+    row.setHmacKeyVersion(active.keyVersion());
+    row.setNormalizationVersion(identifier.normalizationVersion());
+    row.setVerificationStatus(previous.getVerificationStatus());
+    row.setIdentityConfidence(previous.getIdentityConfidence());
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    row.setFirstSeenAt(
+        previous.getFirstSeenAt() != null ? previous.getFirstSeenAt() : now);
+    row.setLastSeenAt(now);
+    identifiers.save(row);
   }
 
   private void linkIfAbsent(GlobalRecipientEntity entity, Candidate candidate) {

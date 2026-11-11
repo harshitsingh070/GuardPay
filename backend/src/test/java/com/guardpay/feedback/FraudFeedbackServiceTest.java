@@ -51,7 +51,8 @@ class FraudFeedbackServiceTest {
         .thenReturn(Optional.of(transaction));
     when(assessments.findByTransactionOrderByCreatedAtDesc(transaction))
         .thenReturn(List.of(assessment));
-    when(feedback.findByTransactionId(transaction.getId())).thenReturn(Optional.empty());
+    when(feedback.findByTransactionIdAndUserReference(transaction.getId(), user.getId()))
+        .thenReturn(Optional.empty());
     when(feedback.save(any(FraudFeedback.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
 

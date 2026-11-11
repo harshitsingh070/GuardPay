@@ -126,6 +126,6 @@ class AutomaticRiskEvaluationServiceCorrelationTest {
     assertEquals(1, response.correlationFindings().size());
     assertEquals(
         "ACCOUNT_TAKEOVER_COMBO", response.correlationFindings().get(0).correlationCode());
-    assertEquals(75, response.score());
+    assertEquals(74, response.score());
   }
 }

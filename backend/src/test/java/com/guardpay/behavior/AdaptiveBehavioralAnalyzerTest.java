@@ -126,6 +126,43 @@ class AdaptiveBehavioralAnalyzerTest {
   }
 
   @Test
+  void availableProfileWithoutFindingsStillReportsAvailable() {
+    UUID userId = UUID.randomUUID();
+    Mockito.when(profileService.analyze(Mockito.any(), Mockito.any()))
+        .thenReturn(
+            new BehavioralAnalysisResponse(
+                userId,
+                "ESTABLISHED",
+                25,
+                OffsetDateTime.now(),
+                "0.25",
+                List.of(),
+                "NORMAL",
+                true));
+    var request = new BehavioralAnalysisRequest(
+        userId,
+        new BigDecimal("1000"),
+        "USD",
+        OffsetDateTime.now(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        OffsetDateTime.now());
+
+    AdaptiveBehavioralAnalyzer.AdaptiveAnalysis analysis = analyzer.analyzeDetailed(request);
+
+    assertTrue(analysis.profileAvailable());
+    assertTrue(analysis.signals().isEmpty());
+  }
+
+  @Test
   void analyzerReturnsNotNull() {
     UUID userId = UUID.randomUUID();
     var request = new BehavioralAnalysisRequest(

@@ -58,7 +58,8 @@ AdaptiveBehavioralAnalyzer
     v
 AutomaticSignalAdapter -> DeterministicRiskEngine
     |-- specialized high-value RiskSignal weights
-    |-- generic AMOUNT_DEVIATION suppressed when a specialized signal fires
+    |-- generic AMOUNT_DEVIATION and NEW_RECIPIENT suppressed when the
+    |   new-recipient high-value signal fires
     `-- correlation layer may add bounded points
     |
     v
@@ -162,7 +163,7 @@ The engine records the recipient payment count, median, maximum, and ratios.
 
 | Completed same-currency payments | Confidence | Profile stage |
 |---:|---:|---|
-| 5–9 | 0.40 | Early |
+| 5–9 | 0.60 | Early |
 | 10–19 | 0.70 | Initializing |
 | 20+ | 0.90 | Established |
 
@@ -181,7 +182,7 @@ Each detected classification maps to one `RiskSignal`:
 
 | Classification | Signal | Points |
 |---|---|---:|
-| `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` | `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` | 25 |
+| `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` | `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` | 35 |
 | `FIRST_HIGH_VALUE_PAYMENT` | `FIRST_HIGH_VALUE_PAYMENT` | 20 |
 | `FIRST_HIGH_VALUE_TO_RECIPIENT` | `FIRST_HIGH_VALUE_TO_RECIPIENT` | 20 |
 | `SIGNIFICANT_AMOUNT_DEVIATION` | `SIGNIFICANT_AMOUNT_DEVIATION` | 20 |
@@ -193,7 +194,9 @@ signal.
 
 When any specialized amount signal fires, `DeterministicRiskEngine` suppresses
 the generic `AMOUNT_DEVIATION` points so the same amount evidence is not counted
-twice. The finding remains visible for audit.
+twice. `FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE` also replaces the generic
+`NEW_RECIPIENT` points; its weight of 35 reflects the consolidated new-recipient
+and amount-deviation evidence. The finding remains visible for audit.
 
 The engine cannot force an action. Points are combined with all other evidence,
 capped at 100, and mapped through the normal `RiskLevels` policy.
@@ -295,7 +298,8 @@ All thresholds live in `FirstTimeHighValueConfig`
 | `rapid-escalation-window-days` | 7 | Label and escalation window |
 | `rapid-escalation-factor` | 4.00 | Jump over recent maximum |
 | `max-signal-contribution` | 25 | Reserved bound |
-| `confidence-discount-cold-start` | 0.40 | Early confidence |
+| `confidence-cold-start` | 0.30 | Cold-start confidence |
+| `confidence-discount-cold-start` | 0.60 | Early (5-9 samples) confidence |
 | `confidence-initializing` | 0.70 | Initializing confidence |
 | `confidence-established` | 0.90 | Established confidence |
 

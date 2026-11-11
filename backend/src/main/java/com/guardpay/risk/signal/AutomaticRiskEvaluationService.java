@@ -6,6 +6,8 @@ import com.guardpay.intelligence.dto.RecipientReputationDto;
 import com.guardpay.intelligence.service.RecipientReputationEvidence;
 import com.guardpay.intelligence.service.RecipientReputationLookup;
 import com.guardpay.risk.DeterministicRiskEngine;
+import com.guardpay.risk.RiskCalibration;
+import com.guardpay.risk.RiskCalibrationProvider;
 import com.guardpay.risk.RiskEvaluationRequest;
 import com.guardpay.risk.RiskEvaluationResult;
 import com.guardpay.risk.correlation.CorrelationResult;
@@ -67,6 +69,7 @@ public class AutomaticRiskEvaluationService {
   private final DecisionMetrics metrics;
   private final RiskCorrelationEngine correlationEngine;
   private final RecipientReputationLookup reputationLookup;
+  private final RiskCalibrationProvider calibrationProvider;
 
   /** Legacy/test constructor: metrics, behavioral profiling, and correlation are not recorded. */
   public AutomaticRiskEvaluationService(
@@ -160,6 +163,35 @@ public class AutomaticRiskEvaluationService {
         metrics,
         behavioralAnalyzer,
         correlationEngine,
+        null,
+        null);
+  }
+
+  /** Test constructor: deployed calibration is not consulted. */
+  public AutomaticRiskEvaluationService(
+      PaymentSignalCollectorService collector,
+      DeterministicRiskEngine engine,
+      DemoUserService demoUser,
+      DeviceCallStateRepository deviceStates,
+      RecipientRepository recipients,
+      MerchantRepository merchants,
+      AiAnalysisClient aiClient,
+      DecisionMetrics metrics,
+      AdaptiveBehavioralAnalyzer behavioralAnalyzer,
+      RiskCorrelationEngine correlationEngine,
+      RecipientReputationLookup reputationLookup) {
+    this(
+        collector,
+        engine,
+        demoUser,
+        deviceStates,
+        recipients,
+        merchants,
+        aiClient,
+        metrics,
+        behavioralAnalyzer,
+        correlationEngine,
+        reputationLookup,
         null);
   }
 
@@ -175,7 +207,8 @@ public class AutomaticRiskEvaluationService {
       DecisionMetrics metrics,
       AdaptiveBehavioralAnalyzer behavioralAnalyzer,
       RiskCorrelationEngine correlationEngine,
-      RecipientReputationLookup reputationLookup) {
+      RecipientReputationLookup reputationLookup,
+      RiskCalibrationProvider calibrationProvider) {
     this.collector = collector;
     this.engine = engine;
     this.demoUser = demoUser;
@@ -187,6 +220,7 @@ public class AutomaticRiskEvaluationService {
     this.behavioralAnalyzer = behavioralAnalyzer;
     this.correlationEngine = correlationEngine;
     this.reputationLookup = reputationLookup;
+    this.calibrationProvider = calibrationProvider;
   }
 
   public AutomaticEvaluationResponseDto evaluate(AutomaticEvaluationRequestDto dto) {
@@ -256,10 +290,10 @@ public class AutomaticRiskEvaluationService {
                 dto.getVpnOrProxy(),
                 dto.getTransactionId(),
                 OffsetDateTime.now());
-        List<PaymentSignal> bs = behavioralAnalyzer.analyze(behavioralRequest);
-        behavioralSignals = bs != null ? bs : List.of();
-        behavioralProfileStatus =
-            behavioralSignals.isEmpty() ? "INSUFFICIENT_DATA" : "AVAILABLE";
+        AdaptiveBehavioralAnalyzer.AdaptiveAnalysis analysis =
+            behavioralAnalyzer.analyzeDetailed(behavioralRequest);
+        behavioralSignals = analysis.signals();
+        behavioralProfileStatus = analysis.profileAvailable() ? "AVAILABLE" : "INSUFFICIENT_DATA";
       } catch (Exception e) {
         log.warn("Behavioral profiling unavailable, continuing deterministically", e);
         behavioralProfileStatus = "UNAVAILABLE";
@@ -299,13 +333,16 @@ public class AutomaticRiskEvaluationService {
 
     RiskEvaluationRequest engineRequest =
         AutomaticSignalAdapter.toRiskEvaluationRequest(dto.getAmount(), collection);
-    RiskEvaluationResult result = engine.evaluate(engineRequest, correlation, reputation);
+    RiskCalibration calibration = activeCalibration();
+    RiskEvaluationResult result =
+        engine.evaluate(engineRequest, correlation, reputation, calibration);
 
     log.info(
-        "Risk evaluated: score={} level={} action={} ai={} device={} correlation={} triggered={}",
+        "Risk evaluated: score={} level={} action={} calibration={} ai={} device={} correlation={} triggered={}",
         result.score(),
         result.riskLevel(),
         result.recommendedAction(),
+        calibration.modelVersion(),
         aiStatus,
         describeDevice(deviceSignal),
         correlation.status(),
@@ -392,7 +429,25 @@ public class AutomaticRiskEvaluationService {
         behavioralProfileStatus,
         correlationFindings,
         correlation.status(),
-        RecipientReputationDto.from(reputation));
+        RecipientReputationDto.from(reputation),
+        calibration.modelVersion());
+  }
+
+  /**
+   * Calibration is optional evidence. The provider is already fail-safe, but a
+   * constructor-injected provider can still be null in legacy tests.
+   */
+  private RiskCalibration activeCalibration() {
+    if (calibrationProvider == null) {
+      return RiskCalibration.defaults();
+    }
+    try {
+      RiskCalibration calibration = calibrationProvider.activeCalibration();
+      return calibration == null ? RiskCalibration.defaults() : calibration;
+    } catch (RuntimeException failure) {
+      log.warn("Calibration lookup failed, using deterministic defaults", failure);
+      return RiskCalibration.defaults();
+    }
   }
 
   private RecipientReputationEvidence lookupReputation(UUID userId, UUID recipientId) {

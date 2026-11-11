@@ -550,6 +550,33 @@ here does not by itself justify a production threshold change. Threshold
 selection must use dev data only; held-out data is reserved for evaluating the
 fixed production policy after selection.
 
+### Learning calibration comparison
+
+The learning console trains a `RULE_CALIBRATION` candidate with a
+`verifyThreshold` and `stopThreshold`:
+
+```text
+score < verifyThreshold   -> ALLOW
+verifyThreshold <= score < stopThreshold -> VERIFY
+score >= stopThreshold    -> STOP
+```
+
+This is the same decision rule as the benchmark threshold policies
+(`verify = lowMax + 1`, `stop = highMax + 1`), so a candidate can be compared
+offline on the actual engine scores without changing production policy. The
+report's `ThresholdAnalysis` evaluates those cutoffs independently of any
+deployment.
+
+Learning metrics treat detection as `VERIFY` or `STOP` (`score >= verify`); the
+STOP threshold is reported separately and is selected as a high-confidence
+boundary on the training split. The candidate's `championComparisonJson`
+includes both thresholds plus the candidate/champion test precision, recall,
+F1, and deltas. Training never auto-deploys, and a deployed calibration only
+changes thresholds — it does not change scores, signal weights, AI validation,
+correlation, or the hard block. Held-out evaluation remains fixed to the
+production baseline; it is not used to select a candidate or to tune a
+calibration.
+
 ## Filtering
 
 `FraudBenchmarkRunner` accepts an optional `BenchmarkFilter`. A filter matches

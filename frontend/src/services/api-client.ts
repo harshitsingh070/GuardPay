@@ -11,10 +11,19 @@ import type {
 } from '@/types/index';
 import type { DashboardSummary } from '@/types/dashboard';
 import type {
-  FeedbackLabel,
+  FeedbackMetrics,
+  FeedbackPage,
+  FeedbackReviewAction,
+  FeedbackSummary,
   FraudFeedback,
   FraudReportResponse,
+  LearningDataset,
+  LearningEvent,
+  LearningModel,
+  LearningOverview,
   RecipientReputationSummary,
+  SubmitFeedbackInput,
+  TrainingResult,
 } from '@/types/intelligence';
 import type { PayPalCaptureResponse, PayPalGateResponse } from '@/types/paypal';
 import type {
@@ -310,13 +319,13 @@ export function submitFraudReport(request: {
 /** Explicit ground-truth label for a transaction decision. */
 export function submitFraudFeedback(
   transactionId: string,
-  label: FeedbackLabel,
+  input: SubmitFeedbackInput,
 ): Promise<FraudFeedback> {
   return apiFetch<FraudFeedback>(
-    `/api/feedback/transactions/${encodeURIComponent(transactionId)}`,
+    `/api/fraud-feedback/transactions/${encodeURIComponent(transactionId)}`,
     {
       method: 'POST',
-      body: JSON.stringify({ label }),
+      body: JSON.stringify(input),
     },
   );
 }
@@ -327,7 +336,7 @@ export async function getFraudFeedback(
 ): Promise<FraudFeedback | null> {
   try {
     return await apiFetch<FraudFeedback>(
-      `/api/feedback/transactions/${encodeURIComponent(transactionId)}`,
+      `/api/fraud-feedback/transactions/${encodeURIComponent(transactionId)}`,
     );
   } catch (error) {
     if (error instanceof ApiRequestError && error.status === 404) {
@@ -335,6 +344,94 @@ export async function getFraudFeedback(
     }
     throw error;
   }
+}
+
+/** Admin feedback queue (server enforces the admin role). */
+export function listAdminFeedback(
+  status: string | null,
+  page = 0,
+  size = 50,
+): Promise<FeedbackPage> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (status !== null) params.set('status', status);
+  return apiFetch<FeedbackPage>(`/api/admin/fraud-feedback?${params.toString()}`);
+}
+
+export function getFeedbackSummary(): Promise<FeedbackSummary> {
+  return apiFetch<FeedbackSummary>('/api/admin/fraud-feedback/summary');
+}
+
+export function getFeedbackMetrics(): Promise<FeedbackMetrics> {
+  return apiFetch<FeedbackMetrics>('/api/admin/fraud-feedback/metrics');
+}
+
+export function reviewFeedback(
+  feedbackId: string,
+  action: FeedbackReviewAction,
+  note?: string,
+): Promise<unknown> {
+  return apiFetch<unknown>(
+    `/api/admin/fraud-feedback/${encodeURIComponent(feedbackId)}/review`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ action, note }),
+    },
+  );
+}
+
+export function getLearningOverview(): Promise<LearningOverview> {
+  return apiFetch<LearningOverview>('/api/admin/learning/overview');
+}
+
+export function listLearningDatasets(): Promise<LearningDataset[]> {
+  return apiFetch<LearningDataset[]>('/api/admin/learning/datasets');
+}
+
+export function buildLearningDataset(): Promise<LearningDataset> {
+  return apiFetch<LearningDataset>('/api/admin/learning/datasets', { method: 'POST' });
+}
+
+export function trainLearningModel(datasetId: string): Promise<TrainingResult> {
+  return apiFetch<TrainingResult>(
+    `/api/admin/learning/datasets/${encodeURIComponent(datasetId)}/train`,
+    { method: 'POST' },
+  );
+}
+
+export function listLearningModels(): Promise<LearningModel[]> {
+  return apiFetch<LearningModel[]>('/api/admin/learning/models');
+}
+
+export function approveLearningModel(modelId: string): Promise<LearningModel> {
+  return apiFetch<LearningModel>(
+    `/api/admin/learning/models/${encodeURIComponent(modelId)}/approve`,
+    { method: 'POST' },
+  );
+}
+
+export function rejectLearningModel(modelId: string): Promise<LearningModel> {
+  return apiFetch<LearningModel>(
+    `/api/admin/learning/models/${encodeURIComponent(modelId)}/reject`,
+    { method: 'POST' },
+  );
+}
+
+export function deployLearningModel(modelId: string): Promise<LearningModel> {
+  return apiFetch<LearningModel>(
+    `/api/admin/learning/models/${encodeURIComponent(modelId)}/deploy`,
+    { method: 'POST' },
+  );
+}
+
+export function rollbackLearningModel(modelId: string): Promise<LearningModel> {
+  return apiFetch<LearningModel>(
+    `/api/admin/learning/models/${encodeURIComponent(modelId)}/rollback`,
+    { method: 'POST' },
+  );
+}
+
+export function listLearningEvents(): Promise<LearningEvent[]> {
+  return apiFetch<LearningEvent[]>('/api/admin/learning/events');
 }
 
 /** Safe, evidence-only reputation summary for a recipient the caller paid. */

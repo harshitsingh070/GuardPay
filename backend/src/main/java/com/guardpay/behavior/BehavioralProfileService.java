@@ -305,8 +305,12 @@ public class BehavioralProfileService {
     // Time-of-day deviation (timezone-aware, window-filtered)
     if (request.transactionTimestamp() != null
         && confidence.sufficientForTime()) {
-      String userTimezone = existingProfile.map(UserBehaviorProfile::getTimezone)
-          .orElse(null);
+      String userTimezone =
+          existingProfile
+              .map(UserBehaviorProfile::getTimezone)
+              .filter(BehavioralProfileService::isValidTimezone)
+              .orElseGet(
+                  () -> resolveTimezone(null, request.transactionTimestamp()));
       BehavioralFindingDto timeFinding =
           analyzeTimeDeviation(
               request.transactionTimestamp(),
@@ -742,6 +746,10 @@ public class BehavioralProfileService {
             .filter(t -> currency == null || currency.equalsIgnoreCase(t.getCurrency()))
             .toList();
     ProfileConfidence confidence = assessConfidence(currencyHistory, userId);
+    String timezone =
+        resolveTimezone(profile.getTimezone(), transaction.getTransactionTimestamp());
+    ZoneId zone = parseTimezone(timezone);
+    profile.setTimezone(timezone);
 
     profile.setProfileVersion(profile.getProfileVersion() + 1);
     profile.setProfileStatus(confidence.status());
@@ -807,7 +815,7 @@ public class BehavioralProfileService {
       for (Transaction t : currencyHistory) {
         OffsetDateTime ts = t.getTransactionTimestamp();
         if (ts != null) {
-          hourCounts.merge(ts.getHour(), 1L, Long::sum);
+          hourCounts.merge(ts.atZoneSameInstant(zone).getHour(), 1L, Long::sum);
         }
       }
       profile.setPeakHour(
@@ -828,7 +836,11 @@ public class BehavioralProfileService {
               .filter(
                   t ->
                       t.getTransactionTimestamp() != null
-                          && t.getTransactionTimestamp().getDayOfWeek().getValue() >= 6)
+                          && t.getTransactionTimestamp()
+                                  .atZoneSameInstant(zone)
+                                  .getDayOfWeek()
+                                  .getValue()
+                              >= 6)
               .count();
       profile.setWeekendPaymentRatio(
           BigDecimal.valueOf((double) weekendTx / currencyHistory.size())
@@ -904,7 +916,7 @@ public class BehavioralProfileService {
     deviceBehaviors.flush();
 
     persistRecipientBehaviors(userId, currencyHistory);
-    persistHourlyBehaviors(userId, currencyHistory);
+    persistHourlyBehaviors(userId, currencyHistory, zone);
     persistGeoBehaviors(userId, currencyHistory);
     persistDeviceBehaviors(userId, currencyHistory);
   }
@@ -1014,12 +1026,13 @@ public class BehavioralProfileService {
     }
   }
 
-  private void persistHourlyBehaviors(UUID userId, List<Transaction> history) {
+  private void persistHourlyBehaviors(
+      UUID userId, List<Transaction> history, ZoneId zone) {
     Map<Integer, List<Transaction>> byHour = new HashMap<>();
     for (Transaction t : history) {
       OffsetDateTime ts = t.getTransactionTimestamp();
       if (ts != null) {
-        byHour.computeIfAbsent(ts.getHour(), k -> new ArrayList<>()).add(t);
+        byHour.computeIfAbsent(ts.atZoneSameInstant(zone).getHour(), k -> new ArrayList<>()).add(t);
       }
     }
 
@@ -1157,7 +1170,10 @@ public class BehavioralProfileService {
                 excludedTransactionIds == null
                     || t.getId() == null
                     || !excludedTransactionIds.contains(t.getId()))
-        .sorted(Comparator.comparing(Transaction::getTransactionTimestamp))
+        .sorted(
+            Comparator.comparing(Transaction::getTransactionTimestamp)
+                .thenComparing(
+                    Transaction::getId, Comparator.nullsLast(Comparator.naturalOrder())))
         .toList();
   }
 
@@ -1392,15 +1408,34 @@ public class BehavioralProfileService {
         List.of("Personalized hour-of-day distribution (timezone: " + zone + ")"),
         OffsetDateTime.now());
   }
-  private ZoneId parseTimezone(String timezone) {
+  private static String resolveTimezone(String existing, OffsetDateTime timestamp) {
+    if (isValidTimezone(existing)) {
+      return existing;
+    }
+    if (timestamp != null) {
+      String offsetId = timestamp.getOffset().getId();
+      return "Z".equals(offsetId) ? "UTC" : offsetId;
+    }
+    return "UTC";
+  }
+
+  private static boolean isValidTimezone(String timezone) {
     if (timezone == null || timezone.isBlank()) {
-      return ZoneId.of("UTC");
+      return false;
     }
     try {
-      return ZoneId.of(timezone);
+      ZoneId.of(timezone);
+      return true;
     } catch (Exception e) {
+      return false;
+    }
+  }
+
+  private ZoneId parseTimezone(String timezone) {
+    if (!isValidTimezone(timezone)) {
       return ZoneId.of("UTC");
     }
+    return ZoneId.of(timezone);
   }
   private BehavioralFindingDto analyzeRecipientDeviation(
       UUID userId,
@@ -1542,27 +1577,31 @@ public class BehavioralProfileService {
             .anyMatch(t -> t.getDeviceFingerprint() != null
                 && t.getDeviceFingerprint().equals(deviceFingerprint));
 
-    int distinctDevices =
-        (int) history.stream()
+    long priorDeviceObservations =
+        history.stream()
+            .filter(t -> t.getDeviceId() != null || t.getDeviceFingerprint() != null)
+            .count();
+    long distinctDeviceIds =
+        history.stream()
             .map(Transaction::getDeviceId)
             .filter(java.util.Objects::nonNull)
             .distinct()
             .count();
+    long distinctFingerprints =
+        history.stream()
+            .map(Transaction::getDeviceFingerprint)
+            .filter(java.util.Objects::nonNull)
+            .distinct()
+            .count();
+    int distinctDevices = (int) Math.max(distinctDeviceIds, distinctFingerprints);
 
-    if (distinctDevices < 2) {
+    if (priorDeviceObservations == 0 || deviceSeenById || deviceSeenByFingerprint) {
       return null;
     }
 
-    String severity;
-    String evidence;
-
-    if (!deviceSeenById && !deviceSeenByFingerprint) {
-      severity = BehavioralSeverity.MEDIUM.name();
-      evidence = "This device has not been used for your account before ("
-          + distinctDevices + " known devices historically).";
-    } else {
-      return null;
-    }
+    String severity = BehavioralSeverity.MEDIUM.name();
+    String evidence = "This device has not been used for your account before ("
+        + distinctDevices + " known devices historically).";
 
     return new BehavioralFindingDto(
         "DEVICE_BEHAVIOR_DEVIATION",
@@ -1592,6 +1631,8 @@ public class BehavioralProfileService {
             .anyMatch(t -> t.getGeoCountry() != null
                 && t.getGeoCountry().equalsIgnoreCase(geoCountry));
 
+    long priorGeoObservations =
+        history.stream().filter(t -> t.getGeoCountry() != null).count();
     int distinctCountries =
         (int) history.stream()
             .map(Transaction::getGeoCountry)
@@ -1600,20 +1641,13 @@ public class BehavioralProfileService {
             .distinct()
             .count();
 
-    if (distinctCountries < 2) {
+    if (priorGeoObservations == 0 || countrySeen) {
       return null;
     }
 
-    String severity;
-    String evidence;
-
-    if (!countrySeen) {
-      severity = BehavioralSeverity.MEDIUM.name();
-      evidence = "Payment from " + geoCountry + " is a new location for your account ("
-          + distinctCountries + " countries historically).";
-    } else {
-      return null;
-    }
+    String severity = BehavioralSeverity.MEDIUM.name();
+    String evidence = "Payment from " + geoCountry + " is a new location for your account ("
+        + distinctCountries + " countries historically).";
 
     return new BehavioralFindingDto(
         "GEOGRAPHIC_BEHAVIOR_DEVIATION",

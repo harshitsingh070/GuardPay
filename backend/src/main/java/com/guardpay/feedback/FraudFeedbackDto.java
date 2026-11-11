@@ -8,7 +8,17 @@ public record FraudFeedbackDto(
     UUID id,
     UUID transactionId,
     String label,
+    String feedbackType,
+    String feedbackStatus,
     String source,
     String decisionAction,
     Integer riskScore,
-    OffsetDateTime createdAt) {}
+    UUID riskAssessmentId,
+    UUID recipientEntityId,
+    String relatedFindingCode,
+    String reasonCode,
+    String reviewerReference,
+    Double reviewerConfidence,
+    OffsetDateTime reviewedAt,
+    OffsetDateTime createdAt,
+    OffsetDateTime updatedAt) {}

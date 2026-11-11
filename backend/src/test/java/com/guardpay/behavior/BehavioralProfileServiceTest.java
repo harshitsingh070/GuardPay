@@ -308,6 +308,75 @@ class BehavioralProfileServiceTest {
   }
 
   @Test
+  void newDeviceFlaggedWhenUserHasOnlyOneKnownDevice() {
+    UUID knownDevice = UUID.randomUUID();
+    UUID newDevice = UUID.randomUUID();
+    List<Transaction> history =
+        completedHistory(25, "1000").stream()
+            .peek(t -> t.setDeviceId(knownDevice))
+            .toList();
+    mockHistory(history);
+
+    var request =
+        new BehavioralAnalysisRequest(
+            userId,
+            new BigDecimal("1000"),
+            "USD",
+            OffsetDateTime.parse("2026-01-26T10:00:00Z"),
+            null,
+            null,
+            null,
+            newDevice,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            OffsetDateTime.parse("2026-01-26T10:00:00Z"));
+
+    var response = service.analyze(request, null);
+
+    assertTrue(
+        response.findings().stream().anyMatch(f -> "DEVICE_BEHAVIOR_DEVIATION".equals(f.code())),
+        "A user with one known device must still have a new device flagged");
+  }
+
+  @Test
+  void newCountryFlaggedWhenUserHasOnlyOneKnownCountry() {
+    List<Transaction> history =
+        completedHistory(25, "1000").stream()
+            .peek(t -> t.setGeoCountry("US"))
+            .toList();
+    mockHistory(history);
+
+    var request =
+        new BehavioralAnalysisRequest(
+            userId,
+            new BigDecimal("1000"),
+            "USD",
+            OffsetDateTime.parse("2026-01-26T10:00:00Z"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            "FR",
+            null,
+            null,
+            null,
+            null,
+            OffsetDateTime.parse("2026-01-26T10:00:00Z"));
+
+    var response = service.analyze(request, null);
+
+    assertTrue(
+        response.findings().stream()
+            .anyMatch(f -> "GEOGRAPHIC_BEHAVIOR_DEVIATION".equals(f.code())),
+        "A user with one known country must still have a new country flagged");
+  }
+
+  @Test
   void invalidTimezoneFallsBackToUtc() {
     // 25 transactions all at 10:00 UTC
     List<Transaction> history = completedHistoryAtHour(25, 10);

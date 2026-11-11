@@ -127,11 +127,11 @@ guardpay/
 - REST APIs and SSE for the browser/WebView.
 
 Package map (`com.guardpay`): `ai`, `alert`, `auth`, `behavior`, `common`,
-`dashboard`, `device`, `evaluation`, `feedback`, `merchant`, `metrics`, `outcome`,
-`payment`, `paypal`, `recipient`, `risk`, `security`, `session`, `transaction`,
-`user`, `webhook`.
+`dashboard`, `device`, `evaluation`, `feedback`, `intelligence`, `learning`,
+`merchant`, `metrics`, `outcome`, `payment`, `paypal`, `recipient`, `risk`,
+`security`, `session`, `transaction`, `user`, `webhook`.
 
-### 4.5 Java Behavioral Profiling (`backend/`, `com.guardpay.behavior`)
+### 4.4 Java Behavioral Profiling (`backend/`, `com.guardpay.behavior`)
 
 - Per-user learned behavioral baseline computed from COMPLETED transaction
   history only (never cancelled/failed/reversed).
@@ -152,7 +152,7 @@ Package map (`com.guardpay`): `ai`, `alert`, `auth`, `behavior`, `common`,
   deterministic engine continues alone.
 
 
-### 4.4 Python FastAPI (`ai-service/`) — the evidence layer
+### 4.5 Python FastAPI (`ai-service/`) — the evidence layer
 
 - FastAPI service on port 8001; internal endpoint `POST /api/v1/analyze`.
 - No CrewAI. A fixed deterministic pipeline runs:
@@ -165,6 +165,51 @@ Package map (`com.guardpay`): `ai`, `alert`, `auth`, `behavior`, `common`,
   record, or final decision.
 - Fails safely: missing/unavailable LLM degrades to local URL findings or
   `UNAVAILABLE` on the Spring Boot side; never fakes an AI result.
+
+### 4.6 Recipient intelligence and explicit feedback (`com.guardpay.intelligence`, `com.guardpay.feedback`)
+
+- Recipient reports are owner-scoped and require a relationship (an owned
+  transaction or an explicit identifier). Identifiers are hashed before storage
+  and are not returned. Admin review is the only path to `CONFIRMED_FRAUD`;
+  automated evidence cannot reach it. Reputation is bounded evidence merged
+  into the deterministic score, never a decision.
+- Feedback records an explicit human label with a snapshot of the decision-time
+  assessment. Labels move through `SUBMITTED` → `UNDER_REVIEW` →
+  `VERIFIED_FRAUD`/`VERIFIED_LEGITIMATE`/`REJECTED` with append-only events and
+  reviews. A corrected label returns to `SUBMITTED` and records an `UPDATED`
+  event. A successful capture is a financial outcome, never a fraud label.
+- Only `VERIFIED_FRAUD` and `VERIFIED_LEGITIMATE` labels are eligible for
+  learning. A verified-label correction notifies the learning listener, which
+  invalidates affected datasets and dependent models.
+
+### 4.7 Continuous learning (`com.guardpay.learning`)
+
+```text
+admin-verified feedback
+    -> dataset build (features from persisted RiskAssessment, label separate)
+    -> immutable checksum dataset (chronological 70/15/15 split, exclusions)
+    -> candidate rule calibration (verify/stop thresholds)
+    -> explicit admin approve -> deploy -> rollback
+    -> RiskCalibrationProvider -> DeterministicRiskEngine
+```
+
+- Features are reconstructed only from the persisted `RiskAssessment` and
+  transaction context; labels are stored separately, so no label leaks into
+  the feature set. The dataset version is checksum-addressed.
+- Datasets require at least `20` records with `5` fraud and `5` legitimate
+  labels. Below that they are `INSUFFICIENT_DATA`, and training is refused with
+  the concrete unmet requirement. The service never fabricates rows or metrics.
+- Training produces a candidate only; nothing auto-deploys. Deployment retires
+  the previous champion and records a rollback reference. Rejected/failed
+  training is persisted with a reason.
+- The deployed model supplies a `RiskCalibration` (verify/stop thresholds). The
+  score, signal weights, AI validation, correlation contributions, and hard
+  block are unchanged. Missing, malformed, or out-of-range artifacts fall back
+  to production defaults. The active version is persisted with each assessment
+  (`risk_assessments.calibration_version`) and returned by the risk API.
+- The benchmark evaluates threshold policies on actual engine scores; that is
+  the offline comparison used for calibration candidates, not an automatic
+  production change.
 
 ## 5. Communication
 
@@ -250,3 +295,8 @@ Network ─────┘                              ─▶ PayPal order only
 - Recipient intelligence is per-recipient evidence, not a fraud-ring graph or
   population-level model. There is no provider chargeback webhook or external
   URL-reputation provider; feedback is explicit user/admin labels only.
+- Learning is threshold calibration over the persisted deterministic score, not
+  a new classifier or online-learning loop. It requires enough admin-verified
+  labels, promotion is manual, and it cannot alter scoring or bypass hard stops.
+- The feedback and learning consoles are admin-only; admin rights come from
+  server-side configuration (`GUARDPAY_INTELLIGENCE_ADMIN_EMAILS`).

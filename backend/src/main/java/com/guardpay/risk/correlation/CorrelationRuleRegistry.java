@@ -2,6 +2,8 @@ package com.guardpay.risk.correlation;
 
 import com.guardpay.risk.signal.PaymentSignalType;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 /**
  * The versioned correlation rule catalogue.
@@ -10,6 +12,7 @@ import java.util.List;
  * Combinations that need data GuardPay does not collect are listed in
  * {@link #unsupported()} instead of being approximated silently.
  */
+@Component
 public final class CorrelationRuleRegistry {
 
   public static final String RULE_VERSION = "1.0";
@@ -22,7 +25,12 @@ public final class CorrelationRuleRegistry {
   private final List<UnsupportedCorrelation> unsupported;
 
   public CorrelationRuleRegistry() {
-    this(defaultRules(), unsupportedCorrelations());
+    this(CorrelationConfiguration.defaults());
+  }
+
+  @Autowired
+  public CorrelationRuleRegistry(CorrelationConfiguration configuration) {
+    this(defaultRules(configuration), unsupportedCorrelations());
   }
 
   public CorrelationRuleRegistry(
@@ -47,14 +55,14 @@ public final class CorrelationRuleRegistry {
     return unsupported;
   }
 
-  private static List<CorrelationRule> defaultRules() {
+  private static List<CorrelationRule> defaultRules(CorrelationConfiguration configuration) {
     return List.of(
         rule(
             "ACCOUNT_TAKEOVER_COMBO",
             CorrelationCategory.ACCOUNT_TAKEOVER,
             "Account takeover combination",
             "A new device, an unfamiliar location, and an unfamiliar recipient appear together.",
-            1.0,
+            0.95,
             req(EvidenceFamily.DEVICE, PaymentSignalType.NEW_DEVICE, PaymentSignalType.DEVICE_BEHAVIOR_DEVIATION),
             req(
                 EvidenceFamily.GEOLOCATION,
@@ -70,7 +78,7 @@ public final class CorrelationRuleRegistry {
             CorrelationCategory.ACCOUNT_TAKEOVER,
             "New device with amount and velocity anomaly",
             "A new device initiates an unusual amount during a burst of payment attempts.",
-            0.95,
+            0.9,
             req(EvidenceFamily.DEVICE, PaymentSignalType.NEW_DEVICE, PaymentSignalType.DEVICE_BEHAVIOR_DEVIATION),
             req(
                 EvidenceFamily.AMOUNT,
@@ -192,7 +200,7 @@ public final class CorrelationRuleRegistry {
             CorrelationCategory.COUNTERPARTY_RISK,
             "New recipient with anomalous amount",
             "A first-time recipient receives an amount outside both the user's and the recipient's pattern.",
-            0.85,
+            0.8,
             req(EvidenceFamily.RECIPIENT, PaymentSignalType.NEW_RECIPIENT),
             req(
                 EvidenceFamily.AMOUNT,
@@ -207,7 +215,7 @@ public final class CorrelationRuleRegistry {
             CorrelationCategory.NETWORK_ANOMALY,
             "Anonymized network with device and location change",
             "A VPN or proxy is combined with a new device and an unfamiliar location.",
-            0.9,
+            0.85,
             req(EvidenceFamily.NETWORK, PaymentSignalType.VPN_PROXY),
             req(EvidenceFamily.DEVICE, PaymentSignalType.NEW_DEVICE, PaymentSignalType.DEVICE_BEHAVIOR_DEVIATION),
             req(
@@ -220,7 +228,7 @@ public final class CorrelationRuleRegistry {
             CorrelationCategory.BEHAVIORAL_SHIFT,
             "Amount, timing, and frequency shift",
             "Amount, time of day, and payment frequency all deviate from the learned baseline.",
-            0.8,
+            0.85,
             req(
                 EvidenceFamily.AMOUNT,
                 PaymentSignalType.UNUSUAL_AMOUNT,
@@ -257,7 +265,7 @@ public final class CorrelationRuleRegistry {
             CorrelationCategory.BEHAVIORAL_SHIFT,
             "Multi-dimension behavioral deviation",
             "Device, recipient, and the overall behavioral profile all deviate at once.",
-            0.9,
+            0.8,
             req(EvidenceFamily.DEVICE, PaymentSignalType.NEW_DEVICE, PaymentSignalType.DEVICE_BEHAVIOR_DEVIATION),
             req(
                 EvidenceFamily.RECIPIENT,
@@ -368,7 +376,27 @@ public final class CorrelationRuleRegistry {
                 EvidenceFamily.VELOCITY,
                 PaymentSignalType.TRANSACTION_FREQUENCY_ANOMALY,
                 PaymentSignalType.REPEATED_ATTEMPTS,
-                PaymentSignalType.VELOCITY_HOURLY)));
+                PaymentSignalType.VELOCITY_HOURLY)))
+        .stream()
+        .map(rule -> applyConfiguration(rule, configuration))
+        .toList();
+  }
+
+  private static CorrelationRule applyConfiguration(
+      CorrelationRule rule, CorrelationConfiguration configuration) {
+    double weight = configuration.ruleWeights().getOrDefault(rule.code(), rule.weight());
+    return new CorrelationRule(
+        rule.code(),
+        rule.category(),
+        rule.title(),
+        rule.description(),
+        rule.requirements(),
+        weight,
+        configuration.interactionThreshold(),
+        configuration.minimumSignalConfidence(),
+        configuration.maxContributionPoints(),
+        rule.ruleVersion(),
+        rule.enabled());
   }
 
   private static List<UnsupportedCorrelation> unsupportedCorrelations() {

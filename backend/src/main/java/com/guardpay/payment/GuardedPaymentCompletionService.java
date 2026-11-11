@@ -258,6 +258,7 @@ public class GuardedPaymentCompletionService {
     assessment.setCorrelationContribution(correlationContribution(risk));
     assessment.setRecipientReputation(serializeReputation(risk));
     assessment.setRecipientReputationPoints(reputationPoints(risk));
+    assessment.setCalibrationVersion(risk.calibrationVersion());
     assessments.save(assessment);
 
     if (alertService != null) {

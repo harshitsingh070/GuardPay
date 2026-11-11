@@ -13,6 +13,8 @@ import com.guardpay.transaction.Transaction;
 import com.guardpay.transaction.TransactionStatus;
 import com.guardpay.user.User;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -80,6 +82,50 @@ class FirstTimeHighValueDetectionEngineTest {
         engine.evaluate(
             testUser.getId(), new BigDecimal("-50.00"), "USD", null, List.of(), null, now, "ESTABLISHED");
     assertFalse(res2.detected());
+  }
+
+  @Test
+  void minimumBaselineSampleProducesAnalyzerEligibleConfidence() {
+    List<Transaction> history = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      history.add(
+          createTx(
+              new BigDecimal("100"),
+              "USD",
+              testRecipient1,
+              TransactionStatus.COMPLETED,
+              now.minusDays(20 - i)));
+    }
+
+    FirstTimeHighValueAssessment assessment =
+        engine.evaluate(
+            testUser.getId(),
+            new BigDecimal("5000"),
+            "USD",
+            testRecipient2.getId(),
+            history,
+            null,
+            now,
+            "ESTABLISHED");
+
+    assertTrue(assessment.detected());
+    assertTrue(
+        assessment.confidence() >= 0.60,
+        "Five completed payments must meet the adaptive analyzer confidence gate");
+  }
+
+  @Test
+  void engineUsesInjectedClockWhenAsOfIsMissing() {
+    OffsetDateTime fixedNow = OffsetDateTime.parse("2026-02-10T12:00:00Z");
+    FirstTimeHighValueDetectionEngine fixedClockEngine =
+        new FirstTimeHighValueDetectionEngine(
+            config, Clock.fixed(Instant.parse("2026-02-10T12:00:00Z"), ZoneOffset.UTC));
+
+    FirstTimeHighValueAssessment assessment =
+        fixedClockEngine.evaluate(
+            testUser.getId(), null, "USD", null, List.of(), null, null, "INSUFFICIENT_DATA");
+
+    assertEquals(fixedNow, assessment.evaluatedAt());
   }
 
   @Test

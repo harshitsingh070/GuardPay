@@ -72,6 +72,18 @@ public class RiskAssessment extends BaseEntity {
   @Column(name = "recipient_reputation_points", nullable = false)
   private int recipientReputationPoints;
 
+  /** Deployed calibration model version, or deterministic-default. */
+  @Column(name = "calibration_version", length = 64)
+  private String calibrationVersion;
+
+  public String getCalibrationVersion() {
+    return calibrationVersion;
+  }
+
+  public void setCalibrationVersion(String calibrationVersion) {
+    this.calibrationVersion = calibrationVersion;
+  }
+
   public String getRecipientReputation() {
     return recipientReputation;
   }

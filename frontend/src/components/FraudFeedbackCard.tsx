@@ -45,7 +45,7 @@ export default function FraudFeedbackCard({
     setSubmitting(true);
     setError(null);
     try {
-      setFeedback(await submitFraudFeedback(transactionId, label));
+      setFeedback(await submitFraudFeedback(transactionId, { label }));
     } catch (failure) {
       setError(
         failure instanceof ApiRequestError
@@ -111,7 +111,8 @@ export default function FraudFeedbackCard({
           role="status"
         >
           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-          Recorded as {feedback.label === 'FRAUD' ? 'fraud' : 'legitimate'}.
+          Recorded as {feedback.label === 'FRAUD' ? 'fraud' : 'legitimate'}
+          {feedback.feedbackStatus ? ` (${feedback.feedbackStatus.replace(/_/g, ' ')})` : ''}.
         </p>
       )}
       {error !== null && (

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.stereotype.Component;
 
 /**
  * Converts collected {@link PaymentSignal}s into {@link CorrelationSignal}s.
@@ -20,6 +21,7 @@ import java.util.Set;
  * unavailable observation into a present one, and never changes the engine's
  * own scoring.
  */
+@Component
 public final class CorrelationSignalNormalizer {
 
   /** Confidence assigned to a deterministic, backend-verified fact. */

@@ -5,7 +5,9 @@ import com.guardpay.intelligence.domain.EvidenceType;
 import com.guardpay.intelligence.domain.EvidenceVerificationStatus;
 import com.guardpay.intelligence.domain.FraudIntelligenceReport;
 import com.guardpay.intelligence.domain.GlobalRecipientEntity;
+import com.guardpay.intelligence.domain.IdentifierVerificationStatus;
 import com.guardpay.intelligence.domain.RecipientFraudEvidence;
+import com.guardpay.intelligence.domain.RecipientIdentifier;
 import com.guardpay.intelligence.domain.RecipientReviewEvent;
 import com.guardpay.intelligence.domain.ReportStatus;
 import com.guardpay.intelligence.domain.ReputationStatus;
@@ -14,6 +16,7 @@ import com.guardpay.intelligence.identity.RecipientIdentifierHasher;
 import com.guardpay.intelligence.repository.FraudIntelligenceReportRepository;
 import com.guardpay.intelligence.repository.GlobalRecipientEntityRepository;
 import com.guardpay.intelligence.repository.RecipientFraudEvidenceRepository;
+import com.guardpay.intelligence.repository.RecipientIdentifierRepository;
 import com.guardpay.intelligence.repository.RecipientReviewEventRepository;
 import com.guardpay.user.User;
 import java.time.OffsetDateTime;
@@ -42,6 +45,7 @@ public class RecipientReviewService {
   private final FraudIntelligenceReportRepository reports;
   private final RecipientFraudEvidenceRepository evidence;
   private final RecipientReviewEventRepository reviewEvents;
+  private final RecipientIdentifierRepository identifiers;
   private final RecipientReputationService reputation;
 
   public RecipientReviewService(
@@ -49,11 +53,13 @@ public class RecipientReviewService {
       FraudIntelligenceReportRepository reports,
       RecipientFraudEvidenceRepository evidence,
       RecipientReviewEventRepository reviewEvents,
+      RecipientIdentifierRepository identifiers,
       RecipientReputationService reputation) {
     this.entities = entities;
     this.reports = reports;
     this.evidence = evidence;
     this.reviewEvents = reviewEvents;
+    this.identifiers = identifiers;
     this.reputation = reputation;
   }
 
@@ -81,6 +87,7 @@ public class RecipientReviewService {
         }
         requireTransition(from, ReputationStatus.CONFIRMED_FRAUD);
         reputation.applyStatus(entity, ReputationStatus.CONFIRMED_FRAUD);
+        verifyIdentifiers(entity.getId());
         reputation.recordEvidence(
             entity,
             EvidenceType.FRAUD_CONFIRMED,
@@ -101,6 +108,7 @@ public class RecipientReviewService {
         }
         requireTransition(from, ReputationStatus.CORROBORATED_SUSPICIOUS);
         reputation.applyStatus(entity, ReputationStatus.CORROBORATED_SUSPICIOUS);
+        verifyIdentifiers(entity.getId());
         reputation.recordEvidence(
             entity,
             EvidenceType.MANUAL_CORROBORATION,
@@ -168,6 +176,15 @@ public class RecipientReviewService {
             .anyMatch(
                 row -> row.getSource() != null && row.getSource().reliability() >= 0.5);
     return strong ? ReputationStatus.UNDER_REVIEW : ReputationStatus.REPORTED;
+  }
+
+  private void verifyIdentifiers(UUID entityId) {
+    for (RecipientIdentifier identifier : identifiers.findByRecipientEntityId(entityId)) {
+      if (identifier.getVerificationStatus() != IdentifierVerificationStatus.VERIFIED) {
+        identifier.setVerificationStatus(IdentifierVerificationStatus.VERIFIED);
+        identifiers.save(identifier);
+      }
+    }
   }
 
   private void closeOpenReports(

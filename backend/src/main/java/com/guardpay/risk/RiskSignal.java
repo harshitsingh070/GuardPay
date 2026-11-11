@@ -127,7 +127,7 @@ public enum RiskSignal {
   FIRST_PAYMENT_TO_RECIPIENT_HIGH_VALUE(
       "First-time payment to new recipient is high-value",
       "Payment to a new recipient is unusually large relative to your normal spending baseline.",
-      25),
+      35),
   SIGNIFICANT_AMOUNT_DEVIATION(
       "Significant amount deviation",
       "Payment amount substantially exceeds your established spending distribution.",

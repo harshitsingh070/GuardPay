@@ -67,7 +67,21 @@ public class DeterministicRiskEngine {
       RiskEvaluationRequest request,
       CorrelationResult correlation,
       RecipientReputationEvidence recipientReputation) {
+    return evaluate(request, correlation, recipientReputation, RiskCalibration.defaults());
+  }
+
+  /**
+   * Full evaluation with an approved calibration. Calibration only maps the
+   * already-computed score to a level/action; it cannot add signals or points
+   * and a hard block always remains CRITICAL/STOP.
+   */
+  public RiskEvaluationResult evaluate(
+      RiskEvaluationRequest request,
+      CorrelationResult correlation,
+      RecipientReputationEvidence recipientReputation,
+      RiskCalibration calibration) {
     Objects.requireNonNull(request, "request must not be null");
+    RiskCalibration effectiveCalibration = RiskCalibration.requireValid(calibration);
 
     List<RiskFinding> findings = new ArrayList<>();
     findings.add(finding(RiskSignal.ACTIVE_CALL, request.activeCall()));
@@ -150,7 +164,7 @@ public class DeterministicRiskEngine {
         hardBlocked
             ? RiskLevels.MAX_SCORE
             : Math.min(total + correlationPoints + reputationPoints, RiskLevels.MAX_SCORE);
-    RiskLevel riskLevel = RiskLevels.levelFor(score);
+    RiskLevel riskLevel = effectiveCalibration.levelFor(score);
 
     return new RiskEvaluationResult(
         score,

@@ -215,6 +215,35 @@ class BehavioralProfileServiceLearningTest {
   }
 
   @Test
+  void profilePersistsAndUsesTransactionTimezone() {
+    List<Transaction> history = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      history.add(
+          transaction(
+              "100",
+              OffsetDateTime.parse("2026-02-10T15:00:00+05:30").minusDays(i),
+              TransactionStatus.COMPLETED));
+    }
+    current =
+        transaction(
+            "120",
+            OffsetDateTime.parse("2026-02-10T15:30:00+05:30"),
+            TransactionStatus.COMPLETED);
+    mockHistory(history, current);
+
+    service.updateProfileAfterOutcome(
+        userId, current, AS_OF, RecommendedAction.ALLOW, BehavioralOutcome.COMPLETED, false,
+        "TEST");
+
+    assertEquals("+05:30", capturedProfile().getTimezone());
+
+    ArgumentCaptor<UserHourlyBehavior> hourlyCaptor =
+        ArgumentCaptor.forClass(UserHourlyBehavior.class);
+    verify(hourlyBehaviors).saveAndFlush(hourlyCaptor.capture());
+    assertEquals(15, hourlyCaptor.getValue().getHourOfDay());
+  }
+
+  @Test
   void profileRecomputeUsesOnlyTheProfileCurrency() {
     current = transaction("120", AS_OF.minusMinutes(1), TransactionStatus.COMPLETED);
     current.setCurrency("EUR");

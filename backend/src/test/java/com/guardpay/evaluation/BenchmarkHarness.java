@@ -299,10 +299,17 @@ final class BenchmarkHarness {
 
   private static List<Transaction> history(BenchmarkScenario.Input input) {
     List<Transaction> history = new ArrayList<>();
+    Recipient knownRecipient = null;
+    if (input.recipient() == CounterpartyState.KNOWN) {
+      knownRecipient = new Recipient();
+      ReflectionTestUtils.setField(knownRecipient, "id", RECIPIENT_ID);
+      knownRecipient.setName("Benchmark recipient");
+    }
     int index = 0;
     for (BigDecimal amount : input.historyAmounts()) {
       Transaction transaction = transaction(input.currency(), amount);
       ReflectionTestUtils.setField(transaction, "id", historyId(index++));
+      transaction.setRecipient(knownRecipient);
       history.add(transaction);
     }
     return List.copyOf(history);

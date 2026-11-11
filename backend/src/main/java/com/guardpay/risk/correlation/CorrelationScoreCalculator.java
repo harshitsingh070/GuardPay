@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.stereotype.Component;
 
 /**
  * Turns fired rules into a bounded, explainable contribution.
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
  * allocation uses largest-remainder rounding, so the sum always equals the
  * reported contribution.
  */
+@Component
 public final class CorrelationScoreCalculator {
 
   private final CorrelationOverlapResolver overlapResolver;

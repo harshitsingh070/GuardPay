@@ -55,7 +55,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
       where t.user.id = :userId
         and t.status = com.guardpay.transaction.TransactionStatus.COMPLETED
         and t.transactionTimestamp < :asOf
-      order by t.transactionTimestamp desc
+      order by t.transactionTimestamp desc, t.id desc
       """)
   List<Transaction> findCompletedHistoryBefore(
       @Param("userId") UUID userId,

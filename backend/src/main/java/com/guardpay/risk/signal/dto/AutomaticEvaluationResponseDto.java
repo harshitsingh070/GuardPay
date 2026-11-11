@@ -27,11 +27,40 @@ public record AutomaticEvaluationResponseDto(
     String behavioralProfileStatus,
     List<CorrelationFindingDto> correlationFindings,
     String correlationStatus,
-    RecipientReputationDto recipientReputation) {
+    RecipientReputationDto recipientReputation,
+    String calibrationVersion) {
 
   public AutomaticEvaluationResponseDto {
     correlationFindings =
         correlationFindings == null ? List.of() : List.copyOf(correlationFindings);
+  }
+
+  /** Contract before deployed-calibration provenance was added. */
+  public AutomaticEvaluationResponseDto(
+      int score,
+      RiskLevel riskLevel,
+      RecommendedAction recommendedAction,
+      String explanation,
+      List<PaymentSignalDto> automaticSignals,
+      List<RiskFindingDto> findings,
+      String aiStatus,
+      String behavioralProfileStatus,
+      List<CorrelationFindingDto> correlationFindings,
+      String correlationStatus,
+      RecipientReputationDto recipientReputation) {
+    this(
+        score,
+        riskLevel,
+        recommendedAction,
+        explanation,
+        automaticSignals,
+        findings,
+        aiStatus,
+        behavioralProfileStatus,
+        correlationFindings,
+        correlationStatus,
+        recipientReputation,
+        "deterministic-default");
   }
 
   /** Pre-reputation contract for callers that do not run the intelligence layer. */
@@ -57,7 +86,8 @@ public record AutomaticEvaluationResponseDto(
         behavioralProfileStatus,
         correlationFindings,
         correlationStatus,
-        null);
+        null,
+        "deterministic-default");
   }
 
   /** Pre-correlation contract for callers that do not run the correlation layer. */
@@ -80,6 +110,8 @@ public record AutomaticEvaluationResponseDto(
         aiStatus,
         behavioralProfileStatus,
         List.of(),
-        "UNAVAILABLE");
+        "UNAVAILABLE",
+        null,
+        "deterministic-default");
   }
 }

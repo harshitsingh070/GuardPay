@@ -39,12 +39,17 @@ public record FirstTimeHighValueAssessment(
     OffsetDateTime evaluatedAt) {
 
   public static FirstTimeHighValueAssessment coldStart(
-      BigDecimal amount, String currency, String reason, String profileStatus) {
+      BigDecimal amount,
+      String currency,
+      String reason,
+      String profileStatus,
+      double confidence,
+      OffsetDateTime evaluatedAt) {
     return new FirstTimeHighValueAssessment(
         FirstTimeHighValueClassification.COLD_START_INSUFFICIENT_DATA,
         false,
         "INFO",
-        0.30,
+        confidence,
         amount,
         null,
         currency,
@@ -66,7 +71,7 @@ public record FirstTimeHighValueAssessment(
         List.of("Insufficient payment history in " + (currency != null ? currency : "currency")),
         "Not enough completed payment history (" + reason + ") to establish a reliable baseline.",
         "Cold-start: Insufficient history",
-        OffsetDateTime.now());
+        evaluatedAt);
   }
 
   public static FirstTimeHighValueAssessment normal(
@@ -78,7 +83,8 @@ public record FirstTimeHighValueAssessment(
       boolean isNewRecipient,
       int recipientPaymentCount,
       String window,
-      String profileStatus) {
+      String profileStatus,
+      OffsetDateTime evaluatedAt) {
     return new FirstTimeHighValueAssessment(
         FirstTimeHighValueClassification.NORMAL_PAYMENT,
         false,
@@ -105,7 +111,7 @@ public record FirstTimeHighValueAssessment(
         List.of("Amount is within normal historical distribution"),
         "Payment amount is consistent with normal historical spending behavior.",
         "Normal payment amount",
-        OffsetDateTime.now());
+        evaluatedAt);
   }
 
   public static FirstTimeHighValueAssessment legitimateEstablished(
@@ -116,7 +122,8 @@ public record FirstTimeHighValueAssessment(
       boolean isNewRecipient,
       int recipientPaymentCount,
       String window,
-      String profileStatus) {
+      String profileStatus,
+      OffsetDateTime evaluatedAt) {
     return new FirstTimeHighValueAssessment(
         FirstTimeHighValueClassification.LEGITIMATE_HIGH_VALUE_ESTABLISHED,
         false,
@@ -143,7 +150,7 @@ public record FirstTimeHighValueAssessment(
         List.of("User has an established history of high-value payments"),
         "High amount is supported by established account spending history.",
         "Legitimate high-value payment (established history)",
-        OffsetDateTime.now());
+        evaluatedAt);
   }
 }
 

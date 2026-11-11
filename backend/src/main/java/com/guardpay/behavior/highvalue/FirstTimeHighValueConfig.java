@@ -74,7 +74,8 @@ public class FirstTimeHighValueConfig {
   private BigDecimal rapidEscalationFactor = new BigDecimal("4.00");
 
   private int maxSignalContribution = 25;
-  private double confidenceDiscountColdStart = 0.40;
+  private double confidenceColdStart = 0.30;
+  private double confidenceDiscountColdStart = 0.60;
   private double confidenceInitializing = 0.70;
   private double confidenceEstablished = 0.90;
 
@@ -208,6 +209,14 @@ public class FirstTimeHighValueConfig {
 
   public void setMaxSignalContribution(int maxSignalContribution) {
     this.maxSignalContribution = maxSignalContribution;
+  }
+
+  public double getConfidenceColdStart() {
+    return confidenceColdStart;
+  }
+
+  public void setConfidenceColdStart(double confidenceColdStart) {
+    this.confidenceColdStart = confidenceColdStart;
   }
 
   public double getConfidenceDiscountColdStart() {

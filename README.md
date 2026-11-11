@@ -12,8 +12,11 @@ GuardPay detects when a user may be getting manipulated into making a fraudulent
 > owner-scoped blocklist, and paired-device call state. Accounts use BCrypt
 > password hashes and an opaque `HttpOnly` session cookie; transactions,
 > recipients, devices, alerts, blocklist entries, idempotency keys, and the SSE
-> feed are owner-scoped. See `docs/demo.md` to run the demo and `docs/` for the
-> current design.
+> feed are owner-scoped. GuardPay also has owner-scoped recipient intelligence,
+> an admin-reviewed fraud-feedback lifecycle, and an admin continuous-learning
+> console where a deployed rule calibration can only move the deterministic
+> `ALLOW`/`VERIFY`/`STOP` thresholds. See `docs/demo.md` to run the demo and
+> `docs/` for the current design.
 
 ## Architecture overview
 
@@ -30,6 +33,10 @@ Spring Boot
     |     |-- content/URL structure
     |     |-- blocklist, device, network
     |     `-- validated AI evidence
+    |-- Recipient intelligence + explicit feedback + learning
+    |     |-- owner-scoped reports/reviews and evidence-only reputation
+    |     |-- admin-verified labels -> immutable datasets
+    |     `-- optional calibration thresholds (no auto-deploy)
     `-- Deterministic Risk Engine (sole decision authority)
           |-- ALLOW
           |-- VERIFY -> controlled TOTP/simulated challenge
@@ -115,8 +122,8 @@ Local services:
 
 | Directory    | Description |
 | ------------ | ----------- |
-| `frontend/`  | Registration/login, guarded checkout, risk warning, TOTP enrollment, dashboard, transaction detail, SSE alert feed. |
-| `backend/`   | Accounts/sessions/devices, transactions, recipients, merchants, PayPal integration + webhooks, PostgreSQL/Flyway, automatic signals, deterministic risk engine + final decision, dashboard/alerts/blocklist APIs. |
+| `frontend/`  | Registration/login, guarded checkout, risk warning, TOTP enrollment, dashboard, transaction detail, SSE alert feed, feedback review, and learning admin console. |
+| `backend/`   | Accounts/sessions/devices, transactions, recipients, merchants, PayPal integration + webhooks, PostgreSQL/Flyway, automatic signals, deterministic risk engine + final decision, recipient intelligence, feedback review, learning datasets/calibration, dashboard/alerts/blocklist APIs. |
 | `ai-service/`| FastAPI structural/LLM evidence service. Returns validated structured findings only; never scores or decides. |
 | `android/`   | Debug WebView shell with foreground telephony call-state reporting. |
 
@@ -171,14 +178,19 @@ public. Cookie-authenticated unsafe requests must send `X-CSRF-Token` from
 `GET /api/auth/csrf`. Set `GUARDPAY_AUTH_COOKIE_SECURE=true` behind HTTPS,
 and `GUARDPAY_AUTH_ENABLED=false` only for fixture/unit-test tooling.
 
-Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1–V23`,
+Database: Flyway owns the schema (`backend/src/main/resources/db/migration/V1–V35`,
 applied automatically at startup); Hibernate stays on `ddl-auto=validate`.
 Tables include `users, auth_sessions, devices, merchants, recipients,
 transactions, payment_context, risk_assessments, paypal_webhook_events,
 device_call_states, guarded_payment_idempotency, payment_verifications,
-recipient_blocklist, alerts, notification_outbox`. V21 restores auth and makes
-idempotency keys unique per owner, V22 adds per-device ownership and hashed
-credentials, and V23 hardens session expiry and revocation.
+recipient_blocklist, alerts, notification_outbox`, reciprocal-intelligence
+report/review tables, the feedback lifecycle tables, and
+`learning_datasets, learning_dataset_items, learning_dataset_exclusions,
+learning_models, learning_events`. V21 restores auth and makes idempotency keys
+unique per owner, V22 adds per-device ownership and hashed credentials, V23
+hardens session expiry and revocation, V32 adds the feedback/review/outcome
+lifecycle, V33–V34 add learning datasets/models/exclusions/rollback, and V35
+persists the calibration version on each assessment.
 Note: if a local PostgreSQL already occupies host port 5432, either stop it
 or point the backend at the compose DB via `DB_PORT`.
 
@@ -355,6 +367,45 @@ unavailable reason instead of being guessed. The legacy
 regression/tooling only and never feeds guarded decisions. See
 `docs/risk-engine.md` for exact weights.
 
+## Recipient intelligence, feedback, and continuous learning
+
+These loops add evidence and evaluation data; they never bypass the engine.
+
+- **Global recipient intelligence (RR-1).** `/api/intelligence/**` lets an
+  owner report a recipient they paid, view an owner-scoped evidence summary,
+  and lets admins review reports. Identifiers are hashed before storage and are
+  never returned. Reputation is bounded evidence (up to +40 points) included in
+  the existing score, with a matching `GLOBAL_RECIPIENT_*` finding. Only an
+  explicit admin review can set `CONFIRMED_FRAUD`; payment outcomes and
+  captures never become fraud labels.
+- **Explicit feedback (FL-1).** `/api/fraud-feedback/**` stores a label snapshot
+  for a transaction (`FRAUD`/`LEGITIMATE`, structured type/reason, optional
+  finding code). The canonical submit path is
+  `POST /api/fraud-feedback/transactions/{transactionId}`. Labels start as
+  `SUBMITTED` and move through admin review
+  (`/api/admin/fraud-feedback/**`) to `VERIFIED_FRAUD`,
+  `VERIFIED_LEGITIMATE`, or `REJECTED`; every transition is append-only and
+  audited. A corrected label returns to `SUBMITTED` with an `UPDATED` event,
+  and correcting a verified label invalidates affected learning artifacts. Only
+  verified labels feed learning.
+- **Continuous learning (FL-2).** `/api/admin/learning/**` builds an immutable,
+  checksum-addressed dataset from admin-verified feedback (features from the
+  persisted decision-time `RiskAssessment`, labels stored separately), trains a
+  rule-calibration candidate, and requires explicit admin approval, deployment,
+  and rollback. Minimums are `20` records with at least `5` fraud and `5`
+  legitimate labels; otherwise the dataset is `INSUFFICIENT_DATA` and training
+  is refused with the exact unmet requirement. Training never auto-deploys, and
+  a deployed calibration can only change the `verify`/`stop` thresholds — the
+  deterministic score, signal weights, AI validation, and hard block are
+  unchanged. Invalidation after a verified-label correction retires affected
+  models and falls back to defaults.
+- **Provenance.** `risk_assessments.calibration_version` records which deployed
+  calibration produced a persisted decision (`deterministic-default` when none).
+  The automatic risk API returns the same version.
+- **Benchmark.** `docs/fraud-benchmark.md` evaluates threshold policies on real
+  engine scores. The same policy comparison applies to calibration candidates;
+  it is an offline evaluation, not an automatic production threshold change.
+
 ### AI risk intelligence (evidence, never decisions)
 
 **AI findings are evidence, not payment decisions.** The Python service
@@ -525,6 +576,12 @@ of the official PayPal app, and not endorsed by PayPal.
   The simulated verification outbox is temporary and loopback-only.
 - No live Google Safe Browsing or URL-reputation integration; URL analysis is
   structural and local, so a clean-looking phishing domain can pass.
+- Learning is only as useful as the verified feedback volume. Below the fixed
+  minimums there is no training; deployment is a manual admin decision and the
+  calibration only moves `ALLOW`/`VERIFY`/`STOP` thresholds, not the score.
+- Admin-only intelligence, feedback review, and learning consoles require a
+  user promoted through `GUARDPAY_INTELLIGENCE_ADMIN_EMAILS`; clients cannot
+  grant themselves admin.
 - Host port 5432 may clash with a local PostgreSQL — use `DB_PORT` or stop it.
 
 ## Current step — what is / isn't done
@@ -542,6 +599,10 @@ Done:
 - [x] Multi-user authentication with owner-scoped data, idempotency, and SSE
 - [x] TOTP verification channel, persisted dashboard aggregates, SSE alerts
 - [x] Device registration/rotation, call-state reporting, owner-scoped blocklist
+- [x] Recipient intelligence: owner-scoped reports/summaries, hashed identifiers, admin review, evidence-only reputation
+- [x] Feedback lifecycle: structured labels, append-only events/reviews, admin review/queue/metrics/export
+- [x] Continuous learning: verified-label datasets, checksum/split/exclusions, candidate calibration, approval/deploy/rollback, provenance
+- [x] Admin pages for feedback review and learning, plus link navigation
 
 Explicitly NOT done (honest):
 
@@ -550,6 +611,7 @@ Explicitly NOT done (honest):
 - [ ] Blocklist management screen
 - [ ] Production mobile release/background call monitoring
 - [ ] Live URL reputation service
+- [ ] Automatic model deployment or a production ML training pipeline; calibration is threshold-only and manually promoted
 
 ## Quick verify
 

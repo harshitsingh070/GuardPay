@@ -19,16 +19,12 @@ public final class RiskLevels {
   private RiskLevels() {}
 
   public static RiskLevel levelFor(int score) {
-    if (score <= LOW_MAX) {
-      return RiskLevel.LOW;
-    }
-    if (score <= MEDIUM_MAX) {
-      return RiskLevel.MEDIUM;
-    }
-    if (score <= HIGH_MAX) {
-      return RiskLevel.HIGH;
-    }
-    return RiskLevel.CRITICAL;
+    return levelFor(score, RiskCalibration.defaults());
+  }
+
+  /** Applies a deployed calibration. The scoring itself is unchanged. */
+  public static RiskLevel levelFor(int score, RiskCalibration calibration) {
+    return RiskCalibration.requireValid(calibration).levelFor(score);
   }
 
   public static RecommendedAction actionFor(RiskLevel level) {

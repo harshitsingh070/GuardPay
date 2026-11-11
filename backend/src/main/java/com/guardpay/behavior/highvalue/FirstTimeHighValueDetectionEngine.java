@@ -7,6 +7,7 @@ import com.guardpay.risk.signal.SignalSource;
 import com.guardpay.transaction.Transaction;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -50,14 +51,20 @@ public class FirstTimeHighValueDetectionEngine {
   private static final BigDecimal NORMAL_DIST_SCALE = new BigDecimal("0.6745");
 
   private final FirstTimeHighValueConfig config;
+  private final Clock clock;
 
   public FirstTimeHighValueDetectionEngine() {
-    this(FirstTimeHighValueConfig.defaults());
+    this(FirstTimeHighValueConfig.defaults(), Clock.systemUTC());
   }
 
   @org.springframework.beans.factory.annotation.Autowired
   public FirstTimeHighValueDetectionEngine(FirstTimeHighValueConfig config) {
+    this(config, Clock.systemUTC());
+  }
+
+  public FirstTimeHighValueDetectionEngine(FirstTimeHighValueConfig config, Clock clock) {
     this.config = config != null ? config : FirstTimeHighValueConfig.defaults();
+    this.clock = clock != null ? clock : Clock.systemUTC();
   }
 
   public FirstTimeHighValueConfig getConfig() {
@@ -87,18 +94,29 @@ public class FirstTimeHighValueDetectionEngine {
       OffsetDateTime asOf,
       String profileStatus) {
 
+    OffsetDateTime evalTime = asOf != null ? asOf : OffsetDateTime.now(clock);
+
     if (currentAmount == null || currentAmount.signum() <= 0) {
       return FirstTimeHighValueAssessment.coldStart(
-          currentAmount, currency, "INVALID_AMOUNT", profileStatus);
+          currentAmount,
+          currency,
+          "INVALID_AMOUNT",
+          profileStatus,
+          config.getConfidenceColdStart(),
+          evalTime);
     }
 
     if (!config.isEnabled()) {
       return FirstTimeHighValueAssessment.coldStart(
-          currentAmount, currency, "DETECTION_DISABLED", profileStatus);
+          currentAmount,
+          currency,
+          "DETECTION_DISABLED",
+          profileStatus,
+          config.getConfidenceColdStart(),
+          evalTime);
     }
 
     String reqCurrency = currency != null ? currency : "USD";
-    OffsetDateTime evalTime = asOf != null ? asOf : OffsetDateTime.now();
 
     // 1. Filter history: COMPLETED only, strictly before evalTime, matching currency, excluding current tx
     List<Transaction> currencyHistory =
@@ -119,7 +137,9 @@ public class FirstTimeHighValueDetectionEngine {
           currentAmount,
           reqCurrency,
           "Sample count " + n + " < minimum " + config.getMinTransactionsForBaseline(),
-          profileStatus);
+          profileStatus,
+          config.getConfidenceColdStart(),
+          evalTime);
     }
 
     // 2. Rolling windows. Prefer the long-term window; fall back to the medium
@@ -275,7 +295,8 @@ public class FirstTimeHighValueDetectionEngine {
           isNewRecipient,
           recipientPaymentCount,
           baselineWindow,
-          profileStatus);
+          profileStatus,
+          evalTime);
     }
 
     // Case 2: Normal payment within distribution
@@ -295,7 +316,8 @@ public class FirstTimeHighValueDetectionEngine {
           isNewRecipient,
           recipientPaymentCount,
           baselineWindow,
-          profileStatus);
+          profileStatus,
+          evalTime);
     }
 
     // High-value anomaly detection branches:
@@ -614,7 +636,8 @@ public class FirstTimeHighValueDetectionEngine {
         isNewRecipient,
         recipientPaymentCount,
         baselineWindow,
-        profileStatus);
+        profileStatus,
+        evalTime);
   }
 
   /**

@@ -9,7 +9,11 @@ import com.guardpay.risk.signal.PaymentSignalType;
 import com.guardpay.risk.signal.SignalSource;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.context.ConfigurationPropertiesAutoConfiguration;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class RiskCorrelationEngineTest {
 
@@ -173,6 +177,73 @@ class RiskCorrelationEngineTest {
     assertEquals(CorrelationResult.NO_SIGNALS, result.status());
     assertEquals(0, result.contributionPoints());
     assertFalse(result.status().equals(CorrelationResult.AVAILABLE));
+  }
+
+  @Test
+  void configurationBindsFromSpringProperties() {
+    new ApplicationContextRunner()
+        .withConfiguration(
+            AutoConfigurations.of(ConfigurationPropertiesAutoConfiguration.class))
+        .withUserConfiguration(CorrelationConfiguration.class)
+        .withPropertyValues(
+            "guardpay.risk.correlation.max-contribution-points=17",
+            "guardpay.risk.correlation.interaction-threshold=0.33",
+            "guardpay.risk.correlation.rule-weights.[ACCOUNT_TAKEOVER_COMBO]=0.42")
+        .run(
+            context -> {
+              CorrelationConfiguration configuration =
+                  context.getBean(CorrelationConfiguration.class);
+              assertEquals(17, configuration.maxContributionPoints());
+              assertEquals(0.33, configuration.interactionThreshold(), 0.000001);
+              assertEquals(0.42, configuration.ruleWeights().get("ACCOUNT_TAKEOVER_COMBO"), 0.000001);
+            });
+  }
+
+  @Test
+  void registryAppliesConfiguredThresholdsAndRuleWeights() {
+    CorrelationConfiguration configuration = new CorrelationConfiguration();
+    configuration.setMaxContributionPoints(17);
+    configuration.setInteractionThreshold(0.33);
+    configuration.setMinimumSignalConfidence(0.7);
+    configuration.setRuleWeights(Map.of("ACCOUNT_TAKEOVER_COMBO", 0.42));
+
+    CorrelationRule rule =
+        new CorrelationRuleRegistry(configuration).rules().stream()
+            .filter(r -> r.code().equals("ACCOUNT_TAKEOVER_COMBO"))
+            .findFirst()
+            .orElseThrow();
+
+    assertEquals(0.42, rule.weight(), 0.000001);
+    assertEquals(0.33, rule.minimumInteraction(), 0.000001);
+    assertEquals(0.7, rule.minimumConfidence(), 0.000001);
+    assertEquals(17, rule.maximumContribution());
+  }
+
+  @Test
+  void springContextWiresConfiguredCorrelationEngine() {
+    new ApplicationContextRunner()
+        .withConfiguration(
+            AutoConfigurations.of(ConfigurationPropertiesAutoConfiguration.class))
+        .withUserConfiguration(
+            CorrelationConfiguration.class,
+            CorrelationSignalNormalizer.class,
+            CorrelationScoreCalculator.class,
+            CorrelationRuleRegistry.class,
+            RiskCorrelationEngine.class)
+        .withPropertyValues(
+            "guardpay.risk.correlation.max-contribution-points=17",
+            "guardpay.risk.correlation.rule-weights.[ACCOUNT_TAKEOVER_COMBO]=0.42")
+        .run(
+            context -> {
+              RiskCorrelationEngine wired = context.getBean(RiskCorrelationEngine.class);
+              CorrelationResult result =
+                  wired.evaluate(
+                      List.of(
+                          signal(PaymentSignalType.NEW_DEVICE, true),
+                          signal(PaymentSignalType.NEW_GEO, true),
+                          signal(PaymentSignalType.NEW_RECIPIENT, true)));
+              assertTrue(result.contributionPoints() <= 17);
+            });
   }
 
   private static PaymentSignal signal(PaymentSignalType type, boolean detected) {

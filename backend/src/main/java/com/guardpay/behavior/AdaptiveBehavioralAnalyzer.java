@@ -41,8 +41,12 @@ public class AdaptiveBehavioralAnalyzer {
    * data exists — never fabricates findings.
    */
   public List<PaymentSignal> analyze(BehavioralAnalysisRequest request) {
+    return analyzeDetailed(request).signals();
+  }
+
+  public AdaptiveAnalysis analyzeDetailed(BehavioralAnalysisRequest request) {
     if (request.userId() == null) {
-      return List.of();
+      return new AdaptiveAnalysis(List.of(), false);
     }
 
     UUID excludeTxId = request.transactionId() != null ? request.transactionId() : null;
@@ -50,7 +54,7 @@ public class AdaptiveBehavioralAnalyzer {
         profileService.analyze(request, excludeTxId);
 
     if (response.available() == null || !response.available()) {
-      return List.of();
+      return new AdaptiveAnalysis(List.of(), false);
     }
 
     List<PaymentSignal> signals = new ArrayList<>();
@@ -109,8 +113,10 @@ public class AdaptiveBehavioralAnalyzer {
                   .toList()));
     }
 
-    return List.copyOf(signals);
+    return new AdaptiveAnalysis(List.copyOf(signals), true);
   }
+
+  public record AdaptiveAnalysis(List<PaymentSignal> signals, boolean profileAvailable) {}
 
   private PaymentSignalType mapCode(String code) {
     return switch (code) {

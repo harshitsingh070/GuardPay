@@ -233,8 +233,10 @@ Accepts payment context only: `amount`, `currency`, optional
 `deviceFingerprint`, server-observed network fields, and optional
 `contentText`/`contentUrl`. There is no `activeCall` or other risk boolean.
 The response has the same score/level/action/explanation/signals/findings/AI
-status shape as the guarded risk block. This endpoint does not persist a
-transaction and is not the order-creation path.
+status shape as the guarded risk block, plus `calibrationVersion` (the deployed
+learning calibration used for this decision, or `null` for deterministic
+defaults). This endpoint does not persist a transaction and is not the
+order-creation path.
 
 The legacy `POST /api/risk/evaluate` exists for regression/tooling with explicit
 boolean inputs and is never used by the guarded flow.
@@ -570,43 +572,108 @@ server-side configuration only; clients cannot grant themselves admin.
 
 Feedback is an evaluation label, not a payment decision. A label snapshots the
 latest risk decision for the transaction so metrics remain reproducible after
-the engine changes. Labels are `FRAUD` or `LEGITIMATE`.
+the engine changes. The canonical base path is `/api/fraud-feedback`; labels are
+`FRAUD` or `LEGITIMATE`.
 
-### POST /api/feedback/transactions/{transactionId}
+A label has a lifecycle:
+
+```text
+SUBMITTED -> UNDER_REVIEW -> VERIFIED_FRAUD | VERIFIED_LEGITIMATE
+                         \-> REJECTED -> UNDER_REVIEW (reopen)
+correction -> SUBMITTED (UPDATED event; verified corrections invalidate learning)
+```
+
+Only `VERIFIED_FRAUD` / `VERIFIED_LEGITIMATE` are eligible for learning.
+`SUPERSEDED` exists in the status enum for stored-history compatibility but is
+not produced by the current correction path.
+Every review writes an append-only `fraud_feedback_events` row and a
+`fraud_feedback_reviews` row. A user cannot verify their own label.
+
+### POST /api/fraud-feedback/transactions/{transactionId}
+
+Optional header: `Idempotency-Key: <stable key>`. The body is:
 
 ```json
 {
-  "label": "FRAUD"
+  "label": "FRAUD",
+  "feedbackType": "SCAM_OR_SOCIAL_ENGINEERING",
+  "reasonCode": "SOCIAL_ENGINEERING",
+  "relatedFindingCode": "SOCIAL_ENGINEERING",
+  "idempotencyKey": "..."
 }
 ```
 
-Response `201`:
+Only `label` is required. `feedbackType` and `reasonCode` are bounded enums;
+`relatedFindingCode` is a bounded code; no free-text description is stored.
+Changing a verified label resets it to `SUBMITTED`, records an `UPDATED` event,
+and invalidates affected learning artifacts. The transaction must belong to the
+caller. Response `201`:
 
 ```json
 {
   "id": "...",
   "transactionId": "...",
   "label": "FRAUD",
+  "feedbackType": "SCAM_OR_SOCIAL_ENGINEERING",
+  "feedbackStatus": "SUBMITTED",
   "source": "USER",
   "decisionAction": "VERIFY",
   "riskScore": 65,
-  "createdAt": "..."
+  "riskAssessmentId": "...",
+  "recipientEntityId": null,
+  "relatedFindingCode": "SOCIAL_ENGINEERING",
+  "reasonCode": "SOCIAL_ENGINEERING",
+  "reviewerReference": null,
+  "reviewerConfidence": null,
+  "reviewedAt": null,
+  "createdAt": "...",
+  "updatedAt": "..."
 }
 ```
 
-The transaction must belong to the caller. Admins submitting feedback are
-recorded with source `ADMIN`; regular users with `USER`.
+`source` is `USER` or `ADMIN` based on who submitted. Repeating the same
+idempotency key with identical content returns the stored row; different
+content under the same key is rejected.
 
-### GET /api/feedback/transactions/{transactionId}
+### User feedback reads
 
-Returns the caller's feedback for that transaction, or `404` when none exists.
+```text
+GET /api/fraud-feedback/transactions/{transactionId}   current label or 404
+GET /api/fraud-feedback/mine?page=&size=                caller's feedback (paged)
+GET /api/fraud-feedback/summary                        counts by lifecycle status
+GET /api/fraud-feedback/{feedbackId}                   detail + events + reviews
+```
 
-### GET /api/feedback/metrics
+`FeedbackDetailDto` is `{ feedback, events[], reviews[] }`.
 
-Admin-only. A flagged decision is `VERIFY` or `STOP`. Feedback with no recorded
-decision action is counted as `unclassified` and excluded from precision/recall
-denominators. `precision` or `recall` is `null` when its denominator is zero;
-the API never fabricates a metric.
+### Admin review
+
+All routes require an admin user.
+
+```text
+GET  /api/admin/fraud-feedback?status=&page=&size=
+GET  /api/admin/fraud-feedback/summary
+GET  /api/admin/fraud-feedback/metrics
+GET  /api/admin/fraud-feedback/export
+GET  /api/admin/fraud-feedback/{feedbackId}
+POST /api/admin/fraud-feedback/{feedbackId}/review
+```
+
+Review body:
+
+```json
+{ "action": "VERIFY_FRAUD", "confidence": 0.9, "note": "..." }
+```
+
+`action` is `START_REVIEW | VERIFY_FRAUD | VERIFY_LEGITIMATE | REJECT | REOPEN`.
+`confidence` is optional, defaults to `0.9` for verification actions, and must
+be `0..1`. `REJECT` is not allowed from a verified state; `START_REVIEW` is not
+allowed from `SUPERSEDED`; `REOPEN` is not allowed from `SUBMITTED`. Invalid
+transitions return `409`. A verified fraud label is also bridged to recipient
+intelligence as verified investigation evidence; it can move a recipient to
+`UNDER_REVIEW`, never directly to `CONFIRMED_FRAUD`.
+
+`GET /api/admin/fraud-feedback/metrics` returns:
 
 ```json
 {
@@ -623,6 +690,66 @@ the API never fabricates a metric.
 }
 ```
 
-### GET /api/feedback/export
+A flagged decision is `VERIFY` or `STOP`. Feedback with no recorded decision
+action is `unclassified` and excluded from precision/recall denominators.
+`precision` or `recall` is `null` when its denominator is zero; the API never
+fabricates a metric. `export` is the admin-only JSON list used for offline
+evaluation.
 
-Admin-only JSON export of stored feedback for offline evaluation.
+## 16. Continuous learning (admin-only)
+
+The learning console builds immutable datasets from admin-verified feedback,
+trains candidate rule calibrations, and requires explicit promotion. It never
+auto-deploys and never changes signal weights or scoring.
+
+```text
+GET  /api/admin/learning/overview
+GET  /api/admin/learning/datasets
+POST /api/admin/learning/datasets
+GET  /api/admin/learning/datasets/{datasetId}
+GET  /api/admin/learning/datasets/{datasetId}/exclusions
+POST /api/admin/learning/datasets/{datasetId}/train
+GET  /api/admin/learning/models
+GET  /api/admin/learning/models/{modelId}
+POST /api/admin/learning/models/{modelId}/approve
+POST /api/admin/learning/models/{modelId}/reject
+POST /api/admin/learning/models/{modelId}/deploy
+POST /api/admin/learning/models/{modelId}/rollback
+GET  /api/admin/learning/events
+```
+
+All endpoints require an admin; non-admins receive `403`.
+
+- `POST /datasets` builds from `VERIFIED_FRAUD` + `VERIFIED_LEGITIMATE` feedback
+  and returns the dataset even when it is `INSUFFICIENT_DATA`. Minimums are
+  `20` records, `5` fraud labels, and `5` legitimate labels. Features come from
+  the persisted decision-time `RiskAssessment`; labels are separate. Split is
+  chronological 70/15/15 and each non-empty split keeps at least one row.
+  Dataset rows, labels, and checksum never change; invalidation only marks
+  status/metadata. Rebuilding an identical dataset returns the existing version.
+- `GET /datasets/{id}/exclusions` explains why a feedback row was not eligible
+  (`MISSING_LABEL`, `NO_DECISION_ASSESSMENT`, `NO_TRANSACTION`,
+  `FEATURE_SERIALIZATION_FAILED`).
+- `POST /datasets/{id}/train` returns `TrainingResult`:
+  `{ modelVersion, status, trained, failureReason, verifyThreshold,
+  stopThreshold, precision, recall, f1, accuracy, falsePositiveRate,
+  falseNegativeRate, validationCount, testCount, championComparisonJson }`.
+  `trained=false` with a concrete `failureReason` is returned for insufficient
+  or unusable data; no metrics are fabricated. The candidate is never active.
+- `Model` adds model type (`RULE_CALIBRATION`), dataset version/checksum,
+  label/feature versions, thresholds, metrics, failure reason, champion
+  comparison JSON, rollback reference, and audit timestamps. `GET /models/{id}`
+  returns one model; list is newest first.
+- Promotion: `approve` only from `CANDIDATE`; `deploy` only from `APPROVED`
+  (retires the previous champion and records a rollback reference); `rollback`
+  only from `ACTIVE` (restores the referenced champion or deterministic
+  defaults). Invalid transitions return `409`. `reject` accepts `CANDIDATE` or
+  `APPROVED`.
+- `overview` returns dataset/model counts, the active calibration
+  (`modelVersion`, `datasetVersion`, `verifyThreshold`, `stopThreshold`,
+  `deployed`), and recent events. `events` is the newest-first audit trail.
+- The active calibration is persisted on each new decision as
+  `risk_assessments.calibration_version` (absent means deterministic defaults)
+  and returned by `POST /api/risk/evaluate-automatic`. Missing/malformed/
+  out-of-range deployed artifacts fall back to the deterministic defaults:
+  `verify=40`, `stop=85`.
