@@ -8,6 +8,7 @@ import com.guardpay.intelligence.domain.FraudIntelligenceReport;
 import com.guardpay.intelligence.domain.GlobalRecipientEntity;
 import com.guardpay.intelligence.domain.RecipientFraudEvidence;
 import com.guardpay.intelligence.domain.RecipientReputationSnapshot;
+import com.guardpay.intelligence.domain.ReputationCategory;
 import com.guardpay.intelligence.domain.ReputationStatus;
 import com.guardpay.intelligence.repository.GlobalRecipientEntityRepository;
 import com.guardpay.intelligence.repository.RecipientFraudEvidenceRepository;
@@ -18,6 +19,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,7 +64,6 @@ public class RecipientReputationService {
       String fingerprint,
       String reporterGroupKey,
       UUID relatedTransactionId,
-      String details,
       OffsetDateTime observedAt,
       FraudIntelligenceReport sourceReport) {
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -81,7 +82,6 @@ public class RecipientReputationService {
       row.setEvidenceFingerprint(fingerprint);
       row.setReporterGroupKey(reporterGroupKey);
       row.setRelatedTransactionId(relatedTransactionId);
-      row.setDetails(details);
       row.setObservedAt(effectiveObserved);
       row.setLastObservedAt(effectiveObserved);
       row.setReportCount(1);
@@ -98,11 +98,6 @@ public class RecipientReputationService {
       }
       if (row.getSourceReport() == null && sourceReport != null) {
         row.setSourceReport(sourceReport);
-      }
-      if ((row.getDetails() == null || row.getDetails().isBlank())
-          && details != null
-          && !details.isBlank()) {
-        row.setDetails(details);
       }
     }
     evidence.save(row);
@@ -167,6 +162,54 @@ public class RecipientReputationService {
               row.setRevokedReason(reason);
               evidence.save(row);
             });
+  }
+
+  /**
+   * Applies evidence decay and expires stale, non-confirmed entities. Intended
+   * to run periodically; without it scores never decay and EXPIRED is unused.
+   *
+   * @return number of entities refreshed
+   */
+  @Transactional
+  public int refreshStaleEntities() {
+    if (!properties.isEnabled()) {
+      return 0;
+    }
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    OffsetDateTime staleCutoff =
+        now.minusHours(Math.max(1, properties.getStaleCalculationHours()));
+    List<GlobalRecipientEntity> stale =
+        entities.findStaleForRecalculation(
+            List.of(
+                ReputationStatus.REPORTED,
+                ReputationStatus.UNDER_REVIEW,
+                ReputationStatus.CORROBORATED_SUSPICIOUS),
+            staleCutoff,
+            PageRequest.of(0, 500));
+    OffsetDateTime retentionCutoff =
+        now.minusDays(Math.max(1, properties.getEvidenceRetentionDays()));
+    for (GlobalRecipientEntity entity : stale) {
+      recalculate(entity);
+      if (shouldExpire(entity, retentionCutoff)) {
+        entity.setReputationStatus(ReputationStatus.EXPIRED);
+        entity.setReputationScore(0);
+        entity.setReputationCategory(ReputationCategory.NO_DATA);
+        entities.save(entity);
+      }
+    }
+    return stale.size();
+  }
+
+  private static boolean shouldExpire(
+      GlobalRecipientEntity entity, OffsetDateTime retentionCutoff) {
+    if (entity.getReputationStatus() == ReputationStatus.CONFIRMED_FRAUD) {
+      return false;
+    }
+    OffsetDateTime lastEvidence = entity.getLastEvidenceAt();
+    if (lastEvidence != null && !lastEvidence.isBefore(retentionCutoff)) {
+      return false;
+    }
+    return entity.getReputationStatus().canTransitionTo(ReputationStatus.EXPIRED);
   }
 
   @Transactional

@@ -7,7 +7,6 @@ import java.util.UUID;
 public record AdminReportDto(
     UUID reportId,
     String status,
-    String description,
     OffsetDateTime submittedAt,
     OffsetDateTime incidentAt,
     UUID relatedTransactionId) {}

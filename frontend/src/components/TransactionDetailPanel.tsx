@@ -1,6 +1,7 @@
 import { Loader2, ReceiptText, ShieldAlert } from 'lucide-react';
 import CorrelationFindings from '@/components/CorrelationFindings';
 import FirstTimeHighValueCard from '@/components/FirstTimeHighValueCard';
+import FraudFeedbackCard from '@/components/FraudFeedbackCard';
 import RecipientReputationCard from '@/components/RecipientReputationCard';
 import RiskBadge from '@/components/RiskBadge';
 import type { TransactionDetail } from '@/types/transaction';
@@ -180,6 +181,7 @@ export default function TransactionDetailPanel({
                 transactionId={detail.id}
                 className="mt-3"
               />
+              <FraudFeedbackCard transactionId={detail.id} className="mt-3" />
             </div>
           ) : (
             <p className="rounded-xl bg-guardpay-canvas p-3 text-guardpay-muted">

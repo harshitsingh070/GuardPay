@@ -90,7 +90,6 @@ public class RecipientReviewService {
             fingerprint(entity.getId(), "CONFIRMED_FRAUD", admin.getId()),
             null,
             null,
-            cleanNote,
             now,
             null);
         closeOpenReports(entity, ReportStatus.ACCEPTED, admin, cleanNote, now);
@@ -111,7 +110,6 @@ public class RecipientReviewService {
             fingerprint(entity.getId(), "MANUAL_REVIEW", admin.getId()),
             null,
             null,
-            cleanNote,
             now,
             null);
         closeOpenReports(entity, ReportStatus.UNDER_REVIEW, admin, cleanNote, now);

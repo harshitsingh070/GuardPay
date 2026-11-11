@@ -20,7 +20,8 @@ import java.util.UUID;
  *
  * <p>Repeat observations of the same fact increment {@code reportCount}
  * instead of creating independent rows, so spam cannot inflate the score.
- * {@code details} is sanitized free text and must never contain identifiers.
+ * Only structured evidence metadata is stored; free-text notes are never
+ * persisted here.
  */
 @Entity
 @Table(
@@ -61,9 +62,6 @@ public class RecipientFraudEvidence extends BaseEntity {
 
   @Column(name = "related_transaction_id")
   private UUID relatedTransactionId;
-
-  @Column(name = "details", columnDefinition = "TEXT")
-  private String details;
 
   @Column(name = "observed_at", nullable = false)
   private OffsetDateTime observedAt;
@@ -148,14 +146,6 @@ public class RecipientFraudEvidence extends BaseEntity {
 
   public void setRelatedTransactionId(UUID relatedTransactionId) {
     this.relatedTransactionId = relatedTransactionId;
-  }
-
-  public String getDetails() {
-    return details;
-  }
-
-  public void setDetails(String details) {
-    this.details = details;
   }
 
   public OffsetDateTime getObservedAt() {

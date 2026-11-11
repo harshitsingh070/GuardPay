@@ -251,6 +251,15 @@ points are suppressed so the same evidence is not counted twice. See
 [`first-time-high-value.md`](first-time-high-value.md) for the full
 classification and configuration reference.
 
+Before scoring, `SignalOverlapResolver` collapses signals that describe the same
+underlying fact: learned amount-anomaly variants, new-vs-deviation for the same
+recipient/device/geo dimension, velocity tiers that describe one burst, and the
+overall behavioral summary when a specific deviation already explains it. The
+suppressed finding is retained with `detected=false` and reason
+`SUPPRESSED_OVERLAP` for audit. `LARGE_AMOUNT` remains independent from the
+learned `AMOUNT_DEVIATION` because it is the coarse 5x historical-average rule,
+not the behavioral baseline.
+
 Cold-start handling: users with fewer than 5 completed transactions are marked
 `INSUFFICIENT_DATA` and receive no artificial risk inflation. Profiles become
 `ESTABLISHED` at 20+ transactions with adequate data coverage.
@@ -436,5 +445,16 @@ runs; a missing HMAC key, missing recipient, or repository failure yields
   finding total.
 - Evidence aggregation uses a probabilistic-OR with group decay and a recency
   half-life, so repeated copies of one report do not become independent facts.
+- A scheduled maintenance job recalculates stale `REPORTED`, `UNDER_REVIEW`, and
+  `CORROBORATED_SUSPICIOUS` entities so decay is applied without new evidence.
+  Entities with no evidence inside the retention window become `EXPIRED`, score
+  `0`, category `NO_DATA`; `CONFIRMED_FRAUD` is never auto-expired.
+- Admin access for the review console is bootstrapped from server-side
+  `GUARDPAY_INTELLIGENCE_ADMIN_EMAILS`, never from a client request.
+- Reports store structured evidence only. Raw report text and evidence free
+  text are not persisted.
 - Disputes and refunds are low-weight, unverified provider outcomes. They never
   confirm fraud and never change a payment result.
+- Explicit `FRAUD` / `LEGITIMATE` feedback is stored as an evaluation label with
+  a snapshot of the decision action and score. It is never read by the payment
+  pipeline as a decision input.

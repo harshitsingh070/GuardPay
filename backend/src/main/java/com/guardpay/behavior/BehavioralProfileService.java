@@ -250,6 +250,8 @@ public class BehavioralProfileService {
     List<Transaction> windowHistory = history.stream()
         .filter(t -> t.getTransactionTimestamp() != null
             && t.getTransactionTimestamp().isAfter(windowStart))
+        .filter(t -> t.getCurrency() != null
+            && requestCurrency.equalsIgnoreCase(t.getCurrency()))
         .toList();
 
     // Amount deviation finding (currency-specific)
@@ -731,29 +733,29 @@ public class BehavioralProfileService {
 
     Set<UUID> excluded = excludedTransactionIds(userId);
     List<Transaction> history = loadEligibleHistory(userId, asOf, null, excluded);
-    ProfileConfidence confidence = assessConfidence(history, userId);
     String currency =
         transaction.getCurrency() != null
             ? transaction.getCurrency()
             : profile.getCurrency();
+    List<Transaction> currencyHistory =
+        history.stream()
+            .filter(t -> currency == null || currency.equalsIgnoreCase(t.getCurrency()))
+            .toList();
+    ProfileConfidence confidence = assessConfidence(currencyHistory, userId);
 
     profile.setProfileVersion(profile.getProfileVersion() + 1);
     profile.setProfileStatus(confidence.status());
-    profile.setTransactionCount(history.size());
+    profile.setTransactionCount(currencyHistory.size());
     profile.setLastUpdatedAt(asOf);
-    profile.setDataQualityScore(computeDataQuality(history.size(), confidence.status()));
+    profile.setDataQualityScore(computeDataQuality(currencyHistory.size(), confidence.status()));
     profile.setCurrency(currency);
     profile.setFirstObservedAt(
-        history.stream()
+        currencyHistory.stream()
             .map(Transaction::getTransactionTimestamp)
             .filter(java.util.Objects::nonNull)
             .min(Comparator.naturalOrder())
             .orElse(null));
 
-    List<Transaction> currencyHistory =
-        history.stream()
-            .filter(t -> currency == null || currency.equalsIgnoreCase(t.getCurrency()))
-            .toList();
     AmountStats stats = computeAmountStats(currencyHistory);
     if (stats != null) {
       profile.setAmountMin(stats.min());
@@ -775,7 +777,7 @@ public class BehavioralProfileService {
       profile.setAmountP95(null);
     }
 
-    if (history.isEmpty()) {
+    if (currencyHistory.isEmpty()) {
       profile.setFrequencyPerDay(BigDecimal.ZERO);
       profile.setFrequencyPerWeek(BigDecimal.ZERO);
       profile.setFrequencyPerHour(BigDecimal.ZERO);
@@ -784,10 +786,10 @@ public class BehavioralProfileService {
       profile.setNightPaymentRatio(BigDecimal.ZERO);
       profile.setWeekendPaymentRatio(BigDecimal.ZERO);
     } else {
-      OffsetDateTime firstTx = history.get(0).getTransactionTimestamp();
+      OffsetDateTime firstTx = currencyHistory.get(0).getTransactionTimestamp();
       long daysSpan = Math.max(1, ChronoUnit.DAYS.between(firstTx, asOf) + 1);
       profile.setFrequencyPerDay(
-          BigDecimal.valueOf((double) history.size() / daysSpan)
+          BigDecimal.valueOf((double) currencyHistory.size() / daysSpan)
               .setScale(4, RoundingMode.HALF_UP));
       profile.setFrequencyPerWeek(
           profile
@@ -796,13 +798,13 @@ public class BehavioralProfileService {
               .setScale(4, RoundingMode.HALF_UP));
       long totalMinutes = ChronoUnit.MINUTES.between(firstTx, asOf);
       profile.setAvgIntervalMinutes(
-          totalMinutes > 0 && history.size() > 1
-              ? BigDecimal.valueOf((double) totalMinutes / (history.size() - 1))
+          totalMinutes > 0 && currencyHistory.size() > 1
+              ? BigDecimal.valueOf((double) totalMinutes / (currencyHistory.size() - 1))
                   .setScale(4, RoundingMode.HALF_UP)
               : null);
 
       Map<Integer, Long> hourCounts = new HashMap<>();
-      for (Transaction t : history) {
+      for (Transaction t : currencyHistory) {
         OffsetDateTime ts = t.getTransactionTimestamp();
         if (ts != null) {
           hourCounts.merge(ts.getHour(), 1L, Long::sum);
@@ -819,23 +821,23 @@ public class BehavioralProfileService {
               .mapToLong(Map.Entry::getValue)
               .sum();
       profile.setNightPaymentRatio(
-          BigDecimal.valueOf((double) nightCount / history.size())
+          BigDecimal.valueOf((double) nightCount / currencyHistory.size())
               .setScale(4, RoundingMode.HALF_UP));
       long weekendTx =
-          history.stream()
+          currencyHistory.stream()
               .filter(
                   t ->
                       t.getTransactionTimestamp() != null
                           && t.getTransactionTimestamp().getDayOfWeek().getValue() >= 6)
               .count();
       profile.setWeekendPaymentRatio(
-          BigDecimal.valueOf((double) weekendTx / history.size())
+          BigDecimal.valueOf((double) weekendTx / currencyHistory.size())
               .setScale(4, RoundingMode.HALF_UP));
     }
 
     int uniqueRecipients =
         (int)
-            history.stream()
+            currencyHistory.stream()
                 .map(Transaction::getRecipient)
                 .filter(r -> r != null && r.getId() != null)
                 .map(Recipient::getId)
@@ -844,14 +846,14 @@ public class BehavioralProfileService {
     profile.setUniqueRecipientCount(uniqueRecipients);
 
     long establishedRecipientCount =
-        history.stream()
+        currencyHistory.stream()
             .map(Transaction::getRecipient)
             .filter(r -> r != null && r.getId() != null)
             .map(Recipient::getId)
             .distinct()
             .filter(
                 rid ->
-                    history.stream()
+                    currencyHistory.stream()
                             .filter(t -> t.getRecipient() != null && rid.equals(t.getRecipient().getId()))
                             .count()
                         >= 3)
@@ -866,7 +868,7 @@ public class BehavioralProfileService {
 
     int distinctDevices =
         (int)
-            history.stream()
+            currencyHistory.stream()
                 .map(Transaction::getDeviceId)
                 .filter(java.util.Objects::nonNull)
                 .distinct()
@@ -875,7 +877,7 @@ public class BehavioralProfileService {
 
     int distinctCountries =
         (int)
-            history.stream()
+            currencyHistory.stream()
                 .map(Transaction::getGeoCountry)
                 .filter(java.util.Objects::nonNull)
                 .map(String::toUpperCase)
@@ -884,9 +886,9 @@ public class BehavioralProfileService {
     profile.setGeoCountryCount(distinctCountries);
 
     profile.setLastIncludedTransactionId(
-        history.isEmpty()
+        currencyHistory.isEmpty()
             ? null
-            : history.get(history.size() - 1).getId());
+            : currencyHistory.get(currencyHistory.size() - 1).getId());
 
     profiles.saveAndFlush(profile);
 
@@ -901,10 +903,10 @@ public class BehavioralProfileService {
     geoBehaviors.flush();
     deviceBehaviors.flush();
 
-    persistRecipientBehaviors(userId, history);
-    persistHourlyBehaviors(userId, history);
-    persistGeoBehaviors(userId, history);
-    persistDeviceBehaviors(userId, history);
+    persistRecipientBehaviors(userId, currencyHistory);
+    persistHourlyBehaviors(userId, currencyHistory);
+    persistGeoBehaviors(userId, currencyHistory);
+    persistDeviceBehaviors(userId, currencyHistory);
   }
 
   private static boolean isExclusionOutcome(BehavioralOutcome outcome) {
@@ -1144,8 +1146,7 @@ public class BehavioralProfileService {
     if (userId == null || transactions == null) {
       return List.of();
     }
-    return transactions.findByUserId(userId, PageRequest.of(0, 500))
-        .getContent()
+    return transactions.findCompletedHistoryBefore(userId, asOf, PageRequest.of(0, 500))
         .stream()
         .filter(t -> t.getStatus() == TransactionStatus.COMPLETED)
         .filter(t -> t.getTransactionTimestamp() != null)

@@ -490,13 +490,13 @@ Submits a fraud report for a recipient the caller has paid. Either
 `relatedTransactionId` (owned by the caller) or an explicit
 `identifierType` + `identifierValue` is required. `recipientReference`
 alone is not accepted. Rate limited per reporter and per recipient/day.
+Reports store structured evidence only; there is no free-text description.
 
 Request:
 
 `json
 {
-  "relatedTransactionId": "�",
-  "description": "Optional context without identifiers.",
+  "relatedTransactionId": "���",
   "incidentAt": "2026-01-01T10:00:00Z"
 }
 `
@@ -559,3 +559,70 @@ an identifier-free `recipientReputation` object:
 `status` is one of `NO_DATA`, `NO_MATCH`, `MATCH_FOUND`,
 `UNAVAILABLE`. `points` is bounded at 40 and already included in the score;
 the engine also emits a `GLOBAL_RECIPIENT_*` finding for display.
+
+### Admin bootstrap
+
+`guardpay.intelligence.admin-emails` / `GUARDPAY_INTELLIGENCE_ADMIN_EMAILS`
+promotes matching existing users to admin on application startup. The list is
+server-side configuration only; clients cannot grant themselves admin.
+
+## 15. Explicit fraud feedback
+
+Feedback is an evaluation label, not a payment decision. A label snapshots the
+latest risk decision for the transaction so metrics remain reproducible after
+the engine changes. Labels are `FRAUD` or `LEGITIMATE`.
+
+### POST /api/feedback/transactions/{transactionId}
+
+```json
+{
+  "label": "FRAUD"
+}
+```
+
+Response `201`:
+
+```json
+{
+  "id": "...",
+  "transactionId": "...",
+  "label": "FRAUD",
+  "source": "USER",
+  "decisionAction": "VERIFY",
+  "riskScore": 65,
+  "createdAt": "..."
+}
+```
+
+The transaction must belong to the caller. Admins submitting feedback are
+recorded with source `ADMIN`; regular users with `USER`.
+
+### GET /api/feedback/transactions/{transactionId}
+
+Returns the caller's feedback for that transaction, or `404` when none exists.
+
+### GET /api/feedback/metrics
+
+Admin-only. A flagged decision is `VERIFY` or `STOP`. Feedback with no recorded
+decision action is counted as `unclassified` and excluded from precision/recall
+denominators. `precision` or `recall` is `null` when its denominator is zero;
+the API never fabricates a metric.
+
+```json
+{
+  "total": 10,
+  "fraudLabels": 6,
+  "legitimateLabels": 4,
+  "truePositive": 5,
+  "falsePositive": 1,
+  "trueNegative": 3,
+  "falseNegative": 1,
+  "unclassified": 0,
+  "precision": 0.8333,
+  "recall": 0.8333
+}
+```
+
+### GET /api/feedback/export
+
+Admin-only JSON export of stored feedback for offline evaluation.

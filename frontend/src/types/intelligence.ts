@@ -34,3 +34,15 @@ export interface RecipientReputationSummary {
   lastEvidenceAt: string | null;
   disclaimer: string;
 }
+
+export type FeedbackLabel = 'FRAUD' | 'LEGITIMATE';
+
+export interface FraudFeedback {
+  id: string;
+  transactionId: string;
+  label: string;
+  source: string;
+  decisionAction: string | null;
+  riskScore: number | null;
+  createdAt: string;
+}

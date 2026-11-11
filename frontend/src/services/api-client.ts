@@ -11,6 +11,8 @@ import type {
 } from '@/types/index';
 import type { DashboardSummary } from '@/types/dashboard';
 import type {
+  FeedbackLabel,
+  FraudFeedback,
   FraudReportResponse,
   RecipientReputationSummary,
 } from '@/types/intelligence';
@@ -297,13 +299,42 @@ export function getTransaction(id: string): Promise<TransactionDetail> {
  */
 export function submitFraudReport(request: {
   relatedTransactionId?: string;
-  description?: string;
   incidentAt?: string;
 }): Promise<FraudReportResponse> {
   return apiFetch<FraudReportResponse>('/api/intelligence/recipients/reports', {
     method: 'POST',
     body: JSON.stringify(request),
   });
+}
+
+/** Explicit ground-truth label for a transaction decision. */
+export function submitFraudFeedback(
+  transactionId: string,
+  label: FeedbackLabel,
+): Promise<FraudFeedback> {
+  return apiFetch<FraudFeedback>(
+    `/api/feedback/transactions/${encodeURIComponent(transactionId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    },
+  );
+}
+
+/** The caller's existing feedback for a transaction, if any. */
+export async function getFraudFeedback(
+  transactionId: string,
+): Promise<FraudFeedback | null> {
+  try {
+    return await apiFetch<FraudFeedback>(
+      `/api/feedback/transactions/${encodeURIComponent(transactionId)}`,
+    );
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 /** Safe, evidence-only reputation summary for a recipient the caller paid. */

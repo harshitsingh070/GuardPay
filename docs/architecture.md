@@ -247,5 +247,6 @@ Network ─────┘                              ─▶ PayPal order only
 - Call detection is foreground-only and the APK is debug-signed.
 - Session/CSRF and owner scoping are implemented, but password reset, email
   verification, OAuth, and MFA-at-login are not.
-- There is no population-level intelligence, chargeback feedback loop, or
-  external URL-reputation provider.
+- Recipient intelligence is per-recipient evidence, not a fraud-ring graph or
+  population-level model. There is no provider chargeback webhook or external
+  URL-reputation provider; feedback is explicit user/admin labels only.

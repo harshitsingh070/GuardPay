@@ -164,10 +164,11 @@ class HighValuePipelineIntegrationTest {
   }
 
   private void mockHistory(List<Transaction> history) {
-    org.mockito.Mockito.doReturn(new PageImpl<>(history))
+    org.mockito.Mockito.doReturn(history)
         .when(transactions)
-        .findByUserId(
+        .findCompletedHistoryBefore(
             org.mockito.ArgumentMatchers.any(UUID.class),
+            org.mockito.ArgumentMatchers.any(OffsetDateTime.class),
             org.mockito.ArgumentMatchers.any(Pageable.class));
   }
 

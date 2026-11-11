@@ -123,7 +123,6 @@ public class RecipientIntelligenceQueryService {
                     report.getId(),
                     report.getRecipientEntity().getId(),
                     report.getReportStatus().name(),
-                    report.getDescription(),
                     report.getCreatedAt(),
                     report.getIncidentAt(),
                     report.getReviewedAt(),
@@ -141,7 +140,6 @@ public class RecipientIntelligenceQueryService {
         report.getId(),
         report.getRecipientEntity().getId(),
         report.getReportStatus().name(),
-        report.getDescription(),
         report.getCreatedAt(),
         report.getIncidentAt(),
         report.getReviewedAt(),
@@ -286,15 +284,13 @@ public class RecipientIntelligenceQueryService {
         row.getReportCount(),
         row.getObservedAt(),
         row.getLastObservedAt(),
-        row.getRevokedAt() != null,
-        row.getDetails());
+        row.getRevokedAt() != null);
   }
 
   private static AdminReportDto toReportDto(FraudIntelligenceReport report) {
     return new AdminReportDto(
         report.getId(),
         report.getReportStatus().name(),
-        report.getDescription(),
         report.getCreatedAt(),
         report.getIncidentAt(),
         report.getRelatedTransactionId());

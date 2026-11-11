@@ -8,7 +8,6 @@ public record MyReportDto(
     UUID reportId,
     UUID recipientReference,
     String status,
-    String description,
     OffsetDateTime submittedAt,
     OffsetDateTime incidentAt,
     OffsetDateTime reviewedAt,

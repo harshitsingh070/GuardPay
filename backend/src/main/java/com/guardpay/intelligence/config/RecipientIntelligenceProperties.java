@@ -1,13 +1,16 @@
 package com.guardpay.intelligence.config;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Configuration for the recipient reputation and global fraud intelligence
- * network. HMAC secrets come from the environment only; an empty map means
- * the feature is unavailable rather than silently unhashed.
+ * Configuration for the shared recipient reputation store. HMAC secrets come
+ * from the environment only; an empty map means the feature is unavailable
+ * rather than silently unhashed. This is not a graph or a population-wide
+ * fraud network: only per-recipient evidence is stored.
  */
 @ConfigurationProperties(prefix = "guardpay.intelligence")
 public class RecipientIntelligenceProperties {
@@ -18,7 +21,10 @@ public class RecipientIntelligenceProperties {
   private int reportRateLimitPerHour = 5;
   private int reportRateLimitPerRecipientPerDay = 1;
   private int evidenceHalfLifeDays = 180;
-  private int maxDescriptionLength = 1000;
+  private int evidenceRetentionDays = 365;
+  private int staleCalculationHours = 24;
+  private long maintenanceIntervalMs = 3_600_000L;
+  private List<String> adminEmails = new ArrayList<>();
 
   public boolean isEnabled() {
     return enabled;
@@ -68,11 +74,35 @@ public class RecipientIntelligenceProperties {
     this.evidenceHalfLifeDays = evidenceHalfLifeDays;
   }
 
-  public int getMaxDescriptionLength() {
-    return maxDescriptionLength;
+  public int getEvidenceRetentionDays() {
+    return evidenceRetentionDays;
   }
 
-  public void setMaxDescriptionLength(int maxDescriptionLength) {
-    this.maxDescriptionLength = maxDescriptionLength;
+  public void setEvidenceRetentionDays(int evidenceRetentionDays) {
+    this.evidenceRetentionDays = evidenceRetentionDays;
+  }
+
+  public int getStaleCalculationHours() {
+    return staleCalculationHours;
+  }
+
+  public void setStaleCalculationHours(int staleCalculationHours) {
+    this.staleCalculationHours = staleCalculationHours;
+  }
+
+  public long getMaintenanceIntervalMs() {
+    return maintenanceIntervalMs;
+  }
+
+  public void setMaintenanceIntervalMs(long maintenanceIntervalMs) {
+    this.maintenanceIntervalMs = maintenanceIntervalMs;
+  }
+
+  public List<String> getAdminEmails() {
+    return adminEmails;
+  }
+
+  public void setAdminEmails(List<String> adminEmails) {
+    this.adminEmails = adminEmails == null ? new ArrayList<>() : adminEmails;
   }
 }

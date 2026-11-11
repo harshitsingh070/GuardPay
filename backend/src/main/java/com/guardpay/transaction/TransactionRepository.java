@@ -44,6 +44,24 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
   /** Paged transaction history for one user (owner-scoped access). */
   Page<Transaction> findByUserId(UUID userId, Pageable pageable);
 
+  /**
+   * Recent completed history before an evaluation time, newest first. Filtering
+   * and ordering happen in the database so failed/cancelled rows cannot fill the
+   * page and hide recent completed payments.
+   */
+  @Query(
+      """
+      select t from Transaction t
+      where t.user.id = :userId
+        and t.status = com.guardpay.transaction.TransactionStatus.COMPLETED
+        and t.transactionTimestamp < :asOf
+      order by t.transactionTimestamp desc
+      """)
+  List<Transaction> findCompletedHistoryBefore(
+      @Param("userId") UUID userId,
+      @Param("asOf") OffsetDateTime asOf,
+      Pageable pageable);
+
   Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
 
   /** Attempts (any status) created after a cutoff, used for velocity analysis. */

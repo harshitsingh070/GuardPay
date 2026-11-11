@@ -1,5 +1,6 @@
 package com.guardpay.intelligence.service;
 
+import com.guardpay.intelligence.config.RecipientIntelligenceProperties;
 import com.guardpay.intelligence.domain.EvidenceSource;
 import com.guardpay.intelligence.domain.EvidenceType;
 import com.guardpay.intelligence.domain.EvidenceVerificationStatus;
@@ -29,18 +30,24 @@ public class RecipientIntelligenceOutcomeWriter {
   private final RecipientIdentityService identity;
   private final RecipientReputationService reputation;
   private final RecipientRepository recipients;
+  private final RecipientIntelligenceProperties properties;
 
   public RecipientIntelligenceOutcomeWriter(
       RecipientIdentityService identity,
       RecipientReputationService reputation,
-      RecipientRepository recipients) {
+      RecipientRepository recipients,
+      RecipientIntelligenceProperties properties) {
     this.identity = identity;
     this.reputation = reputation;
     this.recipients = recipients;
+    this.properties = properties;
   }
 
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void record(UUID userId, UUID recipientId, UUID transactionId, String source) {
+    if (!properties.isEnabled()) {
+      return;
+    }
     if (userId == null || recipientId == null || transactionId == null) {
       return;
     }
@@ -69,17 +76,8 @@ public class RecipientIntelligenceOutcomeWriter {
         fingerprint,
         null,
         transactionId,
-        "Provider outcome recorded (" + safeSource(source) + ")",
         now,
         null);
     reputation.recalculate(entity);
-  }
-
-  private static String safeSource(String source) {
-    if (source == null || source.isBlank()) {
-      return "UNKNOWN";
-    }
-    String cleaned = source.replaceAll("[^A-Za-z0-9_:.-]", "_");
-    return cleaned.length() > 80 ? cleaned.substring(0, 80) : cleaned;
   }
 }

@@ -87,9 +87,10 @@ class BehavioralProfileServiceTest {
   @Test
   void withSomeHistoryReturnsInitializingNotInsufficient() {
     List<Transaction> history = completedHistory(5, "1000");
-    org.mockito.Mockito.doReturn(new PageImpl<>(history))
+    org.mockito.Mockito.doReturn(history)
         .when(transactions)
-        .findByUserId(org.mockito.ArgumentMatchers.any(UUID.class),
+        .findCompletedHistoryBefore(org.mockito.ArgumentMatchers.any(UUID.class),
+            org.mockito.ArgumentMatchers.any(OffsetDateTime.class),
             org.mockito.ArgumentMatchers.any(Pageable.class));
 
     var request = newRequest(new BigDecimal("1000"), OffsetDateTime.parse("2026-01-06T10:00:00Z"));
@@ -103,9 +104,10 @@ class BehavioralProfileServiceTest {
   @Test
   void withEnoughHistoryReturnsEstablished() {
     List<Transaction> history = completedHistory(25, "1000");
-    org.mockito.Mockito.doReturn(new PageImpl<>(history))
+    org.mockito.Mockito.doReturn(history)
         .when(transactions)
-        .findByUserId(org.mockito.ArgumentMatchers.any(UUID.class),
+        .findCompletedHistoryBefore(org.mockito.ArgumentMatchers.any(UUID.class),
+            org.mockito.ArgumentMatchers.any(OffsetDateTime.class),
             org.mockito.ArgumentMatchers.any(Pageable.class));
 
     var request = newRequest(new BigDecimal("1000"), OffsetDateTime.parse("2026-01-26T10:00:00Z"));
@@ -118,9 +120,10 @@ class BehavioralProfileServiceTest {
   @Test
   void zeroMadIdenticalAmountsNoAnomalyForSameAmount() {
     List<Transaction> history = completedHistory(25, "1000");
-    org.mockito.Mockito.doReturn(new PageImpl<>(history))
+    org.mockito.Mockito.doReturn(history)
         .when(transactions)
-        .findByUserId(org.mockito.ArgumentMatchers.any(UUID.class),
+        .findCompletedHistoryBefore(org.mockito.ArgumentMatchers.any(UUID.class),
+            org.mockito.ArgumentMatchers.any(OffsetDateTime.class),
             org.mockito.ArgumentMatchers.any(Pageable.class));
 
     // Same amount as historical - should not be anomalous
@@ -138,9 +141,10 @@ class BehavioralProfileServiceTest {
   void unusualHourTriggersTimeFinding() {
     // 25 transactions all during business hours (9am-5pm)
     List<Transaction> history = completedHistoryAtHour(25, 10);
-    org.mockito.Mockito.doReturn(new PageImpl<>(history))
+    org.mockito.Mockito.doReturn(history)
         .when(transactions)
-        .findByUserId(org.mockito.ArgumentMatchers.any(UUID.class),
+        .findCompletedHistoryBefore(org.mockito.ArgumentMatchers.any(UUID.class),
+            org.mockito.ArgumentMatchers.any(OffsetDateTime.class),
             org.mockito.ArgumentMatchers.any(Pageable.class));
 
     // Payment at 3 AM
@@ -204,9 +208,10 @@ class BehavioralProfileServiceTest {
   }
 
   private void mockHistory(List<Transaction> history) {
-    org.mockito.Mockito.doReturn(new PageImpl<>(history))
+    org.mockito.Mockito.doReturn(history)
         .when(transactions)
-        .findByUserId(org.mockito.ArgumentMatchers.any(UUID.class),
+        .findCompletedHistoryBefore(org.mockito.ArgumentMatchers.any(UUID.class),
+            org.mockito.ArgumentMatchers.any(OffsetDateTime.class),
             org.mockito.ArgumentMatchers.any(Pageable.class));
   }
 

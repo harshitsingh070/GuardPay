@@ -4,10 +4,12 @@ import com.guardpay.intelligence.domain.ReputationStatus;
 import com.guardpay.intelligence.service.RecipientReputationEvidence;
 import com.guardpay.risk.correlation.CorrelationFinding;
 import com.guardpay.risk.correlation.CorrelationResult;
+import com.guardpay.risk.signal.SignalOverlapResolver;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
@@ -105,35 +107,39 @@ public class DeterministicRiskEngine {
     findings.add(finding(RiskSignal.AMOUNT_EXCEEDS_HISTORICAL_MAXIMUM, request.amountExceedsHistoricalMaximum()));
     findings.add(finding(RiskSignal.RAPID_AMOUNT_ESCALATION, request.rapidAmountEscalation()));
 
-    // Rule 6: Overlap handling to prevent double-counting of amount anomalies.
-    // When a specialized first-time high-value signal is triggered,
-    // the generic AMOUNT_DEVIATION finding does not contribute duplicate points.
-    boolean hasSpecificAmountAnomaly =
-        request.firstPaymentToRecipientHighValue()
-            || request.firstHighValuePayment()
-            || request.firstHighValueToRecipient()
-            || request.significantAmountDeviation();
+    // Overlap handling: one underlying fact must not be counted as several
+    // independent signals (e.g. a first high-value payment also looks like a
+    // generic amount deviation). The resolver keeps one winner per family and
+    // marks the rest as not triggered so findings stay auditable.
+    Set<String> triggeredCodes =
+        findings.stream()
+            .filter(RiskFinding::triggered)
+            .map(RiskFinding::code)
+            .collect(Collectors.toSet());
+    Set<String> suppressedCodes = SignalOverlapResolver.suppressed(triggeredCodes);
+    List<RiskFinding> resolvedFindings =
+        findings.stream()
+            .map(
+                f ->
+                    suppressedCodes.contains(f.code())
+                        ? new RiskFinding(f.code(), f.title(), f.description(), 0, false)
+                        : f)
+            .toList();
 
     int reputationPoints =
         recipientReputation == null ? 0 : Math.max(0, recipientReputation.riskPoints());
 
     int total =
-        findings.stream()
+        resolvedFindings.stream()
             .filter(RiskFinding::triggered)
-            .mapToInt(
-                f -> {
-                  if (hasSpecificAmountAnomaly
-                      && RiskSignal.AMOUNT_DEVIATION.code().equals(f.code())) {
-                    return 0;
-                  }
-                  return f.points();
-                })
+            .mapToInt(RiskFinding::points)
             .sum();
     // Reputation is added after the deterministic total so its finding is
     // display/audit evidence only and is never counted twice.
     RiskFinding reputationFinding = globalReputationFinding(recipientReputation);
+    List<RiskFinding> allFindings = new ArrayList<>(resolvedFindings);
     if (reputationFinding != null) {
-      findings.add(reputationFinding);
+      allFindings.add(reputationFinding);
     }
     int correlationPoints =
         correlation == null ? 0 : Math.max(0, correlation.contributionPoints());
@@ -150,8 +156,8 @@ public class DeterministicRiskEngine {
         score,
         riskLevel,
         RiskLevels.actionFor(riskLevel),
-        List.copyOf(findings),
-        buildExplanation(findings, hardBlocked, correlationFindings),
+        List.copyOf(allFindings),
+        buildExplanation(allFindings, hardBlocked, correlationFindings),
         correlationFindings,
         correlationPoints,
         reputationPoints);
@@ -169,7 +175,7 @@ public class DeterministicRiskEngine {
           case CORROBORATED_SUSPICIOUS -> "Recipient corroborated as suspicious";
           case UNDER_REVIEW -> "Recipient under fraud review";
           case REPORTED -> "Recipient reported for fraud";
-          default -> "Global recipient risk evidence";
+          default -> "Shared recipient risk evidence";
         };
     String description =
         switch (status) {
@@ -178,10 +184,10 @@ public class DeterministicRiskEngine {
           case CORROBORATED_SUSPICIOUS ->
               "Multiple independent sources corroborate suspicious activity by this recipient.";
           case UNDER_REVIEW ->
-              "This recipient is under review in GuardPay's global fraud intelligence network.";
+              "This recipient is under review in GuardPay's shared recipient reputation store.";
           case REPORTED ->
               "Other users have reported this recipient for suspected fraud.";
-          default -> "Global recipient intelligence contains risk evidence for this recipient.";
+          default -> "Shared recipient reputation contains risk evidence for this recipient.";
         };
     return new RiskFinding(code, title, description, reputation.riskPoints(), true);
   }

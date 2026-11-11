@@ -44,8 +44,6 @@ public class FraudReportService {
 
   private static final DateTimeFormatter DAY =
       DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
-  private static final String DEFAULT_DESCRIPTION =
-      "Recipient reported for suspected fraud.";
 
   private final RecipientIntelligenceProperties properties;
   private final RecipientIdentityService identity;
@@ -102,12 +100,10 @@ public class FraudReportService {
           existing.getId(), entity.getId(), existing.getReportStatus().name(), existing.getCreatedAt());
     }
 
-    String description = sanitize(request.description());
     FraudIntelligenceReport report = new FraudIntelligenceReport();
     report.setRecipientEntity(entity);
     report.setReporterReference(reporterId);
     report.setReportStatus(com.guardpay.intelligence.domain.ReportStatus.SUBMITTED);
-    report.setDescription(description);
     report.setEvidenceFingerprint(reportFingerprint);
     report.setRelatedTransactionId(target.relatedTransactionId);
     report.setIncidentAt(request.incidentAt());
@@ -125,7 +121,6 @@ public class FraudReportService {
         evidenceFingerprint,
         reporterGroup,
         target.relatedTransactionId,
-        description,
         request.incidentAt() == null ? now : request.incidentAt(),
         report);
     upsertRelationship(reporterId, entity, now);
@@ -238,18 +233,6 @@ public class FraudReportService {
 
   private static String reporterGroupKey(UUID entityId, UUID reporterId) {
     return RecipientIdentifierHasher.sha256Hex(entityId + "|" + reporterId).substring(0, 32);
-  }
-
-  private String sanitize(String description) {
-    if (description == null || description.isBlank()) {
-      return DEFAULT_DESCRIPTION;
-    }
-    String cleaned = description.replaceAll("\\p{Cntrl}", " ").trim().replaceAll("\\s+", " ");
-    int max = Math.max(1, properties.getMaxDescriptionLength());
-    if (cleaned.length() > max) {
-      cleaned = cleaned.substring(0, max);
-    }
-    return cleaned.isBlank() ? DEFAULT_DESCRIPTION : cleaned;
   }
 
   private record ResolvedTarget(GlobalRecipientEntity entity, UUID relatedTransactionId) {}

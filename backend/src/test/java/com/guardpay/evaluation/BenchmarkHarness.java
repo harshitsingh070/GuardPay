@@ -152,8 +152,9 @@ final class BenchmarkHarness {
     when(transactions.findByUserAndStatus(user, TransactionStatus.COMPLETED)).thenReturn(history);
     when(transactions.findByUserAndTransactionTimestampAfter(eq(user), any()))
         .thenReturn(recentAttempts(input));
-    when(transactions.findByUserId(any(UUID.class), any(Pageable.class)))
-        .thenReturn(new PageImpl<>(history));
+    when(transactions.findCompletedHistoryBefore(
+            any(UUID.class), any(OffsetDateTime.class), any(Pageable.class)))
+        .thenReturn(history);
 
     AutomaticEvaluationRequestDto dto = new AutomaticEvaluationRequestDto();
     dto.setAmount(input.amount());

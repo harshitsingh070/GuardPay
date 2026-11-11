@@ -12,5 +12,4 @@ public record AdminEvidenceDto(
     int reportCount,
     OffsetDateTime observedAt,
     OffsetDateTime lastObservedAt,
-    boolean revoked,
-    String details) {}
+    boolean revoked) {}

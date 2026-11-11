@@ -86,8 +86,9 @@ guardpay:
       confidence-discount-cold-start: ${GUARDPAY_HIGH_VALUE_CONFIDENCE_COLD_START:0.40}
       confidence-initializing: ${GUARDPAY_HIGH_VALUE_CONFIDENCE_INITIALIZING:0.70}
       confidence-established: ${GUARDPAY_HIGH_VALUE_CONFIDENCE_ESTABLISHED:0.90}
-  # Global recipient reputation network. Identifiers are HMAC-SHA-256 hashed;
-  # without a key the feature reports UNAVAILABLE instead of "clean".
+  # Shared recipient reputation store (not a graph/network). Identifiers are
+  # HMAC-SHA-256 hashed; without a key the feature reports UNAVAILABLE instead
+  # of "clean".
   intelligence:
     enabled: ${GUARDPAY_INTELLIGENCE_ENABLED:true}
     active-key-version: ${GUARDPAY_INTELLIGENCE_ACTIVE_KEY_VERSION:1}
@@ -96,7 +97,10 @@ guardpay:
     report-rate-limit-per-hour: ${GUARDPAY_INTELLIGENCE_REPORT_RATE_LIMIT_HOURLY:5}
     report-rate-limit-per-recipient-per-day: ${GUARDPAY_INTELLIGENCE_REPORT_RATE_LIMIT_RECIPIENT_DAILY:1}
     evidence-half-life-days: ${GUARDPAY_INTELLIGENCE_EVIDENCE_HALF_LIFE_DAYS:180}
-    max-description-length: ${GUARDPAY_INTELLIGENCE_MAX_DESCRIPTION_LENGTH:1000}
+    evidence-retention-days: ${GUARDPAY_INTELLIGENCE_EVIDENCE_RETENTION_DAYS:365}
+    stale-calculation-hours: ${GUARDPAY_INTELLIGENCE_STALE_CALCULATION_HOURS:24}
+    maintenance-interval-ms: ${GUARDPAY_INTELLIGENCE_MAINTENANCE_INTERVAL_MS:3600000}
+    admin-emails: ${GUARDPAY_INTELLIGENCE_ADMIN_EMAILS:}
   paypal:
     base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
     client-id: ${PAYPAL_CLIENT_ID:}

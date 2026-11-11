@@ -16,5 +16,4 @@ public record SubmitFraudReportRequest(
     UUID recipientReference,
     IdentifierType identifierType,
     String identifierValue,
-    String description,
     OffsetDateTime incidentAt) {}

@@ -26,7 +26,7 @@ function statusLabel(status: string): string {
 }
 
 /**
- * Evidence-only view of the global recipient network plus a report action.
+ * Evidence-only view of the shared recipient reputation store plus a report action.
  * The browser never decides whether a recipient is fraudulent.
  */
 export default function RecipientReputationCard({
@@ -39,7 +39,6 @@ export default function RecipientReputationCard({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -58,11 +57,9 @@ export default function RecipientReputationCard({
     try {
       await submitFraudReport({
         relatedTransactionId: transactionId,
-        description: description.trim() === '' ? undefined : description.trim(),
       });
       setSubmitted(true);
       setOpen(false);
-      setDescription('');
     } catch (failure) {
       setError(
         failure instanceof ApiRequestError
@@ -79,7 +76,7 @@ export default function RecipientReputationCard({
       <div className="flex flex-wrap items-center gap-2">
         <Globe2 className="h-4 w-4 text-guardpay-blue" aria-hidden="true" />
         <p className="text-[10px] font-bold uppercase tracking-wider text-guardpay-muted">
-          Global recipient intelligence
+          Shared recipient reputation
         </p>
         <span
           className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeStyle}`}
@@ -141,21 +138,10 @@ export default function RecipientReputationCard({
             </button>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-2">
-              <label
-                htmlFor={`report-description-${transactionId}`}
-                className="block text-xs font-semibold text-guardpay-ink"
-              >
-                What happened? (optional)
-              </label>
-              <textarea
-                id={`report-description-${transactionId}`}
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                maxLength={1000}
-                rows={3}
-                placeholder="Describe the suspected fraud without sharing sensitive identifiers."
-                className="w-full rounded-lg border border-guardpay-line bg-white px-3 py-2 text-xs text-guardpay-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-guardpay-blue"
-              />
+              <p className="text-xs text-guardpay-muted">
+                Reports contain structured evidence only. Do not include names, account numbers,
+                phone numbers, or other sensitive identifiers.
+              </p>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="submit"

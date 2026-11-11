@@ -270,7 +270,8 @@ public class AutomaticRiskEvaluationService {
     combined.addAll(aiSignals);
     combined.addAll(behavioralSignals);
     AutomaticSignalCollectionResult collection =
-        new AutomaticSignalCollectionResult(List.copyOf(combined), deterministic.historicalAverage());
+        new AutomaticSignalCollectionResult(
+            SignalOverlapResolver.resolve(combined), deterministic.historicalAverage());
 
     // Correlation is evidence-only and fail-safe: an unavailable or broken
     // correlation pass contributes zero points and never changes the decision

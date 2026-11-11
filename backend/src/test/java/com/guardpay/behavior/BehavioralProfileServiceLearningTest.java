@@ -215,6 +215,29 @@ class BehavioralProfileServiceLearningTest {
   }
 
   @Test
+  void profileRecomputeUsesOnlyTheProfileCurrency() {
+    current = transaction("120", AS_OF.minusMinutes(1), TransactionStatus.COMPLETED);
+    current.setCurrency("EUR");
+    List<Transaction> mixed = new ArrayList<>(history(5, "100"));
+    Transaction eur1 = transaction("200", AS_OF.minusDays(2), TransactionStatus.COMPLETED);
+    eur1.setCurrency("EUR");
+    Transaction eur2 = transaction("300", AS_OF.minusDays(1), TransactionStatus.COMPLETED);
+    eur2.setCurrency("EUR");
+    mixed.add(eur1);
+    mixed.add(eur2);
+    mockHistory(mixed, current);
+
+    service.updateProfileAfterOutcome(
+        userId, current, AS_OF, RecommendedAction.ALLOW, BehavioralOutcome.COMPLETED, false,
+        "TEST");
+
+    UserBehaviorProfile profile = capturedProfile();
+    assertEquals("EUR", profile.getCurrency());
+    assertEquals(3, profile.getTransactionCount());
+    assertEquals(0, new BigDecimal("200").compareTo(profile.getAmountMedian()));
+  }
+
+  @Test
   void terminalNonCompletedOutcomesAreRecordedButNeverLearnable() {
     Transaction failed = transaction("120", AS_OF.minusMinutes(1), TransactionStatus.FAILED);
     when(profiles.findByUserId(userId)).thenReturn(Optional.empty());
@@ -245,8 +268,9 @@ class BehavioralProfileServiceLearningTest {
   private void mockHistory(List<Transaction> history, Transaction... extra) {
     List<Transaction> all = new ArrayList<>(history);
     all.addAll(List.of(extra));
-    when(transactions.findByUserId(any(UUID.class), any(Pageable.class)))
-        .thenReturn(new PageImpl<>(all));
+    when(transactions.findCompletedHistoryBefore(
+            any(UUID.class), any(OffsetDateTime.class), any(Pageable.class)))
+        .thenReturn(all);
   }
 
   private List<Transaction> history(int count, String amount) {

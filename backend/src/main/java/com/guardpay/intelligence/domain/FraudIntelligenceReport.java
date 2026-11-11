@@ -19,7 +19,8 @@ import java.util.UUID;
  *
  * <p>The reporter reference is the internal user id and is never exposed to
  * other users. The dedup fingerprint prevents the same reporter from creating
- * duplicate rows for the same entity within a day.
+ * duplicate rows for the same entity within a day. Raw report text is never
+ * stored: only structured metadata and a stable fingerprint.
  */
 @Entity
 @Table(
@@ -49,9 +50,6 @@ public class FraudIntelligenceReport extends BaseEntity {
   @Enumerated(EnumType.STRING)
   @Column(name = "report_status", length = 16, nullable = false)
   private ReportStatus reportStatus = ReportStatus.SUBMITTED;
-
-  @Column(name = "description", columnDefinition = "TEXT")
-  private String description;
 
   @Column(name = "evidence_fingerprint", length = 64, nullable = false)
   private String evidenceFingerprint;
@@ -101,14 +99,6 @@ public class FraudIntelligenceReport extends BaseEntity {
 
   public void setReportStatus(ReportStatus reportStatus) {
     this.reportStatus = reportStatus;
-  }
-
-  public String getDescription() {
-    return description;
-  }
-
-  public void setDescription(String description) {
-    this.description = description;
   }
 
   public String getEvidenceFingerprint() {
