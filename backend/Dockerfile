@@ -1,8 +1,15 @@
-# GuardPay backend — minimal image scaffold (build wired in later milestone).
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /workspace
+COPY pom.xml .
+RUN mvn -q -DskipTests dependency:go-offline
+COPY src ./src
+RUN mvn -q -DskipTests package \
+    && cp target/guardpay-backend-*.jar /workspace/app.jar
+
 FROM eclipse-temurin:17-jre-alpine
+RUN addgroup -S guardpay && adduser -S guardpay -G guardpay
 WORKDIR /app
-# Later: COPY target/guardpay-backend-*.jar app.jar
-# Later: ENTRYPOINT ["java","-jar","app.jar"]
+COPY --from=build /workspace/app.jar /app/app.jar
+USER guardpay
 EXPOSE 8080
-# Placeholder so `docker compose build backend` has a valid Dockerfile.
-CMD ["java", "-version"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

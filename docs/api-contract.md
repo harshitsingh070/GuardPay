@@ -1,8 +1,8 @@
 # GuardPay — API Contract
 
 > This document describes the **implemented** API. The original long-term
-> endpoint plan is retained in `docs/GuardPay_PRD.md` and
-> `docs/GuardPay_Project_Specification.md`; endpoints listed there are not a
+> endpoint plan is retained in `docs/archive/GuardPay_PRD.md` and
+> `docs/archive/GuardPay_Project_Specification.md`; endpoints listed there are not a
 > contract unless they appear here.
 
 ## 1. Global rules
@@ -496,23 +496,23 @@ Reports store structured evidence only; there is no free-text description.
 
 Request:
 
-`json
+```json
 {
-  "relatedTransactionId": "���",
+  "relatedTransactionId": "<transaction-id>",
   "incidentAt": "2026-01-01T10:00:00Z"
 }
-`
+```
 
 Response `201`:
 
-`json
+```json
 {
-  "reportId": "�",
-  "recipientReference": "�",
+  "reportId": "<report-id>",
+  "recipientReference": "<hashed-reference>",
   "status": "SUBMITTED",
-  "submittedAt": "�"
+  "submittedAt": "2026-01-01T10:00:00Z"
 }
-`
+```
 
 ### GET /api/intelligence/recipients/{recipientReference}/summary
 
@@ -543,7 +543,7 @@ reach that status. Review actions are recorded in
 `POST /api/risk/evaluate-automatic` and `POST /api/payments/guarded` include
 an identifier-free `recipientReputation` object:
 
-`json
+```json
 {
   "status": "MATCH_FOUND",
   "reputationStatus": "REPORTED",
@@ -556,7 +556,7 @@ an identifier-free `recipientReputation` object:
   "reportCount": 2,
   "reason": "GLOBAL_RECIPIENT_REPORTED_EXACT_VERIFIED_MATCH"
 }
-`
+```
 
 `status` is one of `NO_DATA`, `NO_MATCH`, `MATCH_FOUND`,
 `UNAVAILABLE`. `points` is bounded at 40 and already included in the score;

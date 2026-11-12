@@ -18,6 +18,18 @@ GuardPay detects when a user may be getting manipulated into making a fraudulent
 > `ALLOW`/`VERIFY`/`STOP` thresholds. See `docs/demo.md` to run the demo and
 > `docs/` for the current design.
 
+## Submission
+
+- **License:** MIT — see `LICENSE`.
+- **Judge and submission guide:** `docs/submission.md` — clean setup, demo access,
+  tools used, a 3-minute video script, the Devpost text description, and the
+  final manual checklist.
+- **Demo video:** add the public YouTube URL to `docs/submission.md` before
+  submitting.
+- **Manual submission steps** that cannot be done from the repository: make the
+  GitHub repository public, upload the video, add screenshots, fill Sandbox test
+  credentials, and submit on Devpost. The checklist is in `docs/submission.md`.
+
 ## Architecture overview
 
 ```text
@@ -57,6 +69,7 @@ AI / device / history evidence → Spring Boot validation → deterministic scor
 - `docs/risk-engine.md` — deterministic signal catalog, weights, and policy.
 - `docs/fraud-benchmark.md` — synthetic benchmark methodology and current baseline.
 - `docs/demo.md` — runnable demo walkthrough.
+- `docs/submission.md` — judge access, video script, Devpost copy, and submission checklist.
 
 ## Technology stack
 
@@ -79,6 +92,22 @@ AI / device / history evidence → Spring Boot validation → deterministic scor
 - PayPal Sandbox REST APIs and webhooks
 - Optional email/SMS notification delivery
 
+## Tools used
+
+- **PayPal Developer Platform:** Orders v2 REST API, Sandbox approvals and
+  captures, and signature-verified webhooks. PayPal order creation is the only
+  money-moving path and is reachable only after the risk engine returns
+  `ALLOW` (or after a controlled `VERIFY` succeeds).
+- **AI:** an OpenAI-compatible LLM client, default model `gpt-4o-mini`, used by
+  two focused evidence agents (social engineering and content scams) plus
+  deterministic local URL rules. AI returns structured findings only; it never
+  scores or decides a payment.
+- **Backend:** Java 17, Spring Boot, PostgreSQL, Flyway.
+- **Frontend:** React, Vite, TypeScript, Tailwind CSS, AG Grid.
+- **Mobile:** Kotlin Android WebView shell with foreground call-state reporting.
+- **Packaging:** Docker Compose for the full local stack.
+- **AG Grid sponsor tool:** the transaction history grid uses AG Grid.
+
 ## Repository layout
 
 ```text
@@ -87,14 +116,15 @@ guardpay/
 ├── backend/      # Spring Boot API, risk engine, persistence, PayPal integration
 ├── ai-service/   # FastAPI evidence service (no decisions, no CrewAI)
 ├── android/      # Kotlin WebView shell + foreground call-state reporting
-├── docs/         # current architecture, API, engine, demo, benchmark, product docs
+├── docs/         # current architecture, API, engine, demo, benchmark, submission, product docs
 ├── scripts/      # demo, APK build, and developer helpers
 ├── docker-compose.yml
+├── LICENSE
 └── README.md
 ```
 
-The product docs `docs/GuardPay_PRD.md` and
-`docs/GuardPay_Project_Specification.md` describe the broader product plan; the
+The archived product docs `docs/archive/GuardPay_PRD.md` and
+`docs/archive/GuardPay_Project_Specification.md` describe the broader product plan; the
 implementation notes at their top and the current contract/architecture docs
 take precedence for what is built.
 
@@ -128,6 +158,23 @@ Local services:
 | `android/`   | Debug WebView shell with foreground telephony call-state reporting. |
 
 ## Quickstart
+
+### Fast path: full Docker stack
+
+```powershell
+# Optional credentials; the stack boots without them.
+$env:PAYPAL_CLIENT_ID = "<sandbox-client-id>"
+$env:PAYPAL_CLIENT_SECRET = "<sandbox-client-secret>"
+$env:OPENAI_API_KEY = "<openai-key>"   # optional; without it AI returns local URL rules only
+
+docker compose up --build
+```
+
+Open `http://localhost:3000`, register an account, and use the **Safe Payment**
+and **Suspicious Payment** presets. The backend runs at `http://localhost:8080`
+and the AI service at `http://localhost:8001`.
+
+### Manual development path
 
 Requires **Java 17** + Maven 3.9+. The build targets release 17
 (`maven-compiler-plugin` pins `<release>17</release>`).
@@ -624,3 +671,7 @@ python -m pytest ai-service -q     # ai-service
 # end-to-end safety invariants (backend must be running)
 pwsh -File scripts/demo-guarded-flow.ps1 -RecipientEmail sb-merchant@business.example.com
 ```
+
+## License
+
+MIT. See `LICENSE`.

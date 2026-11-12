@@ -421,7 +421,7 @@ The most important anti-bypass property is:
 
 | Aspect | Assessment |
 |---|---|
-| Deterministic scoring | Constant twenty checks; very fast |
+| Deterministic scoring | Constant 33 checks; very fast |
 | Database reads | Several queries per payment: history average, velocity window, recipient history, merchant history |
 | AI latency | Connect timeout 2 seconds, read timeout 8 seconds |
 | Worst-case AI delay | About 10 seconds before fallback |

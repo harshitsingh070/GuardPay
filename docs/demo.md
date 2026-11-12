@@ -11,12 +11,11 @@ authorization is never bypassed.
 
 ## 1. Prerequisites
 
-- Docker + Docker Compose (for PostgreSQL), or a local PostgreSQL 16+.
-- Java 17 + Maven 3.9+.
-- Node.js 20+ + npm.
-- Python 3.12+ (only needed if you want live AI evidence).
+- Docker + Docker Compose for the fast path, or the manual prerequisites:
+  Java 17 + Maven 3.9+, Node.js 20+ + npm, Python 3.12+, and PostgreSQL 16+.
 - A PayPal Developer **Sandbox** app (client id + secret) and a Sandbox
-  Personal test account for the human approval step.
+  Personal test account for the human approval step. Only needed for live
+  order creation/capture.
 - A Sandbox payee email for the recipient field. The payee must be an account
   in your PayPal Sandbox so PayPal accepts the order.
 - Optional: `OPENAI_API_KEY` for live LLM evidence. Without it the AI service
@@ -26,6 +25,28 @@ authorization is never bypassed.
   `AI_SERVICE_INTERNAL_TOKEN` for both Spring Boot and FastAPI.
 
 ## 2. Start the stack
+
+### Fast path (Docker)
+
+```powershell
+# Optional: PayPal and OpenAI credentials. Never commit these.
+$env:PAYPAL_BASE_URL      = "https://api-m.sandbox.paypal.com"
+$env:PAYPAL_CLIENT_ID     = "<sandbox-client-id>"
+$env:PAYPAL_CLIENT_SECRET = "<sandbox-client-secret>"
+$env:OPENAI_API_KEY       = "<openai-key>"   # optional
+
+docker compose up --build
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8080
+# AI:       http://localhost:8001
+```
+
+Without PayPal credentials, registration, risk decisions, verification, history,
+and the dashboard still work; only live order creation/capture is unavailable.
+Without an OpenAI key, the AI service returns local structural URL findings
+only and the deterministic engine decides alone.
+
+### Manual development path
 
 ```powershell
 # PostgreSQL

@@ -2,8 +2,8 @@
 
 > Current implementation, not the original scaffold plan. The guarded payment
 > flow, authentication, device signals, alerts, dashboard, verification, and
-> PayPal Sandbox integration are implemented. `docs/GuardPay_PRD.md` and
-> `docs/GuardPay_Project_Specification.md` retain the longer-term product plan.
+> PayPal Sandbox integration are implemented. `docs/archive/GuardPay_PRD.md` and
+> `docs/archive/GuardPay_Project_Specification.md` retain the longer-term product plan.
 
 ## 1. What GuardPay is
 
