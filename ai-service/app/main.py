@@ -3,7 +3,7 @@
 GET  /health          liveness + whether the model is configured.
 POST /api/v1/analyze structured scam-evidence analysis (Spring Boot only).
 
-Configuration errors fail clearly (503); model failures fail safely (502);
+Model failures degrade to local URL findings; unexpected LLM errors return 502;
 nothing secret is ever logged or returned.
 """
 

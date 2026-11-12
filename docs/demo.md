@@ -115,11 +115,13 @@ capture — human Sandbox approval stays manual.
    add evidence and raise a borderline payment. No PayPal order is created either
    way.
 4. If the result is `VERIFY`, the controlled challenge panel appears. By default
-   the channel is simulated; on the backend host, read the code from the
-   loopback-only dev outbox:
+   the channel is simulated and **the code is always `666666`**; the backend
+   terminal also prints it (`[DEV ONLY] Simulated verification code ...`) unless
+   `GUARDPAY_VERIFICATION_LOG_CODE=false`. On the backend host you can also read
+   it from the loopback-only dev outbox:
    `Invoke-RestMethod "http://localhost:8080/api/dev/verifications/<paymentId>/code"`.
-   Enter that code to continue to PayPal, or enter a wrong code to watch
-   attempts decrement and the challenge eventually fail. No order exists until
+   Enter `666666` to continue to PayPal, or enter a wrong code to watch attempts
+   decrement and the challenge eventually fail. No order exists until
    verification succeeds. If TOTP is enrolled on `/dashboard`, enter the live
    authenticator code instead.
 5. For an `ALLOW` payment: open the approval link, approve with your Sandbox

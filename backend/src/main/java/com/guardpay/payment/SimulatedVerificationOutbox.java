@@ -9,9 +9,11 @@ import org.springframework.stereotype.Component;
 
 /**
  * Demo-only out-of-band channel. The code is held in server memory and exposed
- * only through a local-only developer endpoint; it is never logged, returned by
- * the public payment API, or stored in browser state. Disable this outbox when
- * a real delivery channel is configured.
+ * through a local-only developer endpoint; it is never returned by the public
+ * payment API or stored in browser state. For local development the service may
+ * also print it to the backend terminal (see
+ * {@code guardpay.verification.log-code}). Disable this outbox when a real
+ * delivery channel is configured.
  */
 @Component
 public class SimulatedVerificationOutbox implements VerificationChannel {

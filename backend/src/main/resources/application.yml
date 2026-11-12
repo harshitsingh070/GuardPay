@@ -163,6 +163,9 @@ guardpay:
     ttl-minutes: ${GUARDPAY_VERIFICATION_TTL_MINUTES:10}
     max-attempts: ${GUARDPAY_VERIFICATION_MAX_ATTEMPTS:3}
     dev-outbox-enabled: ${GUARDPAY_DEV_VERIFICATION_OUTBOX:true}
+    # Development convenience: print the simulated challenge code to the backend
+    # terminal. Turn this off (or unset it) for any non-local deployment.
+    log-code: ${GUARDPAY_VERIFICATION_LOG_CODE:true}
     # Real email OTP is used only when enabled AND spring.mail.host is set.
     email-enabled: ${GUARDPAY_VERIFICATION_EMAIL_ENABLED:false}
     email-from: ${GUARDPAY_VERIFICATION_EMAIL_FROM:no-reply@guardpay.local}

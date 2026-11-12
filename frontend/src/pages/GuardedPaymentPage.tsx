@@ -182,15 +182,7 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
               )}
 
               {phase === 'CHECKING_RISK' && <SecurityCheckPanel draft={displayDraft} />}
-            </div>
 
-            <OrderSummary
-              draft={displayDraft}
-              paid={phase === 'COMPLETED'}
-              className="lg:col-start-2 lg:row-start-1"
-            />
-
-            <div className="min-w-0 space-y-5 sm:space-y-6 lg:col-start-1 lg:row-start-2">
               {result !== null && phase !== 'COMPLETED' && <DecisionPanel result={result} />}
 
               {(phase === 'RISK_VERIFICATION_REQUIRED' || phase === 'VERIFYING') &&
@@ -261,6 +253,12 @@ export default function GuardedPaymentPage({ service }: { service?: CheckoutServ
                 <DeveloperDetails phase={phase} result={result} capture={capture} />
               )}
             </div>
+
+            <OrderSummary
+              draft={displayDraft}
+              paid={phase === 'COMPLETED'}
+              className="lg:col-start-2 lg:row-start-1"
+            />
           </div>
 
           <footer className="mt-6 space-y-3 border-t border-[#e1e6eb] pt-4 text-xs text-[#6c7378]">

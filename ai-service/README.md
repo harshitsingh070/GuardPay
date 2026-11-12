@@ -9,6 +9,10 @@ No CrewAI: a fixed deterministic pipeline — local URL rules plus two focused
 LLM agents (social engineering, content scams) — runs in a fixed order, so a
 multi-agent framework would add version weight for zero behavioral gain.
 
+> Part of the GuardPay PayPal AI Hackathon submission. See the
+> [root README](../README.md) for the full demo, judge walkthrough, and
+> architecture.
+
 ## Run locally
 
 ```powershell
@@ -32,8 +36,23 @@ $env:OPENAI_BASE_URL = "https://api.groq.com/openai/v1"  # optional; default
 ```
 
 Health: `GET http://localhost:8001/health` → `ai_configured` tells whether an
-LLM key is configured. Model failures on analyze return `502`; invalid
-requests return `422`; a bad shared token returns `401`.
+LLM key is configured. Agent/model failures are absorbed per agent, so local URL
+findings are still returned; invalid requests return `422`; a bad shared token
+returns `401`.
+
+## Provider configuration
+
+Groq is the default provider through the OpenAI-compatible API:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` or `GROQ_API_KEY` | empty | Groq API key (`gsk_...`); without it the service returns local URL findings only |
+| `OPENAI_MODEL` | `openai/gpt-oss-20b` | Groq model |
+| `OPENAI_BASE_URL` | `https://api.groq.com/openai/v1` | OpenAI-compatible endpoint |
+| `AI_SERVICE_INTERNAL_TOKEN` | empty | Shared Spring Boot → AI header (`X-GuardPay-Internal-Token`) |
+
+For OpenAI, set `OPENAI_BASE_URL=https://api.openai.com/v1` and
+`OPENAI_MODEL=gpt-4o-mini`. Any OpenAI-compatible gateway works the same way.
 
 ## Analyze (Spring Boot only — never browsers)
 
@@ -56,5 +75,8 @@ emails, or credentials. Full message bodies are never logged.
 ## Tests
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests -q   # no network, no API key
+.\.venv\Scripts\python.exe -m pytest tests -q   # 32 tests; no network, no API key
 ```
+
+The suite covers schema validation, JSON/prompt handling, fallback behavior, and
+the analyze API. A live Groq call is optional and is never required for tests.

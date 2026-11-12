@@ -15,7 +15,6 @@ import com.guardpay.user.MfaService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -42,8 +41,10 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>With no identity provider configured this runs a clearly-labelled
  * <em>simulated</em> channel. The code is delivered out of band and is never
- * returned by the public API or written to browser state. It is not real
- * identity verification and must be replaced before production.
+ * returned by the public API or written to browser state. For local development
+ * it can also be printed to the backend terminal (disabled with
+ * {@code guardpay.verification.log-code=false}). It is not real identity
+ * verification and must be replaced before production.
  */
 @Service
 public class PaymentVerificationService {
@@ -53,7 +54,14 @@ public class PaymentVerificationService {
   static final String SIMULATED_CHANNEL = "SIMULATED";
   static final String EMAIL_CHANNEL = "EMAIL";
   static final String TOTP_CHANNEL = "TOTP";
-  private static final SecureRandom RANDOM = new SecureRandom();
+
+  /**
+   * Demo-only fixed challenge code. Every simulated (and email) VERIFY
+   * challenge uses this value so a demo operator can verify any transaction
+   * without reading the outbox or the terminal. Replace with a random code
+   * before any real deployment.
+   */
+  private static final String DEMO_VERIFICATION_CODE = "666666";
 
   private final PaymentVerificationRepository verifications;
   private final TransactionRepository transactions;
@@ -69,6 +77,14 @@ public class PaymentVerificationService {
 
   @Value("${guardpay.verification.max-attempts:3}")
   private int maxAttempts;
+
+  /**
+   * Development-only convenience: print the simulated challenge code to the
+   * backend's terminal so a demo operator does not need the loopback outbox.
+   * Never enable this outside local development.
+   */
+  @Value("${guardpay.verification.log-code:true}")
+  private boolean logCode;
 
   /** Legacy/test constructor: no TOTP or email channel configured. */
   public PaymentVerificationService(
@@ -140,7 +156,7 @@ public class PaymentVerificationService {
   }
 
   private void issueCode(PaymentVerification verification, Transaction transaction) {
-    String code = randomCode();
+    String code = challengeCode();
     verification.setChallengeCodeHash(hash(code, transaction.getId()));
     verifications.save(verification);
     if (TOTP_CHANNEL.equals(verification.getChannel())) {
@@ -165,6 +181,13 @@ public class PaymentVerificationService {
           "Verification delivery is not configured; no challenge was exposed");
     }
     log.info("Controlled verification challenge issued (simulated out-of-band channel)");
+    if (logCode) {
+      log.warn(
+          "[DEV ONLY] Simulated verification code for payment {}: {} (expires in {} minutes)",
+          transaction.getId(),
+          code,
+          ttlMinutes);
+    }
   }
 
   @Transactional
@@ -341,8 +364,8 @@ public class PaymentVerificationService {
         hash(code.trim(), transaction.getId()).getBytes(StandardCharsets.UTF_8));
   }
 
-  private static String randomCode() {
-    return String.format("%06d", RANDOM.nextInt(1_000_000));
+  private static String challengeCode() {
+    return DEMO_VERIFICATION_CODE;
   }
 
   private static String hash(String code, UUID transactionId) {
