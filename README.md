@@ -12,7 +12,7 @@ decide `ALLOW` / `VERIFY` / `STOP` before any PayPal order can be created.
 
 ## Demo
 
-> **Watch the 3-minute demo:** _add the public YouTube URL before submitting._
+> **Watch the 3-minute demo:** <https://youtu.be/-U2VJCCrRs4>
 >
 > **Run it:** `docker compose up --build` → <http://localhost:3000>
 
