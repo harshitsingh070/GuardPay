@@ -81,6 +81,11 @@ python -m venv .venv; .\.venv\Scripts\python.exe -m pip install -r requirements.
   If no authenticator is enrolled, the challenge is simulated. Enroll TOTP on
   `/dashboard` to use a real authenticator code instead.
 - **Sandbox test credentials (optional):** `[ADD SANDBOX TEST EMAIL / NOTES HERE — never a real secret]`
+- **Admin consoles (optional):** set
+  `GUARDPAY_INTELLIGENCE_ADMIN_EMAILS=<your-login-email>` (comma-separated) before
+  starting the backend, then restart it. That account can open `/admin/feedback`
+  and `/admin/learning`; no client can grant admin. Docker Compose forwards the
+  same variable from the shell environment.
 
 Automated safety-invariant suite (backend must be running):
 

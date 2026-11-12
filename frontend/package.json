@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "GuardPay frontend — React + Vite payment safety UI (scaffold, no features yet).",
+  "description": "GuardPay frontend — React + Vite payment-safety UI.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
