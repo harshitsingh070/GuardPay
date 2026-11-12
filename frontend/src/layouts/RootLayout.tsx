@@ -6,12 +6,12 @@ import { AlertsProvider, useAlerts } from '@/hooks/useAlerts';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/utils/cn';
 
-const links = [
+const links: { to: string; label: string; admin?: boolean }[] = [
   { to: '/payment', label: 'Payment' },
   { to: '/transactions', label: 'Transactions' },
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/admin/feedback', label: 'Review' },
-  { to: '/admin/learning', label: 'Learning' },
+  { to: '/admin/feedback', label: 'Review', admin: true },
+  { to: '/admin/learning', label: 'Learning', admin: true },
 ];
 
 function desktopLinkClass({ isActive }: { isActive: boolean }) {
@@ -37,6 +37,7 @@ function RootLayoutContent() {
   const location = useLocation();
   const { latest, clearLatest } = useAlerts();
   const { user, logout } = useAuth();
+  const visibleLinks = links.filter((link) => link.admin !== true || user?.admin === true);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -65,7 +66,7 @@ function RootLayoutContent() {
           </Link>
 
           <div className="hidden items-center gap-1 lg:flex">
-            {links.map((link) => (
+            {visibleLinks.map((link) => (
               <NavLink key={link.to} to={link.to} end className={desktopLinkClass}>
                 {link.label}
               </NavLink>
@@ -118,7 +119,7 @@ function RootLayoutContent() {
             className="mx-auto w-full max-w-6xl border-t border-guardpay-line px-3 pb-4 pt-3 lg:hidden"
           >
             <div className="space-y-1">
-              {links.map((link) => (
+              {visibleLinks.map((link) => (
                 <NavLink key={link.to} to={link.to} end className={mobileLinkClass}>
                   {link.label}
                   <ArrowRight className="h-4 w-4 opacity-40" aria-hidden="true" />

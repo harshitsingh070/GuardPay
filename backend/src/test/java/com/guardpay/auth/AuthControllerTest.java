@@ -59,6 +59,7 @@ class AuthControllerTest {
         .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.containsString("SameSite=Lax")))
         .andExpect(jsonPath("$.authenticated").value(true))
         .andExpect(jsonPath("$.user.displayName").value("Sam"))
+        .andExpect(jsonPath("$.user.admin").value(false))
         .andExpect(jsonPath("$.token").doesNotExist());
   }
 

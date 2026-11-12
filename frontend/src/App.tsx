@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Loader2, ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import RootLayout from './layouts/RootLayout.tsx';
 import AdminFeedbackPage from './pages/AdminFeedbackPage.tsx';
@@ -35,6 +35,34 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return children;
 }
 
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+
+  if (user?.admin !== true) {
+    return (
+      <section className="mx-auto max-w-lg py-16 text-center">
+        <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-700">
+          <ShieldAlert className="h-6 w-6" aria-hidden="true" />
+        </span>
+        <h1 className="mt-4 text-2xl font-bold tracking-tight text-guardpay-ink">
+          Admin access required
+        </h1>
+        <p className="mt-2 text-sm text-guardpay-muted">
+          This console is limited to accounts promoted through server-side configuration. Ask an
+          operator to add your email to <code>GUARDPAY_INTELLIGENCE_ADMIN_EMAILS</code>.
+        </p>
+        <Link
+          to="/dashboard"
+          className="mt-6 inline-flex rounded-full bg-guardpay-blue px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#005ea6]"
+        >
+          Back to dashboard
+        </Link>
+      </section>
+    );
+  }
+  return children;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -50,8 +78,22 @@ export default function App() {
         <Route path="payment" element={<GuardedPaymentPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="transactions" element={<TransactionsPage />} />
-        <Route path="admin/learning" element={<LearningAdminPage />} />
-        <Route path="admin/feedback" element={<AdminFeedbackPage />} />
+        <Route
+          path="admin/learning"
+          element={
+            <RequireAdmin>
+              <LearningAdminPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="admin/feedback"
+          element={
+            <RequireAdmin>
+              <AdminFeedbackPage />
+            </RequireAdmin>
+          }
+        />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

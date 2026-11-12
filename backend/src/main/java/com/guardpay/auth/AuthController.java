@@ -190,9 +190,9 @@ public class AuthController {
 
   public record AuthResponse(boolean authenticated, UserView user, String csrfToken) {}
 
-  public record UserView(UUID id, String email, String displayName) {
+  public record UserView(UUID id, String email, String displayName, boolean admin) {
     static UserView from(User user) {
-      return new UserView(user.getId(), user.getEmail(), user.getDisplayName());
+      return new UserView(user.getId(), user.getEmail(), user.getDisplayName(), user.isAdmin());
     }
   }
 }
