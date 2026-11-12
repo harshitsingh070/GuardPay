@@ -1,4 +1,4 @@
-# GuardPay AI Service — Python 3.12+ | FastAPI | OpenAI API (no CrewAI, see README).
+# GuardPay AI Service — Python 3.12+ | FastAPI | OpenAI-compatible API (Groq default; no CrewAI).
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic>=2.7

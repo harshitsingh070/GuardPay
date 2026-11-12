@@ -18,9 +18,9 @@ authorization is never bypassed.
   order creation/capture.
 - A Sandbox payee email for the recipient field. The payee must be an account
   in your PayPal Sandbox so PayPal accepts the order.
-- Optional: `OPENAI_API_KEY` for live LLM evidence. Without it the AI service
-  still runs and returns local structural URL findings only; the deterministic
-  signals decide alone.
+- Optional: `OPENAI_API_KEY` (or `GROQ_API_KEY`) for live LLM evidence; Groq is
+  the default provider. Without a key the AI service still runs and returns
+  local structural URL findings only; the deterministic signals decide alone.
 - If the AI service is exposed beyond localhost, set the same
   `AI_SERVICE_INTERNAL_TOKEN` for both Spring Boot and FastAPI.
 
@@ -29,11 +29,12 @@ authorization is never bypassed.
 ### Fast path (Docker)
 
 ```powershell
-# Optional: PayPal and OpenAI credentials. Never commit these.
+# Optional: PayPal and Groq credentials. Never commit these.
 $env:PAYPAL_BASE_URL      = "https://api-m.sandbox.paypal.com"
 $env:PAYPAL_CLIENT_ID     = "<sandbox-client-id>"
 $env:PAYPAL_CLIENT_SECRET = "<sandbox-client-secret>"
-$env:OPENAI_API_KEY       = "<openai-key>"   # optional
+$env:OPENAI_API_KEY       = "<groq-key>"     # optional; Groq is the default LLM
+$env:OPENAI_MODEL         = "openai/gpt-oss-20b"   # optional; default
 
 docker compose up --build
 # Frontend: http://localhost:3000
@@ -43,8 +44,8 @@ docker compose up --build
 
 Without PayPal credentials, registration, risk decisions, verification, history,
 and the dashboard still work; only live order creation/capture is unavailable.
-Without an OpenAI key, the AI service returns local structural URL findings
-only and the deterministic engine decides alone.
+Without a Groq (or other OpenAI-compatible) key, the AI service returns local
+structural URL findings only and the deterministic engine decides alone.
 
 ### Manual development path
 
@@ -143,7 +144,7 @@ capture — human Sandbox approval stays manual.
 | Concern | Status |
 | --- | --- |
 | Risk decision (`ALLOW`/`VERIFY`/`STOP`) | Real deterministic engine (server-side only) |
-| AI evidence | Real when `OPENAI_API_KEY` is set; without a key only local URL findings are returned; a failed/stopped service falls back to `UNAVAILABLE` |
+| AI evidence | Real when `OPENAI_API_KEY`/`GROQ_API_KEY` is set; without a key only local URL findings are returned; a failed/stopped service falls back to `UNAVAILABLE` |
 | PayPal order + capture | Real Sandbox REST calls |
 | Webhooks | Real handler; external delivery needs a public tunnel |
 | Verification challenge | **Simulated** by default, or **TOTP** when enrolled on `/dashboard`; the code is never returned in the payment response or written to logs |

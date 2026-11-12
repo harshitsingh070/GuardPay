@@ -25,14 +25,14 @@ class OpenAiLlmClient:
         api_key: str,
         model: str,
         timeout_seconds: float = 30.0,
-        base_url: str = "https://api.openai.com/v1",
+        base_url: str = "https://api.groq.com/openai/v1",
     ) -> None:
         if not api_key:
-            raise LlmError("OPENAI_API_KEY is not configured")
+            raise LlmError("OPENAI_API_KEY/GROQ_API_KEY is not configured")
         self._api_key = api_key
         self._model = model
         self._timeout = timeout_seconds
-        self._base_url = base_url or "https://api.openai.com/v1"
+        self._base_url = base_url or "https://api.groq.com/openai/v1"
 
     def complete_json(self, *, system: str, user: str) -> dict:
         try:

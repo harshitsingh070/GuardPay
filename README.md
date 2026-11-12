@@ -21,14 +21,13 @@ GuardPay detects when a user may be getting manipulated into making a fraudulent
 ## Submission
 
 - **License:** MIT — see `LICENSE`.
-- **Judge and submission guide:** `docs/submission.md` — clean setup, demo access,
-  tools used, a 3-minute video script, the Devpost text description, and the
-  final manual checklist.
-- **Demo video:** add the public YouTube URL to `docs/submission.md` before
-  submitting.
+- **Judge and demo guide:** `docs/demo.md` — clean setup, demo access, and the
+  runnable walkthrough.
+- **Demo video:** publish a public YouTube URL and add it to the Devpost
+  submission.
 - **Manual submission steps** that cannot be done from the repository: make the
   GitHub repository public, upload the video, add screenshots, fill Sandbox test
-  credentials, and submit on Devpost. The checklist is in `docs/submission.md`.
+  credentials, and submit on Devpost.
 
 ## Architecture overview
 
@@ -65,11 +64,10 @@ AI / device / history evidence → Spring Boot validation → deterministic scor
 ```
 
 - `docs/architecture.md` — current components, boundaries, and limitations.
-- `docs/api-contract.md` — implemented REST/SSE/internal API contract.
+- `docs/archive/api-contract.md` — implemented REST/SSE/internal API contract (archived).
 - `docs/risk-engine.md` — deterministic signal catalog, weights, and policy.
 - `docs/fraud-benchmark.md` — synthetic benchmark methodology and current baseline.
 - `docs/demo.md` — runnable demo walkthrough.
-- `docs/submission.md` — judge access, video script, Devpost copy, and submission checklist.
 
 ## Technology stack
 
@@ -84,7 +82,7 @@ AI / device / history evidence → Spring Boot validation → deterministic scor
 
 **AI service:**
 
-- Python 3.12+, FastAPI, OpenAI-compatible LLM client, deterministic local URL rules
+- Python 3.12+, FastAPI, Groq (OpenAI-compatible) LLM client, deterministic local URL rules
 - No CrewAI and no multi-agent framework
 
 **External:**
@@ -98,10 +96,11 @@ AI / device / history evidence → Spring Boot validation → deterministic scor
   captures, and signature-verified webhooks. PayPal order creation is the only
   money-moving path and is reachable only after the risk engine returns
   `ALLOW` (or after a controlled `VERIFY` succeeds).
-- **AI:** an OpenAI-compatible LLM client, default model `gpt-4o-mini`, used by
-  two focused evidence agents (social engineering and content scams) plus
-  deterministic local URL rules. AI returns structured findings only; it never
-  scores or decides a payment.
+- **AI:** Groq's OpenAI-compatible API, default model `openai/gpt-oss-20b`, used
+  by two focused evidence agents (social engineering and content scams) plus
+  deterministic local URL rules. Set `OPENAI_BASE_URL`/`OPENAI_MODEL` to swap in
+  OpenAI or another compatible provider. AI returns structured findings only; it
+  never scores or decides a payment.
 - **Backend:** Java 17, Spring Boot, PostgreSQL, Flyway.
 - **Frontend:** React, Vite, TypeScript, Tailwind CSS, AG Grid.
 - **Mobile:** Kotlin Android WebView shell with foreground call-state reporting.
@@ -116,7 +115,7 @@ guardpay/
 ├── backend/      # Spring Boot API, risk engine, persistence, PayPal integration
 ├── ai-service/   # FastAPI evidence service (no decisions, no CrewAI)
 ├── android/      # Kotlin WebView shell + foreground call-state reporting
-├── docs/         # current architecture, API, engine, demo, benchmark, submission, product docs
+├── docs/         # current architecture, engine, demo, benchmark, and archived docs
 ├── scripts/      # demo, APK build, and developer helpers
 ├── docker-compose.yml
 ├── LICENSE
@@ -136,8 +135,9 @@ take precedence for what is built.
 - Python 3.12+ (ai-service)
 - PostgreSQL 16+ (or Docker + Docker Compose)
 - PayPal Developer Sandbox account for live order/capture testing
-- Optional LLM API key; without one the AI service still answers with local
-  URL findings only, and the deterministic path continues
+- Optional Groq API key (or any OpenAI-compatible provider); without one the AI
+  service still answers with local URL findings only, and the deterministic path
+  continues
 
 Local services:
 
@@ -165,7 +165,7 @@ Local services:
 # Optional credentials; the stack boots without them.
 $env:PAYPAL_CLIENT_ID = "<sandbox-client-id>"
 $env:PAYPAL_CLIENT_SECRET = "<sandbox-client-secret>"
-$env:OPENAI_API_KEY = "<openai-key>"   # optional; without it AI returns local URL rules only
+$env:OPENAI_API_KEY = "<groq-key>"     # optional; without it AI returns local URL rules only
 
 docker compose up --build
 ```
@@ -309,7 +309,7 @@ behavior are unchanged.
 
 AI is optional evidence, not a prerequisite for blocking: the deterministic
 engine can reach `STOP` without AI or device data. Without an
-`OPENAI_API_KEY` the AI service still answers with local URL findings only;
+`OPENAI_API_KEY`/`GROQ_API_KEY` the AI service still answers with local URL findings only;
 if the service is down, errors, or is circuit-open, AI analysis reports
 `UNAVAILABLE` and the deterministic path continues. AI-unavailable fallback,
 forged-field rejection, and validated merge
@@ -463,8 +463,9 @@ confidence: `URGENT_LANGUAGE`, `IMPERSONATION`, `PRESSURE_TO_PAY`,
 `SECRECY_REQUEST`, `SUSPICIOUS_PAYMENT_INSTRUCTION`, `SCAM_PATTERN`,
 `SUSPICIOUS_URL_STRUCTURE`, `UNEXPECTED_INVOICE_CONTEXT`. No CrewAI — the
 evidence pipeline does not need a multi-agent framework. The model is configured
-via `OPENAI_API_KEY`/`OPENAI_MODEL` (never committed, never logged); without a
-key the service still boots and `/api/v1/analyze` returns local structural URL
+via `OPENAI_API_KEY`/`OPENAI_MODEL`/`OPENAI_BASE_URL` (Groq by default; never
+committed, never logged); without a key the service still boots and
+`/api/v1/analyze` returns local structural URL
 findings only — no LLM evidence, never a faked result. Set the same optional
 `AI_SERVICE_INTERNAL_TOKEN` on Spring Boot and
 FastAPI to require the `X-GuardPay-Internal-Token` header on the internal hop.

@@ -19,10 +19,16 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8001
 
 # With a key (never commit it) — either export it or put it in ai-service/.env:
-$env:OPENAI_API_KEY = "<key>"
-# or: add OPENAI_API_KEY=<key> to ai-service/.env (gitignored, auto-loaded)
-$env:OPENAI_MODEL = "gpt-4o-mini"   # optional
+# Groq is the default provider; get a key at https://console.groq.com/keys.
+$env:OPENAI_API_KEY = "<groq-key>"          # GROQ_API_KEY also works
+# or: add OPENAI_API_KEY=<groq-key> to ai-service/.env (gitignored, auto-loaded)
+$env:OPENAI_MODEL = "openai/gpt-oss-20b"    # optional; default
+$env:OPENAI_BASE_URL = "https://api.groq.com/openai/v1"  # optional; default
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8001
+
+# To use OpenAI instead:
+# OPENAI_BASE_URL=https://api.openai.com/v1
+# OPENAI_MODEL=gpt-4o-mini
 ```
 
 Health: `GET http://localhost:8001/health` → `ai_configured` tells whether an

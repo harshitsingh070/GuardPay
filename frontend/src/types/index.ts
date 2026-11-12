@@ -1,5 +1,5 @@
 // Planned shared frontend types (payment context, risk assessment, transaction).
-// Types only — no runtime logic. Shapes follow docs/api-contract.md.
+// Types only — no runtime logic. Shapes follow docs/archive/api-contract.md.
 
 export type RiskRecommendation = 'ALLOW' | 'VERIFY' | 'STOP';
 

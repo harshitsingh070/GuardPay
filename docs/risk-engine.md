@@ -276,7 +276,7 @@ to all eligible history, and treats a new recipient as unverified rather than
 automatically fraudulent. Cold start is reported explicitly and never becomes a
 finding. When a specialized amount signal fires, the generic `AMOUNT_DEVIATION`
 points are suppressed so the same evidence is not counted twice. See
-[`first-time-high-value.md`](first-time-high-value.md) for the full
+[`first-time-high-value.md`](archive/first-time-high-value.md) for the full
 classification and configuration reference.
 
 Before scoring, `SignalOverlapResolver` collapses signals that describe the same

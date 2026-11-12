@@ -51,7 +51,9 @@ def analyze(
             base_url=settings.openai_base_url,
         )
     else:
-        logger.info("OPENAI_API_KEY not configured; returning local URL findings only")
+        logger.info(
+            "OPENAI_API_KEY/GROQ_API_KEY not configured; returning local URL findings only"
+        )
     try:
         return analyze_payment(request, llm)
     except LlmError as exc:

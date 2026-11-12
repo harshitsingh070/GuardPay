@@ -457,7 +457,7 @@ Current result (10 scenarios: 5 high-value, 5 controls):
 The disabled run demonstrates the kill switch: every scenario becomes a cold
 start and no high-value finding is emitted. These are synthetic regression
 results, not real-world accuracy. The engine’s full behavior and configuration
-are documented in [`first-time-high-value.md`](first-time-high-value.md).
+are documented in [`first-time-high-value.md`](archive/first-time-high-value.md).
 
 ## Held-out evaluation
 
